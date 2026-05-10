@@ -8,9 +8,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,6 +35,7 @@ fun EventsScreen(
     viewModel: EventsViewModel = hiltViewModel()
 ) {
     val eventTypes by viewModel.eventTypes.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     var deleteTarget by remember { mutableStateOf<EventType?>(null) }
 
     Scaffold(
@@ -54,28 +57,55 @@ fun EventsScreen(
             )
         }
     ) { padding ->
-        if (eventTypes.isEmpty()) {
-            EmptyEventsPlaceholder(
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = viewModel::setSearchQuery,
+                placeholder = { Text("Search events…") },
+                leadingIcon = { Icon(Icons.Filled.Search, null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                            Icon(Icons.Filled.Close, "Clear search")
+                        }
+                    }
+                },
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = MaterialTheme.shapes.extraLarge,
+                singleLine = true
             )
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(eventTypes, key = { it.id }) { eventType ->
-                    EventTypeCard(
-                        eventType = eventType,
-                        onClick = { onNavigateToEvent(eventType.id) },
-                        onDelete = { deleteTarget = eventType }
+
+            if (eventTypes.isEmpty() && searchQuery.isBlank()) {
+                EmptyEventsPlaceholder(modifier = Modifier.fillMaxSize())
+            } else if (eventTypes.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        "No events match \"$searchQuery\"",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                item { Spacer(Modifier.height(80.dp)) }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(eventTypes, key = { it.id }) { eventType ->
+                        EventTypeCard(
+                            eventType = eventType,
+                            onClick = { onNavigateToEvent(eventType.id) },
+                            onDelete = { deleteTarget = eventType }
+                        )
+                    }
+                    item { Spacer(Modifier.height(80.dp)) }
+                }
             }
         }
     }

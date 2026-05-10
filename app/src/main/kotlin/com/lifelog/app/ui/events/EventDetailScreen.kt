@@ -1,5 +1,7 @@
 package com.lifelog.app.ui.events
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,6 +40,25 @@ fun EventDetailScreen(
     var showEntrySheet by remember { mutableStateOf(false) }
     var editingEntryId by remember { mutableStateOf<Long?>(null) }
     var deleteTarget by remember { mutableStateOf<EventEntry?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    var exportResult by remember { mutableStateOf<String?>(null) }
+    val exportLauncherWithFeedback = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri ->
+        uri?.let {
+            viewModel.exportCsv(it) { success ->
+                exportResult = if (success) "Exported successfully" else "Export failed"
+            }
+        }
+    }
+
+    LaunchedEffect(exportResult) {
+        exportResult?.let {
+            snackbarHostState.showSnackbar(it)
+            exportResult = null
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -60,6 +81,12 @@ fun EventDetailScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = {
+                        val name = eventType?.name?.replace(" ", "_") ?: "event"
+                        exportLauncherWithFeedback.launch("${name}_export.csv")
+                    }) {
+                        Icon(Icons.Filled.Upload, "Export CSV")
+                    }
                     IconButton(onClick = { onNavigateToEdit(eventId) }) {
                         Icon(Icons.Filled.Edit, "Edit Event")
                     }
@@ -81,7 +108,8 @@ fun EventDetailScreen(
             ) {
                 Icon(Icons.Filled.Add, "Add Entry", tint = Color.White)
             }
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         if (entries.isEmpty()) {
             Box(

@@ -21,6 +21,14 @@ val Pink40 = Color(0xFF7D5260)
 val Pink80 = Color(0xFFEFB8C8)
 val Pink90 = Color(0xFFFFD8E4)
 
+// Darker surfaces for regular dark mode
+val DarkBackground = Color(0xFF0F0D14)
+val DarkSurface = Color(0xFF0F0D14)
+val DarkSurfaceContainer = Color(0xFF191720)
+val DarkSurfaceContainerLow = Color(0xFF141220)
+val DarkSurfaceContainerHigh = Color(0xFF1F1D28)
+val DarkSurfaceContainerHighest = Color(0xFF282532)
+
 // Surface colors for AMOLED
 val AmoledBlack = Color(0xFF000000)
 val AmoledSurface = Color(0xFF0D0D0D)
