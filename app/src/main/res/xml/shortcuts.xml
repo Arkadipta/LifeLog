@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:shortcutId="shortcut_add_entry"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_add"
+        android:shortcutShortLabel="@string/shortcut_add_entry"
+        android:shortcutLongLabel="@string/shortcut_add_entry">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.lifelog.app"
+            android:targetClass="com.lifelog.app.MainActivity"
+            android:data="lifelog://quick_add" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="shortcut_timeline"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_timeline"
+        android:shortcutShortLabel="@string/shortcut_timeline"
+        android:shortcutLongLabel="@string/shortcut_timeline">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.lifelog.app"
+            android:targetClass="com.lifelog.app.MainActivity"
+            android:data="lifelog://timeline" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+
+</shortcuts>
