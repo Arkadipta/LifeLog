@@ -3,6 +3,7 @@ package com.lifelog.app.ui.events
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.ui.theme.LocalAmoledColors
 import com.lifelog.app.util.iconForName
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -137,6 +139,7 @@ private fun EventTypeCard(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val isAmoled = LocalAmoledColors.current.isAmoled
     var menuExpanded by remember { mutableStateOf(false) }
     val color = Color(eventType.colorArgb)
 
@@ -144,8 +147,9 @@ private fun EventTypeCard(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer
-        )
+            containerColor = if (isAmoled) Color.Black else MaterialTheme.colorScheme.surfaceContainer
+        ),
+        border = if (isAmoled) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null
     ) {
         Row(
             modifier = Modifier
