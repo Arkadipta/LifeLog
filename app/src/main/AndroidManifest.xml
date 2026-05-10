@@ -53,12 +53,17 @@
             </intent-filter>
         </activity>
 
-        <!-- Transparent activity to show entry form from widget tap -->
+        <!-- Transparent activity to show entry form from widget tap.
+             taskAffinity="" + excludeFromRecents keeps it out of the app task
+             so the launcher stays visible behind the form instead of the app. -->
         <activity
             android:name=".widget.QuickAddActivity"
             android:exported="false"
             android:theme="@style/Theme.LifeLog.Transparent"
-            android:windowSoftInputMode="adjustResize" />
+            android:windowSoftInputMode="adjustResize"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask" />
 
         <!-- Reminder broadcast receiver -->
         <receiver

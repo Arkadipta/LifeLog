@@ -64,7 +64,7 @@ class QuickAddWidget : GlanceAppWidget() {
 private fun QuickAddWidgetContent(context: Context, eventId: Long, eventName: String) {
     val actionIntent = Intent(context, QuickAddActivity::class.java).apply {
         putExtra(QuickAddActivity.EXTRA_EVENT_ID, eventId)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
     Box(
