@@ -31,17 +31,10 @@ class ReminderScheduler @Inject constructor(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && alarmManager.canScheduleExactAlarms()) {
                 alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, intent)
             } else {
-                // Inexact fallback — within a 10-min window
-                alarmManager.setWindow(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerAt,
-                    10 * 60 * 1_000L,
-                    intent
-                )
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, intent)
             }
         } catch (e: SecurityException) {
-            // Fallback when exact alarm permission not granted
-            alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAt, intent)
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, intent)
         }
     }
 
