@@ -85,6 +85,7 @@ object NotificationHelper {
                 notificationId * 10 + 3,
                 Intent(context, QuickAddActivity::class.java).apply {
                     putExtra(QuickAddActivity.EXTRA_EVENT_ID, eventTypeId)
+                    putExtra(QuickAddActivity.EXTRA_NOTIFICATION_ID, notificationId)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

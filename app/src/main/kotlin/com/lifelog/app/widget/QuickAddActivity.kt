@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.core.app.NotificationManagerCompat
 import com.lifelog.app.data.repository.UserPreferences
 import com.lifelog.app.data.repository.UserPreferencesRepository
 import com.lifelog.app.ui.events.EntryFormSheet
@@ -25,6 +26,7 @@ class QuickAddActivity : ComponentActivity() {
             finish()
             return
         }
+        val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1)
 
         setContent {
             val prefs by userPreferencesRepository.userPreferences.collectAsState(
@@ -38,7 +40,12 @@ class QuickAddActivity : ComponentActivity() {
                 EntryFormSheet(
                     eventTypeId = eventId,
                     editingEntryId = null,
-                    onDismiss = { finish() }
+                    onDismiss = {
+                        if (notificationId != -1) {
+                            NotificationManagerCompat.from(this).cancel(notificationId)
+                        }
+                        finish()
+                    }
                 )
             }
         }
@@ -46,5 +53,6 @@ class QuickAddActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_EVENT_ID = "event_id"
+        const val EXTRA_NOTIFICATION_ID = "notification_id"
     }
 }

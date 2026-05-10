@@ -83,6 +83,8 @@ data class BottomNavItem(
     val unselectedIcon: ImageVector
 )
 
+private val tabRoutes = setOf(Screen.Events.route, Screen.Timeline.route, Screen.Reminders.route)
+
 private val bottomNavItems = listOf(
     BottomNavItem(Screen.Events, Icons.AutoMirrored.Filled.List, Icons.AutoMirrored.Outlined.List),
     BottomNavItem(Screen.Timeline, Icons.Filled.Timeline, Icons.Outlined.Timeline),
@@ -101,7 +103,10 @@ fun AppNavigation(startDestination: String? = null) {
             startDestination = Screen.Events.route,
             modifier = Modifier.padding(paddingValues),
             enterTransition = {
-                slideIntoContainer(
+                val isTabSwitch = tabRoutes.contains(initialState.destination.route) &&
+                    tabRoutes.contains(targetState.destination.route)
+                if (isTabSwitch) fadeIn(spring())
+                else slideIntoContainer(
                     AnimatedContentTransitionScope.SlideDirection.Start,
                     spring(dampingRatio = 0.85f, stiffness = 400f)
                 )

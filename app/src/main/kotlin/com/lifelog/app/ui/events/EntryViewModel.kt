@@ -34,16 +34,16 @@ class EntryViewModel @Inject constructor(
     val state: StateFlow<EntryFormState> = _state.asStateFlow()
 
     fun loadEventType(eventTypeId: Long) {
+        _state.value = EntryFormState()  // sync: clears isSaved before any LaunchedEffect reads it
         viewModelScope.launch {
-            _state.value = EntryFormState()
             val eventType = repository.getEventType(eventTypeId)
             _state.update { it.copy(eventType = eventType) }
         }
     }
 
     fun loadEntry(entryId: Long) {
+        _state.value = EntryFormState(isLoading = true)  // sync: clears isSaved before any LaunchedEffect reads it
         viewModelScope.launch {
-            _state.value = EntryFormState(isLoading = true)
             val entry = repository.getEntry(entryId)
             if (entry != null) {
                 val eventType = repository.getEventType(entry.eventTypeId)
