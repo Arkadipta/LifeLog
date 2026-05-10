@@ -1,7 +1,9 @@
 package com.lifelog.app.ui.events
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lifelog.app.csv.CsvManager
 import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventType
@@ -12,7 +14,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class EventDetailViewModel @Inject constructor(
-    private val repository: EventRepository
+    private val repository: EventRepository,
+    private val csvManager: CsvManager
 ) : ViewModel() {
 
     private val eventIdFlow = MutableStateFlow<Long>(0)
@@ -35,5 +38,17 @@ class EventDetailViewModel @Inject constructor(
 
     fun deleteEntry(id: Long) {
         viewModelScope.launch { repository.deleteEntry(id) }
+    }
+
+    fun exportCsv(uri: Uri, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val et = eventType.value ?: return@launch
+                csvManager.exportToCsv(uri, et, entries.value)
+                onResult(true)
+            } catch (e: Exception) {
+                onResult(false)
+            }
+        }
     }
 }

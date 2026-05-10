@@ -26,6 +26,12 @@ internal val DarkColorScheme = darkColorScheme(
     onTertiary = Pink20,
     tertiaryContainer = Color(0xFF633B48),
     onTertiaryContainer = Pink90,
+    background = DarkBackground,
+    surface = DarkSurface,
+    surfaceContainer = DarkSurfaceContainer,
+    surfaceContainerLow = DarkSurfaceContainerLow,
+    surfaceContainerHigh = DarkSurfaceContainerHigh,
+    surfaceContainerHighest = DarkSurfaceContainerHighest,
 )
 
 internal val LightColorScheme = lightColorScheme(

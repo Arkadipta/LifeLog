@@ -35,6 +35,7 @@ class EntryViewModel @Inject constructor(
 
     fun loadEventType(eventTypeId: Long) {
         viewModelScope.launch {
+            _state.value = EntryFormState()
             val eventType = repository.getEventType(eventTypeId)
             _state.update { it.copy(eventType = eventType) }
         }
@@ -42,7 +43,7 @@ class EntryViewModel @Inject constructor(
 
     fun loadEntry(entryId: Long) {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true) }
+            _state.value = EntryFormState(isLoading = true)
             val entry = repository.getEntry(entryId)
             if (entry != null) {
                 val eventType = repository.getEventType(entry.eventTypeId)

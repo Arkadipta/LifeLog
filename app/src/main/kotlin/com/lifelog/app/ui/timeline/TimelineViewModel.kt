@@ -5,8 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.domain.model.EventEntry
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -16,8 +19,21 @@ class TimelineViewModel @Inject constructor(
     private val repository: EventRepository
 ) : ViewModel() {
 
-    val entries: StateFlow<List<EventEntry>> = repository.observeAllEntries()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    val entries: StateFlow<List<EventEntry>> = combine(
+        repository.observeAllEntries(),
+        _searchQuery
+    ) { allEntries, query ->
+        if (query.isBlank()) allEntries
+        else allEntries.filter { e ->
+            e.eventTypeName.contains(query, ignoreCase = true) ||
+            e.note.contains(query, ignoreCase = true)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun setSearchQuery(q: String) { _searchQuery.value = q }
 
     fun deleteEntry(id: Long) {
         viewModelScope.launch { repository.deleteEntry(id) }
