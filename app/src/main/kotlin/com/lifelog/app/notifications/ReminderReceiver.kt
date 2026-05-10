@@ -21,44 +21,79 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             Intent.ACTION_BOOT_COMPLETED,
-            Intent.ACTION_MY_PACKAGE_REPLACED -> {
-                rescheduleAll(context)
-                return
-            }
-            ACTION_REMINDER -> {
-                val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L)
-                val title = intent.getStringExtra(EXTRA_TITLE) ?: "LifeLog Reminder"
-                val message = intent.getStringExtra(EXTRA_MESSAGE) ?: ""
-                if (reminderId == -1L) return
+            Intent.ACTION_MY_PACKAGE_REPLACED -> rescheduleAll()
 
-                NotificationHelper.showReminderNotification(
-                    context = context,
-                    notificationId = reminderId.toInt(),
-                    title = title,
-                    message = message,
-                    reminderId = reminderId
-                )
+            ACTION_REMINDER -> handleReminder(context, intent)
+            ACTION_SNOOZE -> handleSnooze(context, intent)
+            ACTION_DISMISS -> handleDismiss(context, intent)
+        }
+    }
 
-                CoroutineScope(Dispatchers.IO).launch {
-                    val reminder = reminderRepository.getById(reminderId) ?: return@launch
-                    if (!reminder.isActive) return@launch
+    private fun handleReminder(context: Context, intent: Intent) {
+        val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L)
+        if (reminderId == -1L) return
+        val title = intent.getStringExtra(EXTRA_TITLE) ?: "LifeLog Reminder"
+        val message = intent.getStringExtra(EXTRA_MESSAGE) ?: ""
+        val eventTypeId = intent.getLongExtra(EXTRA_EVENT_TYPE_ID, -1L).takeIf { it != -1L }
 
-                    val nextTrigger = computeNextTrigger(reminder)
-                    if (nextTrigger != null) {
-                        reminderRepository.updateNextTrigger(reminderId, nextTrigger)
-                        reminderScheduler.schedule(reminder.copy(nextTriggerAt = nextTrigger))
-                    } else {
-                        reminderRepository.setActive(reminderId, false)
-                    }
+        NotificationHelper.showReminderNotification(
+            context = context,
+            notificationId = reminderId.toInt(),
+            title = title,
+            message = message,
+            reminderId = reminderId,
+            eventTypeId = eventTypeId
+        )
+
+        val pending = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val reminder = reminderRepository.getById(reminderId) ?: return@launch
+                if (!reminder.isActive) return@launch
+                val nextTrigger = computeNextTrigger(reminder)
+                if (nextTrigger != null) {
+                    reminderRepository.updateNextTrigger(reminderId, nextTrigger)
+                    reminderScheduler.schedule(reminder.copy(nextTriggerAt = nextTrigger))
+                } else {
+                    reminderRepository.setActive(reminderId, false)
                 }
+            } finally {
+                pending.finish()
             }
         }
     }
 
-    private fun rescheduleAll(context: Context) {
+    private fun handleSnooze(context: Context, intent: Intent) {
+        val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L)
+        if (reminderId == -1L) return
+        NotificationHelper.cancelNotification(context, reminderId.toInt())
+        val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
-            val reminders = reminderRepository.getAllActive()
-            reminderScheduler.rescheduleAll(reminders)
+            try {
+                val reminder = reminderRepository.getById(reminderId) ?: return@launch
+                val snoozeUntil = System.currentTimeMillis() + SNOOZE_MINUTES * 60_000L
+                reminderScheduler.schedule(reminder.copy(nextTriggerAt = snoozeUntil))
+            } finally {
+                pending.finish()
+            }
+        }
+    }
+
+    private fun handleDismiss(context: Context, intent: Intent) {
+        val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L)
+        if (reminderId == -1L) return
+        NotificationHelper.cancelNotification(context, reminderId.toInt())
+    }
+
+    private fun rescheduleAll() {
+        val pending = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val reminders = reminderRepository.getAllActive()
+                reminderScheduler.rescheduleAll(reminders)
+            } finally {
+                pending.finish()
+            }
         }
     }
 
@@ -97,9 +132,13 @@ class ReminderReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_REMINDER = "com.lifelog.app.ACTION_REMINDER"
+        const val ACTION_SNOOZE = "com.lifelog.app.ACTION_SNOOZE"
+        const val ACTION_DISMISS = "com.lifelog.app.ACTION_DISMISS"
         const val EXTRA_REMINDER_ID = "reminder_id"
         const val EXTRA_TITLE = "title"
         const val EXTRA_MESSAGE = "message"
+        const val EXTRA_EVENT_TYPE_ID = "event_type_id"
+        const val SNOOZE_MINUTES = 10L
 
         fun buildIntent(context: Context, reminder: com.lifelog.app.domain.model.Reminder): Intent =
             Intent(context, ReminderReceiver::class.java).apply {
@@ -107,6 +146,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 putExtra(EXTRA_REMINDER_ID, reminder.id)
                 putExtra(EXTRA_TITLE, reminder.title)
                 putExtra(EXTRA_MESSAGE, reminder.message)
+                putExtra(EXTRA_EVENT_TYPE_ID, reminder.eventTypeId ?: -1L)
             }
     }
 }
