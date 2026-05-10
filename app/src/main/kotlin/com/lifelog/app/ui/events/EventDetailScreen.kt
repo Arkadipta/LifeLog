@@ -2,6 +2,10 @@ package com.lifelog.app.ui.events
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,6 +24,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.ui.theme.LocalAmoledColors
 import com.lifelog.app.util.iconForName
 import com.lifelog.app.util.relativeTimeLabel
 import com.lifelog.app.util.toDisplayDateTime
@@ -36,14 +41,16 @@ fun EventDetailScreen(
 
     val eventType by viewModel.eventType.collectAsStateWithLifecycle()
     val entries by viewModel.entries.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
 
     var showEntrySheet by remember { mutableStateOf(false) }
     var editingEntryId by remember { mutableStateOf<Long?>(null) }
     var deleteTarget by remember { mutableStateOf<EventEntry?>(null) }
+    var searchActive by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     var exportResult by remember { mutableStateOf<String?>(null) }
-    val exportLauncherWithFeedback = rememberLauncherForActivityResult(
+    val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
         uri?.let {
@@ -82,8 +89,17 @@ fun EventDetailScreen(
                 },
                 actions = {
                     IconButton(onClick = {
+                        searchActive = !searchActive
+                        if (!searchActive) viewModel.setSearchQuery("")
+                    }) {
+                        Icon(
+                            if (searchActive) Icons.Filled.Close else Icons.Filled.Search,
+                            if (searchActive) "Close search" else "Search entries"
+                        )
+                    }
+                    IconButton(onClick = {
                         val name = eventType?.name?.replace(" ", "_") ?: "event"
-                        exportLauncherWithFeedback.launch("${name}_export.csv")
+                        exportLauncher.launch("${name}_export.csv")
                     }) {
                         Icon(Icons.Filled.Upload, "Export CSV")
                     }
@@ -111,51 +127,86 @@ fun EventDetailScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        if (entries.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            AnimatedVisibility(
+                visible = searchActive,
+                enter = expandVertically(),
+                exit = shrinkVertically()
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    eventType?.let {
-                        Icon(
-                            iconForName(it.iconName),
-                            null,
-                            modifier = Modifier.size(64.dp),
-                            tint = Color(it.colorArgb).copy(alpha = 0.4f)
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = viewModel::setSearchQuery,
+                    placeholder = { Text("Search entries…") },
+                    leadingIcon = { Icon(Icons.Filled.Search, null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                Icon(Icons.Filled.Close, "Clear search")
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = MaterialTheme.shapes.extraLarge,
+                    singleLine = true
+                )
+            }
+
+            if (entries.isEmpty() && searchQuery.isBlank()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        eventType?.let {
+                            Icon(
+                                iconForName(it.iconName),
+                                null,
+                                modifier = Modifier.size(64.dp),
+                                tint = Color(it.colorArgb).copy(alpha = 0.4f)
+                            )
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        Text("No entries yet", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Tap + to log your first entry",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Spacer(Modifier.height(16.dp))
-                    Text("No entries yet", style = MaterialTheme.typography.titleMedium)
+                }
+            } else if (entries.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        "Tap + to log your first entry",
+                        "No entries match \"$searchQuery\"",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(entries, key = { it.id }) { entry ->
-                    EntryCard(
-                        entry = entry,
-                        fields = eventType?.fields ?: emptyList(),
-                        onEdit = {
-                            editingEntryId = entry.id
-                            showEntrySheet = true
-                        },
-                        onDelete = { deleteTarget = entry }
-                    )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(entries, key = { it.id }) { entry ->
+                        EntryCard(
+                            entry = entry,
+                            fields = eventType?.fields ?: emptyList(),
+                            onEdit = {
+                                editingEntryId = entry.id
+                                showEntrySheet = true
+                            },
+                            onDelete = { deleteTarget = entry }
+                        )
+                    }
+                    item { Spacer(Modifier.height(80.dp)) }
                 }
-                item { Spacer(Modifier.height(80.dp)) }
             }
         }
     }
@@ -197,11 +248,15 @@ fun EntryCard(
     onDelete: () -> Unit,
     showEventName: Boolean = false
 ) {
+    val isAmoled = LocalAmoledColors.current.isAmoled
     var expanded by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+        colors = CardDefaults.cardColors(
+            containerColor = if (isAmoled) Color.Black else MaterialTheme.colorScheme.surfaceContainer
+        ),
+        border = if (isAmoled) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(

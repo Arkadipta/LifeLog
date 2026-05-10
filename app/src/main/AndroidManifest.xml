@@ -43,6 +43,23 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- Widget config: shown when user places the QuickAdd widget -->
+        <activity
+            android:name=".widget.QuickAddWidgetConfigActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <!-- Transparent activity to show entry form from widget tap -->
+        <activity
+            android:name=".widget.QuickAddActivity"
+            android:exported="false"
+            android:theme="@style/Theme.LifeLog.Transparent"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- Reminder broadcast receiver -->
         <receiver
             android:name=".notifications.ReminderReceiver"

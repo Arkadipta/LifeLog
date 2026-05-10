@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.LifeLog" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Transparent window for QuickAddActivity so only the bottom sheet is visible -->
+    <style name="Theme.LifeLog.Transparent" parent="Theme.LifeLog">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
     <style name="Theme.LifeLog.Splash" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@android:color/black</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
