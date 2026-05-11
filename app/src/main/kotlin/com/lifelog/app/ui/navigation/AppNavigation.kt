@@ -5,27 +5,13 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.automirrored.outlined.*
-import androidx.compose.material.icons.filled.Alarm
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.automirrored.outlined.*
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.automirrored.outlined.*
-import androidx.compose.material.icons.filled.Timeline
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material.icons.outlined.Alarm
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material.icons.outlined.List
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material.icons.outlined.Timeline
+import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.List
+import androidx.compose.material.icons.rounded.Timeline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -86,9 +72,9 @@ data class BottomNavItem(
 private val tabRoutes = setOf(Screen.Events.route, Screen.Timeline.route, Screen.Reminders.route)
 
 private val bottomNavItems = listOf(
-    BottomNavItem(Screen.Events, Icons.AutoMirrored.Filled.List, Icons.AutoMirrored.Outlined.List),
-    BottomNavItem(Screen.Timeline, Icons.Filled.Timeline, Icons.Outlined.Timeline),
-    BottomNavItem(Screen.Reminders, Icons.Filled.Alarm, Icons.Outlined.Alarm),
+    BottomNavItem(Screen.Events, Icons.Rounded.List, Icons.Outlined.List),
+    BottomNavItem(Screen.Timeline, Icons.Rounded.Timeline, Icons.Outlined.Timeline),
+    BottomNavItem(Screen.Reminders, Icons.Rounded.Alarm, Icons.Outlined.Alarm),
 )
 
 @Composable

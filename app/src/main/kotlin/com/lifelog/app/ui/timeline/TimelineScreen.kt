@@ -4,9 +4,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Timeline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -46,11 +46,11 @@ fun TimelineScreen(
                 value = searchQuery,
                 onValueChange = viewModel::setSearchQuery,
                 placeholder = { Text("Search entries…") },
-                leadingIcon = { Icon(Icons.Filled.Search, null) },
+                leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                            Icon(Icons.Filled.Close, "Clear search")
+                            Icon(Icons.Rounded.Close, "Clear search")
                         }
                     }
                 },
@@ -62,25 +62,25 @@ fun TimelineScreen(
             )
 
             if (entries.isEmpty() && searchQuery.isBlank()) {
-                Box(
+                Column(
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Filled.Timeline,
-                            null,
-                            modifier = Modifier.size(72.dp),
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Text("No entries yet", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            "Create events and add entries to see them here",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Spacer(Modifier.weight(0.38f))
+                    Icon(
+                        Icons.Rounded.Timeline,
+                        null,
+                        modifier = Modifier.size(72.dp),
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text("No entries yet", style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        "Create events and add entries to see them here",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.weight(0.62f))
                 }
             } else if (entries.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -97,18 +97,26 @@ fun TimelineScreen(
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, bottom = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     grouped.forEach { (date, dayEntries) ->
-                        item(key = "header_$date") {
-                            Text(
-                                date,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(vertical = 4.dp)
-                            )
+                        stickyHeader(key = "header_$date") {
+                            Surface(
+                                color = MaterialTheme.colorScheme.background,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    date,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(
+                                        horizontal = 0.dp,
+                                        vertical = 6.dp
+                                    )
+                                )
+                            }
                         }
                         items(dayEntries, key = { it.id }) { entry ->
                             EntryCard(

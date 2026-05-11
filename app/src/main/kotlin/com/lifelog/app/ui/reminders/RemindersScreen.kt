@@ -3,17 +3,21 @@ package com.lifelog.app.ui.reminders
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Alarm
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.Reminder
 import com.lifelog.app.domain.model.RepeatType
 import com.lifelog.app.util.minutesFromMidnightToLabel
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +44,19 @@ fun RemindersScreen(
     var deleteTarget by remember { mutableStateOf<Reminder?>(null) }
 
     val context = LocalContext.current
+    val animationsEnabled = remember {
+        AndroidSettings.Global.getFloat(
+            context.contentResolver, AndroidSettings.Global.ANIMATOR_DURATION_SCALE, 1f
+        ) != 0f
+    }
+    var fabVisible by remember { mutableStateOf(!animationsEnabled) }
+    LaunchedEffect(Unit) {
+        if (animationsEnabled) {
+            delay(200)
+            fabVisible = true
+        }
+    }
+
     var notificationPermissionGranted by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
@@ -61,11 +79,16 @@ fun RemindersScreen(
             TopAppBar(title = { Text("Reminders", fontWeight = FontWeight.Bold) })
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onNavigateToCreate,
-                icon = { Icon(Icons.Filled.Add, null) },
-                text = { Text("New Reminder") }
-            )
+            AnimatedVisibility(
+                visible = fabVisible,
+                enter = scaleIn(spring(dampingRatio = 0.5f, stiffness = 300f))
+            ) {
+                ExtendedFloatingActionButton(
+                    onClick = onNavigateToCreate,
+                    icon = { Icon(Icons.Rounded.Add, null) },
+                    text = { Text("New Reminder") }
+                )
+            }
         }
     ) { padding ->
         LazyColumn(
@@ -87,7 +110,7 @@ fun RemindersScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                Icons.Filled.NotificationsOff,
+                                Icons.Rounded.NotificationsOff,
                                 null,
                                 tint = MaterialTheme.colorScheme.onErrorContainer
                             )
@@ -118,26 +141,25 @@ fun RemindersScreen(
 
             if (reminders.isEmpty()) {
                 item {
-                    Box(
-                        modifier = Modifier
-                            .fillParentMaxSize(),
-                        contentAlignment = Alignment.Center
+                    Column(
+                        modifier = Modifier.fillParentMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Filled.Alarm,
-                                null,
-                                modifier = Modifier.size(72.dp),
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                            )
-                            Spacer(Modifier.height(16.dp))
-                            Text("No reminders", style = MaterialTheme.typography.titleLarge)
-                            Text(
-                                "Tap + to set up a reminder",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Spacer(Modifier.weight(0.38f))
+                        Icon(
+                            Icons.Rounded.Alarm,
+                            null,
+                            modifier = Modifier.size(72.dp),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Text("No reminders", style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            "Tap + to set up a reminder",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.weight(0.62f))
                     }
                 }
             } else {
@@ -194,7 +216,7 @@ private fun ReminderCard(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Icon(
-                Icons.Filled.Alarm,
+                Icons.Rounded.Alarm,
                 null,
                 tint = if (reminder.isActive) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -232,11 +254,11 @@ private fun ReminderCard(
                 )
                 Row {
                     IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Filled.Edit, "Edit", modifier = Modifier.size(16.dp))
+                        Icon(Icons.Rounded.Edit, "Edit", modifier = Modifier.size(16.dp))
                     }
                     IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
                         Icon(
-                            Icons.Filled.Delete,
+                            Icons.Rounded.Delete,
                             "Delete",
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.error
