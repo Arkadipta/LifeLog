@@ -1,5 +1,6 @@
 package com.lifelog.app.ui.events
 
+import android.app.Activity
 import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,6 +20,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -39,8 +41,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.ChartConfig
@@ -117,6 +121,33 @@ fun EventDetailScreen(
         if (lum > 0.4f) Color.Black else Color.White
     }
 
+    // Pre-multiply the 10% event tint over the surface color to get a fully opaque color.
+    // This avoids compositing ambiguity in the status bar area and lets us derive the
+    // correct icon appearance (light vs dark) for any event color / theme combination.
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val appBarColorTarget = eventType?.let {
+        val ec = Color(it.colorArgb)
+        Color(
+            red   = surfaceColor.red   + (ec.red   - surfaceColor.red)   * 0.1f,
+            green = surfaceColor.green + (ec.green - surfaceColor.green) * 0.1f,
+            blue  = surfaceColor.blue  + (ec.blue  - surfaceColor.blue)  * 0.1f,
+        )
+    } ?: surfaceColor
+    val appBarColor by animateColorAsState(appBarColorTarget, label = "appbar_color")
+
+    val view = LocalView.current
+    val darkTheme = isSystemInDarkTheme()
+    val insetsController = remember(view) {
+        WindowCompat.getInsetsController((view.context as Activity).window, view)
+    }
+    SideEffect {
+        val lum = 0.2126f * appBarColor.red + 0.7152f * appBarColor.green + 0.0722f * appBarColor.blue
+        insetsController.isAppearanceLightStatusBars = lum > 0.4f
+    }
+    DisposableEffect(Unit) {
+        onDispose { insetsController.isAppearanceLightStatusBars = !darkTheme }
+    }
+
     val hasNumericFields = remember(eventType) {
         eventType?.fields?.any { it.type == FieldType.NUMERIC } == true
     }
@@ -172,8 +203,7 @@ fun EventDetailScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = eventType?.let { Color(it.colorArgb).copy(alpha = 0.1f) }
-                        ?: MaterialTheme.colorScheme.surface
+                    containerColor = appBarColor
                 )
             )
         },
