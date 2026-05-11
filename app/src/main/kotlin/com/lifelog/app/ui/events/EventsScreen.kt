@@ -2,16 +2,16 @@ package com.lifelog.app.ui.events
 
 import android.provider.Settings as AndroidSettings
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,6 +28,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -65,15 +66,18 @@ fun EventsScreen(
         }
     }
 
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Events", fontWeight = FontWeight.Bold) },
+            LargeTopAppBar(
+                title = { Text("Events") },
                 actions = {
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(Icons.Rounded.Settings, "Settings")
                     }
-                }
+                },
+                scrollBehavior = scrollBehavior
             )
         },
         floatingActionButton = {
@@ -100,31 +104,39 @@ fun EventsScreen(
                     text = { Text("New Event") }
                 )
             }
-        }
+        },
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = viewModel::setSearchQuery,
-                placeholder = { Text("Search events…") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                            Icon(Icons.Rounded.Close, "Clear search")
+            DockedSearchBar(
+                inputField = {
+                    SearchBarDefaults.InputField(
+                        query = searchQuery,
+                        onQueryChange = viewModel::setSearchQuery,
+                        onSearch = {},
+                        expanded = false,
+                        onExpandedChange = {},
+                        placeholder = { Text("Search events…") },
+                        leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                    Icon(Icons.Rounded.Close, "Clear search")
+                                }
+                            }
                         }
-                    }
+                    )
                 },
+                expanded = false,
+                onExpandedChange = {},
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = MaterialTheme.shapes.extraLarge,
-                singleLine = true
-            )
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {}
 
             if (eventTypes.isEmpty() && searchQuery.isBlank()) {
                 EmptyStatePlaceholder(
@@ -148,12 +160,27 @@ fun EventsScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(eventTypes, key = { it.id }) { eventType ->
-                        EventTypeCard(
-                            eventType = eventType,
-                            onClick = { onNavigateToEvent(eventType.id) },
-                            onDelete = { deleteTarget = eventType },
-                            modifier = Modifier.animateItem()
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = { value ->
+                                if (value == SwipeToDismissBoxValue.EndToStart) {
+                                    deleteTarget = eventType
+                                }
+                                false // always snap back; dialog handles actual deletion
+                            }
                         )
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            backgroundContent = { SwipeDeleteBackground(dismissState) },
+                            enableDismissFromEndToStart = true,
+                            enableDismissFromStartToEnd = false,
+                            modifier = Modifier.animateItem()
+                        ) {
+                            EventTypeCard(
+                                eventType = eventType,
+                                onClick = { onNavigateToEvent(eventType.id) },
+                                onDelete = { deleteTarget = eventType }
+                            )
+                        }
                     }
                     item { Spacer(Modifier.height(80.dp)) }
                 }
@@ -183,6 +210,32 @@ fun EventsScreen(
                 TextButton(onClick = { deleteTarget = null }) { Text("Cancel") }
             }
         )
+    }
+}
+
+@Composable
+private fun RowScope.SwipeDeleteBackground(state: SwipeToDismissBoxState) {
+    val color by animateColorAsState(
+        targetValue = when (state.targetValue) {
+            SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+            else -> Color.Transparent
+        },
+        label = "swipe_delete_bg"
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(color, MaterialTheme.shapes.medium)
+            .padding(end = 20.dp),
+        contentAlignment = Alignment.CenterEnd
+    ) {
+        if (state.targetValue == SwipeToDismissBoxValue.EndToStart) {
+            Icon(
+                Icons.Rounded.Delete,
+                contentDescription = "Delete",
+                tint = MaterialTheme.colorScheme.onErrorContainer
+            )
+        }
     }
 }
 
@@ -285,11 +338,7 @@ private fun EventTypeCard(
                     DropdownMenuItem(
                         text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                         leadingIcon = {
-                            Icon(
-                                Icons.Rounded.Delete,
-                                null,
-                                tint = MaterialTheme.colorScheme.error
-                            )
+                            Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error)
                         },
                         onClick = {
                             menuExpanded = false

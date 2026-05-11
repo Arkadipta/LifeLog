@@ -1,8 +1,11 @@
 package com.lifelog.app.ui.navigation
 
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.List
@@ -89,10 +92,40 @@ fun AppNavigation(startDestination: String? = null) {
             navController = navController,
             startDestination = Screen.Events.route,
             modifier = Modifier.padding(paddingValues),
-            enterTransition = { fadeIn(spring()) },
-            exitTransition = { fadeOut(spring()) },
-            popEnterTransition = { fadeIn(spring()) },
-            popExitTransition = { fadeOut(spring()) }
+            enterTransition = {
+                // Tab siblings fade; push-forward slides in from the right
+                if (initialState.destination.route in tabRoutes && targetState.destination.route in tabRoutes) {
+                    fadeIn(tween(250))
+                } else {
+                    slideInHorizontally(
+                        initialOffsetX = { it / 5 },
+                        animationSpec = tween(300, easing = FastOutSlowInEasing)
+                    ) + fadeIn(tween(300))
+                }
+            },
+            exitTransition = {
+                if (initialState.destination.route in tabRoutes && targetState.destination.route in tabRoutes) {
+                    fadeOut(tween(200))
+                } else {
+                    slideOutHorizontally(
+                        targetOffsetX = { -it / 5 },
+                        animationSpec = tween(300, easing = FastOutSlowInEasing)
+                    ) + fadeOut(tween(200))
+                }
+            },
+            popEnterTransition = {
+                // Back always slides in from the left (reverse of push)
+                slideInHorizontally(
+                    initialOffsetX = { -it / 5 },
+                    animationSpec = tween(300, easing = FastOutSlowInEasing)
+                ) + fadeIn(tween(300))
+            },
+            popExitTransition = {
+                slideOutHorizontally(
+                    targetOffsetX = { it / 5 },
+                    animationSpec = tween(300, easing = FastOutSlowInEasing)
+                ) + fadeOut(tween(200))
+            }
         ) {
             composable(Screen.Events.route) {
                 EventsScreen(

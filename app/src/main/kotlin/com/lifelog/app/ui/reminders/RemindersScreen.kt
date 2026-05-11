@@ -7,6 +7,7 @@ import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -14,6 +15,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,6 +30,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -81,9 +85,14 @@ fun RemindersScreen(
         }
     }
 
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Reminders", fontWeight = FontWeight.Bold) })
+            LargeTopAppBar(
+                title = { Text("Reminders") },
+                scrollBehavior = scrollBehavior
+            )
         },
         floatingActionButton = {
             AnimatedVisibility(
@@ -109,7 +118,8 @@ fun RemindersScreen(
                     text = { Text("New Reminder") }
                 )
             }
-        }
+        },
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -170,13 +180,51 @@ fun RemindersScreen(
                 }
             } else {
                 items(reminders, key = { it.id }) { reminder ->
-                    ReminderCard(
-                        reminder = reminder,
-                        onToggle = { viewModel.toggleActive(reminder) },
-                        onEdit = { onNavigateToEdit(reminder.id) },
-                        onDelete = { deleteTarget = reminder },
-                        modifier = Modifier.animateItem()
+                    val dismissState = rememberSwipeToDismissBoxState(
+                        confirmValueChange = { value ->
+                            if (value == SwipeToDismissBoxValue.EndToStart) {
+                                deleteTarget = reminder
+                            }
+                            false
+                        }
                     )
+                    SwipeToDismissBox(
+                        state = dismissState,
+                        backgroundContent = {
+                            val color by animateColorAsState(
+                                targetValue = when (dismissState.targetValue) {
+                                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+                                    else -> Color.Transparent
+                                },
+                                label = "swipe_delete_bg"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(color, MaterialTheme.shapes.medium)
+                                    .padding(end = 20.dp),
+                                contentAlignment = Alignment.CenterEnd
+                            ) {
+                                if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
+                                    Icon(
+                                        Icons.Rounded.Delete,
+                                        contentDescription = "Delete",
+                                        tint = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                        },
+                        enableDismissFromEndToStart = true,
+                        enableDismissFromStartToEnd = false,
+                        modifier = Modifier.animateItem()
+                    ) {
+                        ReminderCard(
+                            reminder = reminder,
+                            onToggle = { viewModel.toggleActive(reminder) },
+                            onEdit = { onNavigateToEdit(reminder.id) },
+                            onDelete = { deleteTarget = reminder }
+                        )
+                    }
                 }
                 item { Spacer(Modifier.height(80.dp)) }
             }
