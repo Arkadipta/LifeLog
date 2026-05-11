@@ -12,8 +12,10 @@ import androidx.compose.material.icons.outlined.Timeline
 import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Timeline
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -187,7 +189,11 @@ private fun BottomNavigationBar(navController: NavHostController) {
                         contentDescription = item.screen.label
                     )
                 },
-                label = { Text(item.screen.label) }
+                label = { Text(item.screen.label) },
+                alwaysShowLabel = false,
+                colors = NavigationBarItemDefaults.colors(
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                )
             )
         }
     }

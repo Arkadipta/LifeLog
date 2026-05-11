@@ -6,12 +6,15 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.RepeatType
@@ -52,10 +55,20 @@ fun CreateReminderScreen(
                     }
                 },
                 actions = {
-                    TextButton(
+                    IconButton(
                         onClick = { viewModel.save(reminderId) },
                         enabled = !state.isLoading
-                    ) { Text("Save", fontWeight = FontWeight.SemiBold) }
+                    ) {
+                        if (state.isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        } else {
+                            Icon(Icons.Rounded.Check, "Save")
+                        }
+                    }
                 }
             )
         }
@@ -179,20 +192,45 @@ fun CreateReminderScreen(
             initialHour = cal.get(Calendar.HOUR_OF_DAY),
             initialMinute = cal.get(Calendar.MINUTE)
         )
-        AlertDialog(
+        // Use a properly-sized Dialog so TimePicker isn't clipped by AlertDialog constraints
+        Dialog(
             onDismissRequest = { showTimePicker = false },
-            title = { Text("Select Time") },
-            text = { TimePicker(state = timeState) },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.setTimeOfDay(timeState.hour * 60 + timeState.minute)
-                    showTimePicker = false
-                }) { Text("Set") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                shape = MaterialTheme.shapes.extraLarge
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "Select Time",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier
+                            .align(Alignment.Start)
+                            .padding(bottom = 20.dp)
+                    )
+                    TimePicker(state = timeState)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(onClick = {
+                            viewModel.setTimeOfDay(timeState.hour * 60 + timeState.minute)
+                            showTimePicker = false
+                        }) { Text("Set") }
+                    }
+                }
             }
-        )
+        }
     }
 
     if (showEventPicker) {

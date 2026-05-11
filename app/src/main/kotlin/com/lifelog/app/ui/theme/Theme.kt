@@ -2,7 +2,9 @@ package com.lifelog.app.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -12,6 +14,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 
 internal val DarkColorScheme = darkColorScheme(
     primary = Purple80,
@@ -47,6 +50,14 @@ internal val LightColorScheme = lightColorScheme(
     onTertiary = Color.White,
     tertiaryContainer = Pink90,
     onTertiaryContainer = Pink20,
+)
+
+val LifeLogShapes = Shapes(
+    extraSmall = RoundedCornerShape(6.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(28.dp)
 )
 
 data class AmoledColors(val isAmoled: Boolean)
@@ -88,6 +99,7 @@ fun LifeLogTheme(
         MaterialTheme(
             colorScheme = colorScheme,
             typography = LifeLogTypography,
+            shapes = LifeLogShapes,
             content = content
         )
     }

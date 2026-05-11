@@ -3,11 +3,19 @@ package com.lifelog.app.ui.events
 import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -91,6 +99,13 @@ fun EventDetailScreen(
         }
     }
 
+    // Compute FAB content color from luminance to ensure contrast on all 10 event colors
+    val fabColor = eventType?.let { Color(it.colorArgb) } ?: MaterialTheme.colorScheme.primary
+    val fabContentColor = remember(fabColor) {
+        val lum = 0.2126f * fabColor.red + 0.7152f * fabColor.green + 0.0722f * fabColor.blue
+        if (lum > 0.4f) Color.Black else Color.White
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -140,17 +155,30 @@ fun EventDetailScreen(
         floatingActionButton = {
             AnimatedVisibility(
                 visible = fabVisible,
-                enter = scaleIn(spring(dampingRatio = 0.5f, stiffness = 300f))
+                enter = scaleIn(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    initialScale = 0.85f
+                ) + fadeIn(tween(150)),
+                exit = scaleOut(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    targetScale = 0.85f
+                ) + fadeOut(tween(100))
             ) {
                 FloatingActionButton(
                     onClick = {
                         editingEntryId = null
                         showEntrySheet = true
                     },
-                    containerColor = eventType?.let { Color(it.colorArgb) }
-                        ?: MaterialTheme.colorScheme.primary
+                    containerColor = fabColor,
+                    contentColor = fabContentColor
                 ) {
-                    Icon(Icons.Rounded.Add, "Add Entry", tint = Color.White)
+                    Icon(Icons.Rounded.Add, "Add Entry")
                 }
             }
         },
@@ -231,7 +259,8 @@ fun EventDetailScreen(
                                 editingEntryId = entry.id
                                 showEntrySheet = true
                             },
-                            onDelete = { deleteTarget = entry }
+                            onDelete = { deleteTarget = entry },
+                            modifier = Modifier.animateItem()
                         )
                     }
                     item { Spacer(Modifier.height(80.dp)) }
@@ -251,15 +280,19 @@ fun EventDetailScreen(
     deleteTarget?.let { target ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
+            icon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Delete entry?") },
             text = { Text("This entry logged at ${target.createdAt.toDisplayDateTime()} will be deleted.") },
             confirmButton = {
-                TextButton(
+                FilledTonalButton(
                     onClick = {
                         viewModel.deleteEntry(target.id)
                         deleteTarget = null
                     },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    )
                 ) { Text("Delete") }
             },
             dismissButton = {
@@ -276,7 +309,8 @@ fun EntryCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     showEventName: Boolean = false,
-    showDivider: Boolean = true
+    showDivider: Boolean = true,
+    modifier: Modifier = Modifier
 ) {
     val isAmoled = LocalAmoledColors.current.isAmoled
     var expanded by remember { mutableStateOf(false) }
@@ -288,7 +322,14 @@ fun EntryCard(
 
     Card(
         onClick = { if (hasHiddenContent) expanded = !expanded },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMedium
+                )
+            ),
         colors = CardDefaults.cardColors(
             containerColor = if (isAmoled) Color.Black else MaterialTheme.colorScheme.surfaceContainer
         ),
@@ -334,13 +375,19 @@ fun EntryCard(
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (hasHiddenContent) {
-                        Icon(
-                            imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp
-                                          else Icons.Rounded.KeyboardArrowDown,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        )
+                        AnimatedContent(
+                            targetState = expanded,
+                            transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(100)) },
+                            label = "expand_icon"
+                        ) { isExpanded ->
+                            Icon(
+                                imageVector = if (isExpanded) Icons.Rounded.KeyboardArrowUp
+                                              else Icons.Rounded.KeyboardArrowDown,
+                                contentDescription = if (isExpanded) "Collapse" else "Expand",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
                     }
                     IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Rounded.Edit, "Edit", modifier = Modifier.size(16.dp))

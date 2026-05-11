@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Timeline
 import androidx.compose.material3.*
@@ -17,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventEntry
+import com.lifelog.app.ui.components.EmptyStatePlaceholder
 import com.lifelog.app.ui.events.EntryCard
 import com.lifelog.app.ui.events.EntryFormSheet
 import com.lifelog.app.util.toDisplayDate
@@ -64,26 +66,12 @@ fun TimelineScreen(
             )
 
             if (entries.isEmpty() && searchQuery.isBlank()) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Spacer(Modifier.weight(0.38f))
-                    Icon(
-                        Icons.Rounded.Timeline,
-                        null,
-                        modifier = Modifier.size(72.dp),
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    Text("No entries yet", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        "Create events and add entries to see them here",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.weight(0.62f))
-                }
+                EmptyStatePlaceholder(
+                    icon = Icons.Rounded.Timeline,
+                    title = "No entries yet",
+                    subtitle = "Create events and add entries to see them here",
+                    modifier = Modifier.fillMaxSize()
+                )
             } else if (entries.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
@@ -104,20 +92,33 @@ fun TimelineScreen(
                 ) {
                     grouped.forEach { (date, dayEntries) ->
                         stickyHeader(key = "header_$date") {
+                            // Match surfaceContainer so the header blends with card backgrounds
+                            // and renders correctly in both normal and AMOLED modes
                             Surface(
-                                color = MaterialTheme.colorScheme.background,
+                                color = MaterialTheme.colorScheme.surface,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    date,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(
-                                        horizontal = 0.dp,
-                                        vertical = 6.dp
+                                Row(
+                                    modifier = Modifier.padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.width(12.dp),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
                                     )
-                                )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        date,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    HorizontalDivider(
+                                        modifier = Modifier.weight(1f),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                                    )
+                                }
                             }
                         }
                         items(dayEntries, key = { it.id }) { entry ->
@@ -127,7 +128,8 @@ fun TimelineScreen(
                                 showEventName = true,
                                 showDivider = false,
                                 onEdit = { editingEntryId = entry.id },
-                                onDelete = { deleteTarget = entry }
+                                onDelete = { deleteTarget = entry },
+                                modifier = Modifier.animateItem()
                             )
                         }
                     }
@@ -148,15 +150,19 @@ fun TimelineScreen(
     deleteTarget?.let { target ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
+            icon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Delete entry?") },
             text = { Text("This entry will be permanently deleted.") },
             confirmButton = {
-                TextButton(
+                FilledTonalButton(
                     onClick = {
                         viewModel.deleteEntry(target.id)
                         deleteTarget = null
                     },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    )
                 ) { Text("Delete") }
             },
             dismissButton = {

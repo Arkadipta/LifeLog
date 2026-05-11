@@ -7,8 +7,13 @@ import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,6 +22,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,6 +36,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.Reminder
 import com.lifelog.app.domain.model.RepeatType
+import com.lifelog.app.ui.components.EmptyStatePlaceholder
 import com.lifelog.app.util.minutesFromMidnightToLabel
 import kotlinx.coroutines.delay
 
@@ -81,7 +88,20 @@ fun RemindersScreen(
         floatingActionButton = {
             AnimatedVisibility(
                 visible = fabVisible,
-                enter = scaleIn(spring(dampingRatio = 0.5f, stiffness = 300f))
+                enter = scaleIn(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    initialScale = 0.85f
+                ) + fadeIn(tween(150)),
+                exit = scaleOut(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    targetScale = 0.85f
+                ) + fadeOut(tween(100))
             ) {
                 ExtendedFloatingActionButton(
                     onClick = onNavigateToCreate,
@@ -141,26 +161,12 @@ fun RemindersScreen(
 
             if (reminders.isEmpty()) {
                 item {
-                    Column(
-                        modifier = Modifier.fillParentMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Spacer(Modifier.weight(0.38f))
-                        Icon(
-                            Icons.Rounded.Alarm,
-                            null,
-                            modifier = Modifier.size(72.dp),
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Text("No reminders", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            "Tap + to set up a reminder",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.weight(0.62f))
-                    }
+                    EmptyStatePlaceholder(
+                        icon = Icons.Rounded.Alarm,
+                        title = "No reminders",
+                        subtitle = "Tap + to set up a reminder",
+                        modifier = Modifier.fillParentMaxSize()
+                    )
                 }
             } else {
                 items(reminders, key = { it.id }) { reminder ->
@@ -168,7 +174,8 @@ fun RemindersScreen(
                         reminder = reminder,
                         onToggle = { viewModel.toggleActive(reminder) },
                         onEdit = { onNavigateToEdit(reminder.id) },
-                        onDelete = { deleteTarget = reminder }
+                        onDelete = { deleteTarget = reminder },
+                        modifier = Modifier.animateItem()
                     )
                 }
                 item { Spacer(Modifier.height(80.dp)) }
@@ -179,15 +186,19 @@ fun RemindersScreen(
     deleteTarget?.let { target ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
+            icon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Delete reminder?") },
             text = { Text("\"${target.title}\" will be deleted.") },
             confirmButton = {
-                TextButton(
+                FilledTonalButton(
                     onClick = {
                         viewModel.delete(target)
                         deleteTarget = null
                     },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    )
                 ) { Text("Delete") }
             },
             dismissButton = {
@@ -202,10 +213,13 @@ private fun ReminderCard(
     reminder: Reminder,
     onToggle: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Row(
@@ -247,21 +261,31 @@ private fun ReminderCard(
                 }
             }
 
-            Column(horizontalAlignment = Alignment.End) {
+            // Switch is the primary control; edit/delete live in a MoreVert menu
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(
                     checked = reminder.isActive,
                     onCheckedChange = { onToggle() }
                 )
-                Row {
-                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Rounded.Edit, "Edit", modifier = Modifier.size(16.dp))
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Rounded.MoreVert, "Options")
                     }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            Icons.Rounded.Delete,
-                            "Delete",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.error
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Edit") },
+                            leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                            onClick = { menuExpanded = false; onEdit() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                            leadingIcon = {
+                                Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error)
+                            },
+                            onClick = { menuExpanded = false; onDelete() }
                         )
                     }
                 }

@@ -2,17 +2,16 @@ package com.lifelog.app.ui.settings
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,7 +32,6 @@ fun SettingsScreen(
         contract = ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
         uri?.let {
-            // TODO: Hook up to selected event - simplified here
             viewModel.exportCsv(it, 0L) { success ->
                 snackbarMessage = if (success) "Exported successfully" else "Export failed"
             }
@@ -176,12 +174,23 @@ private fun SettingsClickItem(
     icon: (@Composable () -> Unit)? = null,
     onClick: () -> Unit
 ) {
-    ListItem(
-        headlineContent = { Text(title) },
-        supportingContent = { Text(subtitle, style = MaterialTheme.typography.bodySmall) },
-        leadingContent = icon,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-    )
+    // Surface(onClick) gives a correctly-anchored ripple for the full row
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        ListItem(
+            headlineContent = { Text(title) },
+            supportingContent = { Text(subtitle, style = MaterialTheme.typography.bodySmall) },
+            leadingContent = icon,
+            trailingContent = {
+                Icon(
+                    Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        )
+    }
 }
