@@ -90,4 +90,7 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
 
     implementation(libs.kotlinx.serialization.json)
+
+    implementation(libs.vico.compose)
+    implementation(libs.vico.compose.m3)
 }
