@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -26,6 +27,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -71,11 +76,19 @@ fun CreateEventScreen(
                     }
                 },
                 actions = {
-                    TextButton(
+                    IconButton(
                         onClick = { viewModel.save(eventId) },
                         enabled = !state.isLoading
                     ) {
-                        Text("Save", fontWeight = FontWeight.SemiBold)
+                        if (state.isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        } else {
+                            Icon(Icons.Rounded.Check, "Save")
+                        }
                     }
                 }
             )
@@ -190,15 +203,31 @@ private fun ColorPicker(selected: Int, onSelect: (Int) -> Unit) {
                 val isSelected = argb == selected
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(40.dp)  // 40dp meets minimum 44dp guideline with spacedBy(10dp)
                         .clip(CircleShape)
                         .background(color)
                         .then(
                             if (isSelected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
                             else Modifier
                         )
-                        .clickable { onSelect(argb) }
-                )
+                        .semantics {
+                            role = Role.RadioButton
+                            stateDescription = if (isSelected) "Selected" else "Not selected"
+                        }
+                        .clickable { onSelect(argb) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isSelected) {
+                        // Checkmark gives clear selected state on all colors
+                        val lum = 0.2126f * color.red + 0.7152f * color.green + 0.0722f * color.blue
+                        Icon(
+                            Icons.Rounded.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = if (lum > 0.4f) Color.Black else Color.White
+                        )
+                    }
+                }
             }
         }
     }
@@ -261,21 +290,43 @@ private fun FieldConfigCard(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    AssistChip(
-                        onClick = {},
-                        label = { Text(field.type.displayName, style = MaterialTheme.typography.labelSmall) }
-                    )
-                    if (field.isRequired) {
-                        AssistChip(
-                            onClick = {},
-                            label = { Text("Required", style = MaterialTheme.typography.labelSmall) }
+                    // Surface badges replace AssistChip (which semantically implies an action)
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.secondaryContainer
+                    ) {
+                        Text(
+                            field.type.displayName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                         )
                     }
+                    if (field.isRequired) {
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.tertiaryContainer
+                        ) {
+                            Text(
+                                "Required",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
                     if (field.unit.isNotBlank()) {
-                        AssistChip(
-                            onClick = {},
-                            label = { Text(field.unit, style = MaterialTheme.typography.labelSmall) }
-                        )
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ) {
+                            Text(
+                                field.unit,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
                     }
                 }
             }

@@ -2,9 +2,14 @@ package com.lifelog.app.ui.events
 
 import android.provider.Settings as AndroidSettings
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
@@ -29,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.ui.components.EmptyStatePlaceholder
 import com.lifelog.app.ui.theme.LocalAmoledColors
 import com.lifelog.app.util.iconForName
 import kotlinx.coroutines.delay
@@ -73,7 +79,20 @@ fun EventsScreen(
         floatingActionButton = {
             AnimatedVisibility(
                 visible = fabVisible,
-                enter = scaleIn(spring(dampingRatio = 0.5f, stiffness = 300f))
+                enter = scaleIn(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    initialScale = 0.85f
+                ) + fadeIn(tween(150)),
+                exit = scaleOut(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    targetScale = 0.85f
+                ) + fadeOut(tween(100))
             ) {
                 ExtendedFloatingActionButton(
                     onClick = onNavigateToCreate,
@@ -108,7 +127,12 @@ fun EventsScreen(
             )
 
             if (eventTypes.isEmpty() && searchQuery.isBlank()) {
-                EmptyEventsPlaceholder(modifier = Modifier.fillMaxSize())
+                EmptyStatePlaceholder(
+                    icon = Icons.Rounded.Add,
+                    title = "No events yet",
+                    subtitle = "Tap + to create your first event to track",
+                    modifier = Modifier.fillMaxSize()
+                )
             } else if (eventTypes.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
@@ -127,7 +151,8 @@ fun EventsScreen(
                         EventTypeCard(
                             eventType = eventType,
                             onClick = { onNavigateToEvent(eventType.id) },
-                            onDelete = { deleteTarget = eventType }
+                            onDelete = { deleteTarget = eventType },
+                            modifier = Modifier.animateItem()
                         )
                     }
                     item { Spacer(Modifier.height(80.dp)) }
@@ -139,15 +164,19 @@ fun EventsScreen(
     deleteTarget?.let { target ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
+            icon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Delete \"${target.name}\"?") },
             text = { Text("This will permanently delete this event and all its entries.") },
             confirmButton = {
-                TextButton(
+                FilledTonalButton(
                     onClick = {
                         viewModel.deleteEventType(target.id)
                         deleteTarget = null
                     },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    )
                 ) { Text("Delete") }
             },
             dismissButton = {
@@ -161,7 +190,8 @@ fun EventsScreen(
 private fun EventTypeCard(
     eventType: EventType,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val isAmoled = LocalAmoledColors.current.isAmoled
     var menuExpanded by remember { mutableStateOf(false) }
@@ -169,7 +199,7 @@ private fun EventTypeCard(
 
     Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = if (isAmoled) Color.Black else MaterialTheme.colorScheme.surfaceContainer
         ),
@@ -216,15 +246,17 @@ private fun EventTypeCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (eventType.category.isNotBlank()) {
-                        SuggestionChip(
-                            onClick = {},
-                            label = {
-                                Text(
-                                    eventType.category,
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
-                        )
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.secondaryContainer
+                        ) {
+                            Text(
+                                eventType.category,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
                     }
                     Text(
                         text = "${eventType.entryCount} entries",
@@ -267,34 +299,5 @@ private fun EventTypeCard(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun EmptyEventsPlaceholder(modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Spacer(Modifier.weight(0.38f))
-        Icon(
-            imageVector = Icons.Rounded.Add,
-            contentDescription = null,
-            modifier = Modifier.size(72.dp),
-            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-        )
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "No events yet",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Tap + to create your first event to track",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.weight(0.62f))
     }
 }
