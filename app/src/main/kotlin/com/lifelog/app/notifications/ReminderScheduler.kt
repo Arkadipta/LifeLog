@@ -6,12 +6,13 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.lifelog.app.domain.model.Reminder
+import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class ReminderScheduler @Inject constructor(
-    private val context: Context
+    @ApplicationContext private val context: Context
 ) {
     private val alarmManager = context.getSystemService(AlarmManager::class.java)
 

@@ -1,7 +1,6 @@
 package com.lifelog.app.data.db.dao
 
 import androidx.room.Dao
-import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -27,15 +26,9 @@ interface EventTypeDao {
     @Update
     suspend fun update(entity: EventTypeEntity)
 
-    @Delete
-    suspend fun delete(entity: EventTypeEntity)
-
     @Query("DELETE FROM event_types WHERE id = :id")
     suspend fun deleteById(id: Long)
 
     @Query("SELECT COUNT(*) FROM event_entries WHERE eventTypeId = :eventTypeId")
     suspend fun getEntryCount(eventTypeId: Long): Int
-
-    @Query("SELECT COUNT(*) FROM event_entries WHERE eventTypeId = :eventTypeId")
-    fun observeEntryCount(eventTypeId: Long): Flow<Int>
 }

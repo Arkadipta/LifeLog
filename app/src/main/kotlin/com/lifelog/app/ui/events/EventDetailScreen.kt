@@ -19,7 +19,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -50,6 +49,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.FieldType
+import com.lifelog.app.ui.components.SwipeDeleteBackground
 import com.lifelog.app.ui.events.components.ChartCarousel
 import com.lifelog.app.ui.events.components.ChartConfigSheet
 import com.lifelog.app.ui.theme.LocalAmoledColors
@@ -371,30 +371,7 @@ fun EventDetailScreen(
                         )
                         SwipeToDismissBox(
                             state = dismissState,
-                            backgroundContent = {
-                                val color by animateColorAsState(
-                                    targetValue = when (dismissState.targetValue) {
-                                        SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                                        else -> Color.Transparent
-                                    },
-                                    label = "swipe_delete_bg"
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(color, MaterialTheme.shapes.medium)
-                                        .padding(end = 20.dp),
-                                    contentAlignment = Alignment.CenterEnd
-                                ) {
-                                    if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
-                                        Icon(
-                                            Icons.Rounded.Delete,
-                                            contentDescription = "Delete",
-                                            tint = MaterialTheme.colorScheme.onErrorContainer
-                                        )
-                                    }
-                                }
-                            },
+                            backgroundContent = { SwipeDeleteBackground(dismissState) },
                             enableDismissFromEndToStart = true,
                             enableDismissFromStartToEnd = false,
                             modifier = Modifier

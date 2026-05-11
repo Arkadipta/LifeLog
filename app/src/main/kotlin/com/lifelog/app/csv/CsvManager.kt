@@ -7,6 +7,7 @@ import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.domain.model.FieldValue
+import com.lifelog.app.util.toIso8601
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -38,8 +39,8 @@ class CsvManager @Inject constructor(
             entries.forEach { entry ->
                 val cols = mutableListOf(
                     entry.id.toString(),
-                    dateFormat.format(entry.createdAt),
-                    dateFormat.format(entry.updatedAt),
+                    entry.createdAt.toIso8601(),
+                    entry.updatedAt.toIso8601(),
                     escapeCsv(entry.note)
                 )
                 eventType.fields.forEach { field ->

@@ -1,6 +1,5 @@
 package com.lifelog.app.util
 
-import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
