@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AddChart
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
@@ -42,7 +43,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.EventEntry
+import com.lifelog.app.domain.model.FieldType
+import com.lifelog.app.ui.events.components.ChartCarousel
+import com.lifelog.app.ui.events.components.ChartConfigSheet
 import com.lifelog.app.ui.theme.LocalAmoledColors
 import com.lifelog.app.util.iconForName
 import com.lifelog.app.util.relativeTimeLabel
@@ -62,11 +67,16 @@ fun EventDetailScreen(
     val eventType by viewModel.eventType.collectAsStateWithLifecycle()
     val entries by viewModel.entries.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val charts by viewModel.charts.collectAsStateWithLifecycle()
+    val chartDataMap by viewModel.chartDataMap.collectAsStateWithLifecycle()
 
     var showEntrySheet by remember { mutableStateOf(false) }
     var editingEntryId by remember { mutableStateOf<Long?>(null) }
     var deleteTarget by remember { mutableStateOf<EventEntry?>(null) }
     var searchActive by remember { mutableStateOf(false) }
+    var showChartConfigSheet by remember { mutableStateOf(false) }
+    var editingChart by remember { mutableStateOf<ChartConfig?>(null) }
+
     val snackbarHostState = remember { SnackbarHostState() }
 
     val context = LocalContext.current
@@ -101,11 +111,14 @@ fun EventDetailScreen(
         }
     }
 
-    // Compute FAB content color from luminance to ensure contrast on all 10 event colors
     val fabColor = eventType?.let { Color(it.colorArgb) } ?: MaterialTheme.colorScheme.primary
     val fabContentColor = remember(fabColor) {
         val lum = 0.2126f * fabColor.red + 0.7152f * fabColor.green + 0.0722f * fabColor.blue
         if (lum > 0.4f) Color.Black else Color.White
+    }
+
+    val hasNumericFields = remember(eventType) {
+        eventType?.fields?.any { it.type == FieldType.NUMERIC } == true
     }
 
     Scaffold(
@@ -137,6 +150,16 @@ fun EventDetailScreen(
                             if (searchActive) Icons.Rounded.Close else Icons.Rounded.Search,
                             if (searchActive) "Close search" else "Search entries"
                         )
+                    }
+                    // Show "Add Chart" in the app bar only when the event has numeric fields
+                    // but no charts have been created yet
+                    if (hasNumericFields && charts.isEmpty()) {
+                        IconButton(onClick = {
+                            editingChart = null
+                            showChartConfigSheet = true
+                        }) {
+                            Icon(Icons.Rounded.AddChart, "Add Chart")
+                        }
                     }
                     IconButton(onClick = {
                         val name = eventType?.name?.replace(" ", "_") ?: "event"
@@ -216,7 +239,7 @@ fun EventDetailScreen(
                 )
             }
 
-            if (entries.isEmpty() && searchQuery.isBlank()) {
+            if (entries.isEmpty() && searchQuery.isBlank() && !hasNumericFields) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -239,7 +262,7 @@ fun EventDetailScreen(
                     )
                     Spacer(Modifier.weight(0.62f))
                 }
-            } else if (entries.isEmpty()) {
+            } else if (entries.isEmpty() && searchQuery.isNotBlank()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
                         "No entries match \"$searchQuery\"",
@@ -250,9 +273,63 @@ fun EventDetailScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
+                    // Chart carousel — only when at least one chart has been created
+                    if (hasNumericFields && charts.isNotEmpty()) {
+                        item(key = "chart_carousel") {
+                            ChartCarousel(
+                                charts = charts,
+                                chartDataMap = chartDataMap,
+                                eventType = eventType,
+                                onAddChart = {
+                                    editingChart = null
+                                    showChartConfigSheet = true
+                                },
+                                onEditChart = { chart ->
+                                    editingChart = chart
+                                    showChartConfigSheet = true
+                                },
+                                onDeleteChart = viewModel::deleteChart,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+                        item(key = "carousel_divider") {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            )
+                        }
+                    }
+
+                    // Empty entries state when carousel is shown
+                    if (entries.isEmpty() && searchQuery.isBlank()) {
+                        item(key = "entries_empty") {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 48.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                eventType?.let {
+                                    Icon(
+                                        iconForName(it.iconName),
+                                        null,
+                                        modifier = Modifier.size(48.dp),
+                                        tint = Color(it.colorArgb).copy(alpha = 0.4f)
+                                    )
+                                }
+                                Spacer(Modifier.height(12.dp))
+                                Text("No entries yet", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "Tap + to log your first entry",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
                     items(entries, key = { it.id }) { entry ->
                         val dismissState = rememberSwipeToDismissBoxState(
                             confirmValueChange = { value ->
@@ -290,7 +367,9 @@ fun EventDetailScreen(
                             },
                             enableDismissFromEndToStart = true,
                             enableDismissFromStartToEnd = false,
-                            modifier = Modifier.animateItem()
+                            modifier = Modifier
+                                .animateItem()
+                                .padding(horizontal = 16.dp, vertical = 4.dp)
                         ) {
                             EntryCard(
                                 entry = entry,
@@ -303,7 +382,6 @@ fun EventDetailScreen(
                             )
                         }
                     }
-                    item { Spacer(Modifier.height(80.dp)) }
                 }
             }
         }
@@ -314,6 +392,16 @@ fun EventDetailScreen(
             eventTypeId = eventId,
             editingEntryId = editingEntryId,
             onDismiss = { showEntrySheet = false }
+        )
+    }
+
+    if (showChartConfigSheet) {
+        ChartConfigSheet(
+            eventTypeId = eventId,
+            fields = eventType?.fields ?: emptyList(),
+            editing = editingChart,
+            onSave = viewModel::saveChart,
+            onDismiss = { showChartConfigSheet = false }
         )
     }
 

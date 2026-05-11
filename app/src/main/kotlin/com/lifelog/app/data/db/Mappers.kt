@@ -1,9 +1,11 @@
 package com.lifelog.app.data.db
 
+import com.lifelog.app.data.db.entity.ChartConfigEntity
 import com.lifelog.app.data.db.entity.EventEntryEntity
 import com.lifelog.app.data.db.entity.EventFieldEntity
 import com.lifelog.app.data.db.entity.EventTypeEntity
 import com.lifelog.app.data.db.entity.ReminderEntity
+import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventType
@@ -111,6 +113,22 @@ fun ReminderEntity.toDomain(eventTypeName: String? = null) = Reminder(
     timeOfDayMinutes = timeOfDayMinutes,
     nextTriggerAt = nextTriggerAt,
     isActive = isActive
+)
+
+fun ChartConfigEntity.toDomain(): ChartConfig =
+    appJson.decodeFromString<ChartConfig>(configJson).copy(
+        id = id,
+        eventTypeId = eventTypeId,
+        sortOrder = sortOrder,
+        createdAt = createdAt
+    )
+
+fun ChartConfig.toEntity() = ChartConfigEntity(
+    id = id,
+    eventTypeId = eventTypeId,
+    configJson = appJson.encodeToString(ChartConfig.serializer(), this),
+    sortOrder = sortOrder,
+    createdAt = createdAt
 )
 
 fun Reminder.toEntity() = ReminderEntity(

@@ -4,7 +4,11 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.csv.CsvManager
+import com.lifelog.app.data.repository.ChartRepository
 import com.lifelog.app.data.repository.EventRepository
+import com.lifelog.app.domain.ChartDataProcessor
+import com.lifelog.app.domain.model.ChartConfig
+import com.lifelog.app.domain.model.ChartData
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventType
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,6 +20,7 @@ import javax.inject.Inject
 @HiltViewModel
 class EventDetailViewModel @Inject constructor(
     private val repository: EventRepository,
+    private val chartRepository: ChartRepository,
     private val csvManager: CsvManager
 ) : ViewModel() {
 
@@ -42,6 +47,21 @@ class EventDetailViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val charts: StateFlow<List<ChartConfig>> = eventIdFlow
+        .filter { it != 0L }
+        .flatMapLatest { chartRepository.observeCharts(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val chartDataMap: StateFlow<Map<String, ChartData>> = combine(
+        charts, eventType, _allEntries
+    ) { configs, type, entries ->
+        val fields = type?.fields ?: emptyList()
+        configs.associate { config ->
+            config.id to ChartDataProcessor.process(config, entries, fields)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     fun loadEvent(id: Long) {
         eventIdFlow.value = id
     }
@@ -52,11 +72,18 @@ class EventDetailViewModel @Inject constructor(
         viewModelScope.launch { repository.deleteEntry(id) }
     }
 
+    fun saveChart(config: ChartConfig) {
+        viewModelScope.launch { chartRepository.saveChart(config) }
+    }
+
+    fun deleteChart(id: String) {
+        viewModelScope.launch { chartRepository.deleteChart(id) }
+    }
+
     fun exportCsv(uri: Uri, onResult: (Boolean) -> Unit) {
         viewModelScope.launch {
             try {
                 val et = eventType.value ?: return@launch
-                // Use all entries (not filtered) for export
                 val allEntries = repository.getAllEntriesForEventType(et.id)
                 csvManager.exportToCsv(uri, et, allEntries)
                 onResult(true)
