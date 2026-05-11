@@ -45,7 +45,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.EventEntry
-import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.ui.events.components.ChartCarousel
 import com.lifelog.app.ui.events.components.ChartConfigSheet
 import com.lifelog.app.ui.theme.LocalAmoledColors
@@ -117,10 +116,6 @@ fun EventDetailScreen(
         if (lum > 0.4f) Color.Black else Color.White
     }
 
-    val hasNumericFields = remember(eventType) {
-        eventType?.fields?.any { it.type == FieldType.NUMERIC } == true
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -151,9 +146,7 @@ fun EventDetailScreen(
                             if (searchActive) "Close search" else "Search entries"
                         )
                     }
-                    // Show "Add Chart" in the app bar only when the event has numeric fields
-                    // but no charts have been created yet
-                    if (hasNumericFields && charts.isEmpty()) {
+                    if (charts.isEmpty()) {
                         IconButton(onClick = {
                             editingChart = null
                             showChartConfigSheet = true
@@ -239,7 +232,7 @@ fun EventDetailScreen(
                 )
             }
 
-            if (entries.isEmpty() && searchQuery.isBlank() && !hasNumericFields) {
+            if (entries.isEmpty() && searchQuery.isBlank() && charts.isEmpty()) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -275,8 +268,7 @@ fun EventDetailScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
-                    // Chart carousel — only when at least one chart has been created
-                    if (hasNumericFields && charts.isNotEmpty()) {
+                    if (charts.isNotEmpty()) {
                         item(key = "chart_carousel") {
                             ChartCarousel(
                                 charts = charts,
