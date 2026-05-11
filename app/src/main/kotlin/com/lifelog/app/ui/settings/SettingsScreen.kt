@@ -5,16 +5,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -68,7 +63,7 @@ fun SettingsScreen(
                 title = { Text("Settings", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
                     }
                 }
             )
@@ -90,7 +85,7 @@ fun SettingsScreen(
                     subtitle = "Use dark colors throughout the app",
                     checked = prefs.useDarkTheme,
                     onCheckedChange = viewModel::setDarkTheme,
-                    icon = { Icon(Icons.Filled.DarkMode, null) }
+                    icon = { Icon(Icons.Rounded.DarkMode, null) }
                 )
             }
             item {
@@ -120,7 +115,7 @@ fun SettingsScreen(
                 SettingsClickItem(
                     title = "Export CSV",
                     subtitle = "Export event entries to a CSV file",
-                    icon = { Icon(Icons.Filled.Upload, null) },
+                    icon = { Icon(Icons.Rounded.Upload, null) },
                     onClick = {
                         exportLauncher.launch("lifelog_export.csv")
                     }
@@ -130,7 +125,7 @@ fun SettingsScreen(
                 SettingsClickItem(
                     title = "Import CSV",
                     subtitle = "Import entries from a CSV file",
-                    icon = { Icon(Icons.Filled.Download, null) },
+                    icon = { Icon(Icons.Rounded.Download, null) },
                     onClick = {
                         importLauncher.launch(arrayOf("text/csv", "text/comma-separated-values"))
                     }

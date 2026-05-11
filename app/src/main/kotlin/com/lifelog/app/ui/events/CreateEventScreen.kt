@@ -9,10 +9,14 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Label
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -61,7 +65,7 @@ fun CreateEventScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
                     }
                 },
                 actions = {
@@ -111,7 +115,7 @@ fun CreateEventScreen(
                     label = { Text("Tag / Category") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, null) }
+                    leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Label, null) }
                 )
             }
 
@@ -127,7 +131,7 @@ fun CreateEventScreen(
                 ) {
                     Text("Fields", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     FilledTonalButton(onClick = { showAddFieldDialog = true }) {
-                        Icon(Icons.Filled.Add, null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Rounded.Add, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("Add Field")
                     }
@@ -206,7 +210,7 @@ private fun IconPicker(selected: String, onSelect: (String) -> Unit) {
             items(eventIconMap.keys.toList()) { iconName ->
                 val isSelected = iconName == selected
                 Surface(
-                    shape = MaterialTheme.shapes.medium,
+                    shape = MaterialTheme.shapes.large,
                     color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
                     else MaterialTheme.colorScheme.surfaceVariant,
                     modifier = Modifier
@@ -273,16 +277,16 @@ private fun FieldConfigCard(
 
             Column {
                 IconButton(onClick = onMoveUp, enabled = index > 0, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Filled.KeyboardArrowUp, "Move up", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Rounded.KeyboardArrowUp, "Move up", modifier = Modifier.size(18.dp))
                 }
                 IconButton(onClick = onMoveDown, enabled = index < totalCount - 1, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Filled.KeyboardArrowDown, "Move down", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Rounded.KeyboardArrowDown, "Move down", modifier = Modifier.size(18.dp))
                 }
             }
 
-            IconButton(onClick = onEdit) { Icon(Icons.Filled.Edit, "Edit") }
+            IconButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, "Edit") }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Filled.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
+                Icon(Icons.Rounded.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
             }
         }
     }

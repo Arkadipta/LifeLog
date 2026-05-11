@@ -1,25 +1,29 @@
 package com.lifelog.app.ui.events
 
+import android.provider.Settings as AndroidSettings
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -27,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.theme.LocalAmoledColors
 import com.lifelog.app.util.iconForName
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,23 +45,42 @@ fun EventsScreen(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     var deleteTarget by remember { mutableStateOf<EventType?>(null) }
 
+    val context = LocalContext.current
+    val animationsEnabled = remember {
+        AndroidSettings.Global.getFloat(
+            context.contentResolver, AndroidSettings.Global.ANIMATOR_DURATION_SCALE, 1f
+        ) != 0f
+    }
+    var fabVisible by remember { mutableStateOf(!animationsEnabled) }
+    LaunchedEffect(Unit) {
+        if (animationsEnabled) {
+            delay(200)
+            fabVisible = true
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Events", fontWeight = FontWeight.Bold) },
                 actions = {
                     IconButton(onClick = onNavigateToSettings) {
-                        Icon(Icons.Filled.Settings, "Settings")
+                        Icon(Icons.Rounded.Settings, "Settings")
                     }
                 }
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onNavigateToCreate,
-                icon = { Icon(Icons.Filled.Add, null) },
-                text = { Text("New Event") }
-            )
+            AnimatedVisibility(
+                visible = fabVisible,
+                enter = scaleIn(spring(dampingRatio = 0.5f, stiffness = 300f))
+            ) {
+                ExtendedFloatingActionButton(
+                    onClick = onNavigateToCreate,
+                    icon = { Icon(Icons.Rounded.Add, null) },
+                    text = { Text("New Event") }
+                )
+            }
         }
     ) { padding ->
         Column(
@@ -68,11 +92,11 @@ fun EventsScreen(
                 value = searchQuery,
                 onValueChange = viewModel::setSearchQuery,
                 placeholder = { Text("Search events…") },
-                leadingIcon = { Icon(Icons.Filled.Search, null) },
+                leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                            Icon(Icons.Filled.Close, "Clear search")
+                            Icon(Icons.Rounded.Close, "Clear search")
                         }
                     }
                 },
@@ -159,7 +183,7 @@ private fun EventTypeCard(
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Surface(
-                shape = MaterialTheme.shapes.medium,
+                shape = MaterialTheme.shapes.large,
                 color = color.copy(alpha = 0.15f),
                 modifier = Modifier.size(48.dp)
             ) {
@@ -212,7 +236,7 @@ private fun EventTypeCard(
 
             Box {
                 IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Filled.MoreVert, "Options")
+                    Icon(Icons.Rounded.MoreVert, "Options")
                 }
                 DropdownMenu(
                     expanded = menuExpanded,
@@ -220,7 +244,7 @@ private fun EventTypeCard(
                 ) {
                     DropdownMenuItem(
                         text = { Text("Edit") },
-                        leadingIcon = { Icon(Icons.Filled.Edit, null) },
+                        leadingIcon = { Icon(Icons.Rounded.Edit, null) },
                         onClick = {
                             menuExpanded = false
                             onClick()
@@ -230,7 +254,7 @@ private fun EventTypeCard(
                         text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                         leadingIcon = {
                             Icon(
-                                Icons.Filled.Delete,
+                                Icons.Rounded.Delete,
                                 null,
                                 tint = MaterialTheme.colorScheme.error
                             )
@@ -250,11 +274,11 @@ private fun EventTypeCard(
 private fun EmptyEventsPlaceholder(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Spacer(Modifier.weight(0.38f))
         Icon(
-            imageVector = Icons.Filled.Add,
+            imageVector = Icons.Rounded.Add,
             contentDescription = null,
             modifier = Modifier.size(72.dp),
             tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
@@ -271,5 +295,6 @@ private fun EmptyEventsPlaceholder(modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Spacer(Modifier.weight(0.62f))
     }
 }

@@ -4,8 +4,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccessTime
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.rounded.AccessTime
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -65,7 +65,7 @@ fun EntryFormSheet(
                     fontWeight = FontWeight.Bold
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, "Close")
+                    Icon(Icons.Rounded.Close, "Close")
                 }
             }
 
@@ -91,7 +91,7 @@ fun EntryFormSheet(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Icon(
-                            Icons.Filled.AccessTime,
+                            Icons.Rounded.AccessTime,
                             null,
                             tint = MaterialTheme.colorScheme.primary
                         )

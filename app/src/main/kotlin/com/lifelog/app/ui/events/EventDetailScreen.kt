@@ -1,33 +1,41 @@
 package com.lifelog.app.ui.events
 
+import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventEntry
-import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.theme.LocalAmoledColors
 import com.lifelog.app.util.iconForName
 import com.lifelog.app.util.relativeTimeLabel
 import com.lifelog.app.util.toDisplayDateTime
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,6 +56,20 @@ fun EventDetailScreen(
     var deleteTarget by remember { mutableStateOf<EventEntry?>(null) }
     var searchActive by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    val context = LocalContext.current
+    val animationsEnabled = remember {
+        AndroidSettings.Global.getFloat(
+            context.contentResolver, AndroidSettings.Global.ANIMATOR_DURATION_SCALE, 1f
+        ) != 0f
+    }
+    var fabVisible by remember { mutableStateOf(!animationsEnabled) }
+    LaunchedEffect(Unit) {
+        if (animationsEnabled) {
+            delay(200)
+            fabVisible = true
+        }
+    }
 
     var exportResult by remember { mutableStateOf<String?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(
@@ -84,7 +106,7 @@ fun EventDetailScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
                     }
                 },
                 actions = {
@@ -93,7 +115,7 @@ fun EventDetailScreen(
                         if (!searchActive) viewModel.setSearchQuery("")
                     }) {
                         Icon(
-                            if (searchActive) Icons.Filled.Close else Icons.Filled.Search,
+                            if (searchActive) Icons.Rounded.Close else Icons.Rounded.Search,
                             if (searchActive) "Close search" else "Search entries"
                         )
                     }
@@ -101,10 +123,10 @@ fun EventDetailScreen(
                         val name = eventType?.name?.replace(" ", "_") ?: "event"
                         exportLauncher.launch("${name}_export.csv")
                     }) {
-                        Icon(Icons.Filled.Upload, "Export CSV")
+                        Icon(Icons.Rounded.Upload, "Export CSV")
                     }
                     IconButton(onClick = { onNavigateToEdit(eventId) }) {
-                        Icon(Icons.Filled.Edit, "Edit Event")
+                        Icon(Icons.Rounded.Edit, "Edit Event")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -114,15 +136,20 @@ fun EventDetailScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    editingEntryId = null
-                    showEntrySheet = true
-                },
-                containerColor = eventType?.let { Color(it.colorArgb) }
-                    ?: MaterialTheme.colorScheme.primary
+            AnimatedVisibility(
+                visible = fabVisible,
+                enter = scaleIn(spring(dampingRatio = 0.5f, stiffness = 300f))
             ) {
-                Icon(Icons.Filled.Add, "Add Entry", tint = Color.White)
+                FloatingActionButton(
+                    onClick = {
+                        editingEntryId = null
+                        showEntrySheet = true
+                    },
+                    containerColor = eventType?.let { Color(it.colorArgb) }
+                        ?: MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(Icons.Rounded.Add, "Add Entry", tint = Color.White)
+                }
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -141,11 +168,11 @@ fun EventDetailScreen(
                     value = searchQuery,
                     onValueChange = viewModel::setSearchQuery,
                     placeholder = { Text("Search entries…") },
-                    leadingIcon = { Icon(Icons.Filled.Search, null) },
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) {
                             IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                                Icon(Icons.Filled.Close, "Clear search")
+                                Icon(Icons.Rounded.Close, "Clear search")
                             }
                         }
                     },
@@ -158,27 +185,27 @@ fun EventDetailScreen(
             }
 
             if (entries.isEmpty() && searchQuery.isBlank()) {
-                Box(
+                Column(
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        eventType?.let {
-                            Icon(
-                                iconForName(it.iconName),
-                                null,
-                                modifier = Modifier.size(64.dp),
-                                tint = Color(it.colorArgb).copy(alpha = 0.4f)
-                            )
-                        }
-                        Spacer(Modifier.height(16.dp))
-                        Text("No entries yet", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "Tap + to log your first entry",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Spacer(Modifier.weight(0.38f))
+                    eventType?.let {
+                        Icon(
+                            iconForName(it.iconName),
+                            null,
+                            modifier = Modifier.size(64.dp),
+                            tint = Color(it.colorArgb).copy(alpha = 0.4f)
                         )
                     }
+                    Spacer(Modifier.height(16.dp))
+                    Text("No entries yet", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Tap + to log your first entry",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.weight(0.62f))
                 }
             } else if (entries.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -293,16 +320,16 @@ fun EntryCard(
                     Text(
                         entry.createdAt.relativeTimeLabel(),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
                 }
                 Row {
                     IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Filled.Edit, "Edit", modifier = Modifier.size(16.dp))
+                        Icon(Icons.Rounded.Edit, "Edit", modifier = Modifier.size(16.dp))
                     }
                     IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
                         Icon(
-                            Icons.Filled.Delete,
+                            Icons.Rounded.Delete,
                             "Delete",
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.error
@@ -368,7 +395,7 @@ private fun FieldValueRow(fieldName: String, value: String) {
         Text(
             "$fieldName:",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             modifier = Modifier.widthIn(min = 80.dp)
         )
         Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
