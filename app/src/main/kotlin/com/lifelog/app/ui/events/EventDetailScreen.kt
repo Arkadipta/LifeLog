@@ -18,6 +18,8 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material3.*
@@ -273,12 +275,19 @@ fun EntryCard(
     fields: List<com.lifelog.app.domain.model.EventField>,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    showEventName: Boolean = false
+    showEventName: Boolean = false,
+    showDivider: Boolean = true
 ) {
     val isAmoled = LocalAmoledColors.current.isAmoled
     var expanded by remember { mutableStateOf(false) }
 
+    val orderedFields = fields.filter { entry.fieldValues.containsKey(it.id) }
+    val preview = orderedFields.take(2)
+    val rest = orderedFields.drop(2)
+    val hasHiddenContent = rest.isNotEmpty()
+
     Card(
+        onClick = { if (hasHiddenContent) expanded = !expanded },
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = if (isAmoled) Color.Black else MaterialTheme.colorScheme.surfaceContainer
@@ -323,7 +332,16 @@ fun EntryCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
                 }
-                Row {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (hasHiddenContent) {
+                        Icon(
+                            imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp
+                                          else Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    }
                     IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Rounded.Edit, "Edit", modifier = Modifier.size(16.dp))
                     }
@@ -340,13 +358,11 @@ fun EntryCard(
 
             if (entry.fieldValues.isNotEmpty() || entry.note.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                Spacer(Modifier.height(8.dp))
+                if (showDivider) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    Spacer(Modifier.height(8.dp))
+                }
             }
-
-            val orderedFields = fields.filter { entry.fieldValues.containsKey(it.id) }
-            val preview = orderedFields.take(2)
-            val rest = orderedFields.drop(2)
 
             preview.forEach { field ->
                 entry.fieldValues[field.id]?.let { fv ->
@@ -363,22 +379,10 @@ fun EntryCard(
                 )
             }
 
-            if (rest.isNotEmpty()) {
-                TextButton(
-                    onClick = { expanded = !expanded },
-                    modifier = Modifier.padding(top = 4.dp),
-                    contentPadding = PaddingValues(0.dp)
-                ) {
-                    Text(
-                        if (expanded) "Show less" else "+${rest.size} more",
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                }
-                if (expanded) {
-                    rest.forEach { field ->
-                        entry.fieldValues[field.id]?.let { fv ->
-                            FieldValueRow(fieldName = field.name, value = fv.displayString())
-                        }
+            if (hasHiddenContent && expanded) {
+                rest.forEach { field ->
+                    entry.fieldValues[field.id]?.let { fv ->
+                        FieldValueRow(fieldName = field.name, value = fv.displayString())
                     }
                 }
             }

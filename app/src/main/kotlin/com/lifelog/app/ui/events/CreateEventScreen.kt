@@ -3,7 +3,9 @@ package com.lifelog.app.ui.events
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -255,7 +257,10 @@ private fun FieldConfigCard(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(field.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     AssistChip(
                         onClick = {},
                         label = { Text(field.type.displayName, style = MaterialTheme.typography.labelSmall) }

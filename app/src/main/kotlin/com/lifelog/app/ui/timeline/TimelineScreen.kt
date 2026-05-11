@@ -28,6 +28,7 @@ fun TimelineScreen(
 ) {
     val entries by viewModel.entries.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val fieldsMap by viewModel.fieldsMap.collectAsStateWithLifecycle()
     var deleteTarget by remember { mutableStateOf<EventEntry?>(null) }
     var editingEntryId by remember { mutableStateOf<Long?>(null) }
 
@@ -122,8 +123,9 @@ fun TimelineScreen(
                         items(dayEntries, key = { it.id }) { entry ->
                             EntryCard(
                                 entry = entry,
-                                fields = emptyList(),
+                                fields = fieldsMap[entry.eventTypeId] ?: emptyList(),
                                 showEventName = true,
+                                showDivider = false,
                                 onEdit = { editingEntryId = entry.id },
                                 onDelete = { deleteTarget = entry }
                             )
