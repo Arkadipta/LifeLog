@@ -77,7 +77,11 @@ fun EventsScreen(
                         Icon(Icons.Rounded.Settings, "Settings")
                     }
                 },
-                scrollBehavior = scrollBehavior
+                scrollBehavior = scrollBehavior,
+                colors = TopAppBarDefaults.largeTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surface
+                )
             )
         },
         floatingActionButton = {
