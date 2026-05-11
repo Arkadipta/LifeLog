@@ -12,6 +12,7 @@ data class ChartConfig(
     val numericFieldIds: List<Long>,
     val groupByFieldId: Long? = null,
     val timeRangeDays: Int? = null,
+    val colorArgb: Int? = null,
     val sortOrder: Int = 0,
     val createdAt: Long = System.currentTimeMillis()
 )

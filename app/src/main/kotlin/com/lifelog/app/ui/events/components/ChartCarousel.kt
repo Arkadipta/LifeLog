@@ -28,7 +28,7 @@ fun ChartCarousel(
     onDeleteChart: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val accentColor = eventType?.let { Color(it.colorArgb) } ?: MaterialTheme.colorScheme.primary
+    val eventAccentColor = eventType?.let { Color(it.colorArgb) } ?: MaterialTheme.colorScheme.primary
 
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
@@ -42,10 +42,11 @@ fun ChartCarousel(
             contentPadding = PaddingValues(horizontal = 16.dp)
         ) {
             items(charts, key = { it.id }) { config ->
+                val chartColor = config.colorArgb?.let { Color(it) } ?: eventAccentColor
                 ChartCard(
                     config = config,
                     data = chartDataMap[config.id] ?: ChartData.Empty,
-                    accentColor = accentColor,
+                    accentColor = chartColor,
                     onEdit = { onEditChart(config) },
                     onDelete = { onDeleteChart(config.id) },
                     modifier = Modifier

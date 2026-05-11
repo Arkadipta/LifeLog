@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AddChart
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
@@ -150,6 +151,16 @@ fun EventDetailScreen(
                             if (searchActive) "Close search" else "Search entries"
                         )
                     }
+                    // Show "Add Chart" in the app bar only when the event has numeric fields
+                    // but no charts have been created yet
+                    if (hasNumericFields && charts.isEmpty()) {
+                        IconButton(onClick = {
+                            editingChart = null
+                            showChartConfigSheet = true
+                        }) {
+                            Icon(Icons.Rounded.AddChart, "Add Chart")
+                        }
+                    }
                     IconButton(onClick = {
                         val name = eventType?.name?.replace(" ", "_") ?: "event"
                         exportLauncher.launch("${name}_export.csv")
@@ -264,8 +275,8 @@ fun EventDetailScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
-                    // Chart carousel — only for events with at least one numeric field
-                    if (hasNumericFields) {
+                    // Chart carousel — only when at least one chart has been created
+                    if (hasNumericFields && charts.isNotEmpty()) {
                         item(key = "chart_carousel") {
                             ChartCarousel(
                                 charts = charts,

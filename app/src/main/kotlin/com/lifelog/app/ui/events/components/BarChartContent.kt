@@ -1,11 +1,13 @@
 package com.lifelog.app.ui.events.components
 
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.ChartData
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.axis.rememberBottom
@@ -40,11 +42,16 @@ fun BarChartContent(data: ChartData.Bar, accentColor: Color, modifier: Modifier 
         }
     }
 
+    val guidelineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val guideline = rememberLineComponent(color = guidelineColor, thickness = 0.5.dp)
+
     val columnColors = remember(accentColor, data.series.size) {
         data.series.indices.map { i ->
             accentColor.copy(alpha = (1f - i * 0.25f).coerceAtLeast(0.4f))
         }
     }
+
+    val dateFormatter = remember { SimpleDateFormat("MM/dd", Locale.getDefault()) }
 
     CartesianChartHost(
         chart = rememberCartesianChart(
@@ -58,10 +65,11 @@ fun BarChartContent(data: ChartData.Bar, accentColor: Color, modifier: Modifier 
                     }
                 )
             ),
-            startAxis = VerticalAxis.rememberStart(),
+            startAxis = VerticalAxis.rememberStart(guideline = guideline),
             bottomAxis = HorizontalAxis.rememberBottom(
+                guideline = null,
                 valueFormatter = { _, value, _ ->
-                    SimpleDateFormat("MM/dd", Locale.getDefault()).format(Date(value.toLong()))
+                    dateFormatter.format(Date(value.toLong()))
                 }
             )
         ),
