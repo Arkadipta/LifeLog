@@ -4,12 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.domain.model.EventEntry
+import com.lifelog.app.domain.model.EventField
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -32,6 +34,11 @@ class TimelineViewModel @Inject constructor(
             e.note.contains(query, ignoreCase = true)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val fieldsMap: StateFlow<Map<Long, List<EventField>>> =
+        repository.observeAllEventTypes()
+            .map { types -> types.associate { it.id to it.fields } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     fun setSearchQuery(q: String) { _searchQuery.value = q }
 

@@ -1,6 +1,5 @@
 package com.lifelog.app.ui.navigation
 
-import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -88,23 +87,10 @@ fun AppNavigation(startDestination: String? = null) {
             navController = navController,
             startDestination = Screen.Events.route,
             modifier = Modifier.padding(paddingValues),
-            enterTransition = {
-                val isTabSwitch = tabRoutes.contains(initialState.destination.route) &&
-                    tabRoutes.contains(targetState.destination.route)
-                if (isTabSwitch) fadeIn(spring())
-                else slideIntoContainer(
-                    AnimatedContentTransitionScope.SlideDirection.Start,
-                    spring(dampingRatio = 0.85f, stiffness = 400f)
-                )
-            },
+            enterTransition = { fadeIn(spring()) },
             exitTransition = { fadeOut(spring()) },
             popEnterTransition = { fadeIn(spring()) },
-            popExitTransition = {
-                slideOutOfContainer(
-                    AnimatedContentTransitionScope.SlideDirection.End,
-                    spring(dampingRatio = 0.85f, stiffness = 400f)
-                )
-            }
+            popExitTransition = { fadeOut(spring()) }
         ) {
             composable(Screen.Events.route) {
                 EventsScreen(
