@@ -1,6 +1,8 @@
 package com.lifelog.app.ui.timeline
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +15,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -34,36 +38,47 @@ fun TimelineScreen(
     var deleteTarget by remember { mutableStateOf<EventEntry?>(null) }
     var editingEntryId by remember { mutableStateOf<Long?>(null) }
 
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Timeline", fontWeight = FontWeight.Bold) }
+            LargeTopAppBar(
+                title = { Text("Timeline") },
+                scrollBehavior = scrollBehavior
             )
-        }
+        },
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = viewModel::setSearchQuery,
-                placeholder = { Text("Search entries…") },
-                leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                            Icon(Icons.Rounded.Close, "Clear search")
+            DockedSearchBar(
+                inputField = {
+                    SearchBarDefaults.InputField(
+                        query = searchQuery,
+                        onQueryChange = viewModel::setSearchQuery,
+                        onSearch = {},
+                        expanded = false,
+                        onExpandedChange = {},
+                        placeholder = { Text("Search entries…") },
+                        leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                    Icon(Icons.Rounded.Close, "Clear search")
+                                }
+                            }
                         }
-                    }
+                    )
                 },
+                expanded = false,
+                onExpandedChange = {},
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = MaterialTheme.shapes.extraLarge,
-                singleLine = true
-            )
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {}
 
             if (entries.isEmpty() && searchQuery.isBlank()) {
                 EmptyStatePlaceholder(
@@ -92,8 +107,6 @@ fun TimelineScreen(
                 ) {
                     grouped.forEach { (date, dayEntries) ->
                         stickyHeader(key = "header_$date") {
-                            // Match surfaceContainer so the header blends with card backgrounds
-                            // and renders correctly in both normal and AMOLED modes
                             Surface(
                                 color = MaterialTheme.colorScheme.surface,
                                 modifier = Modifier.fillMaxWidth()
@@ -122,15 +135,53 @@ fun TimelineScreen(
                             }
                         }
                         items(dayEntries, key = { it.id }) { entry ->
-                            EntryCard(
-                                entry = entry,
-                                fields = fieldsMap[entry.eventTypeId] ?: emptyList(),
-                                showEventName = true,
-                                showDivider = false,
-                                onEdit = { editingEntryId = entry.id },
-                                onDelete = { deleteTarget = entry },
-                                modifier = Modifier.animateItem()
+                            val dismissState = rememberSwipeToDismissBoxState(
+                                confirmValueChange = { value ->
+                                    if (value == SwipeToDismissBoxValue.EndToStart) {
+                                        deleteTarget = entry
+                                    }
+                                    false
+                                }
                             )
+                            SwipeToDismissBox(
+                                state = dismissState,
+                                backgroundContent = {
+                                    val color by animateColorAsState(
+                                        targetValue = when (dismissState.targetValue) {
+                                            SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+                                            else -> Color.Transparent
+                                        },
+                                        label = "swipe_delete_bg"
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(color, MaterialTheme.shapes.medium)
+                                            .padding(end = 20.dp),
+                                        contentAlignment = Alignment.CenterEnd
+                                    ) {
+                                        if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
+                                            Icon(
+                                                Icons.Rounded.Delete,
+                                                contentDescription = "Delete",
+                                                tint = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                        }
+                                    }
+                                },
+                                enableDismissFromEndToStart = true,
+                                enableDismissFromStartToEnd = false,
+                                modifier = Modifier.animateItem()
+                            ) {
+                                EntryCard(
+                                    entry = entry,
+                                    fields = fieldsMap[entry.eventTypeId] ?: emptyList(),
+                                    showEventName = true,
+                                    showDivider = false,
+                                    onEdit = { editingEntryId = entry.id },
+                                    onDelete = { deleteTarget = entry }
+                                )
+                            }
                         }
                     }
                     item { Spacer(Modifier.height(80.dp)) }

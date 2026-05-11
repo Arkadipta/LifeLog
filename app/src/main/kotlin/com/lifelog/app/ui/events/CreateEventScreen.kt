@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -58,7 +59,7 @@ fun CreateEventScreen(
         if (state.isSaved) onNavigateBack()
     }
 
-    var showAddFieldDialog by remember { mutableStateOf(false) }
+    var showAddFieldSheet by remember { mutableStateOf(false) }
     var editingFieldIndex by remember { mutableStateOf<Int?>(null) }
 
     Scaffold(
@@ -145,7 +146,7 @@ fun CreateEventScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("Fields", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    FilledTonalButton(onClick = { showAddFieldDialog = true }) {
+                    FilledTonalButton(onClick = { showAddFieldSheet = true }) {
                         Icon(Icons.Rounded.Add, null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("Add Field")
@@ -169,19 +170,19 @@ fun CreateEventScreen(
         }
     }
 
-    if (showAddFieldDialog) {
-        AddFieldDialog(
-            onDismiss = { showAddFieldDialog = false },
+    if (showAddFieldSheet) {
+        AddFieldSheet(
+            onDismiss = { showAddFieldSheet = false },
             onAdd = { field ->
                 viewModel.addField(field)
-                showAddFieldDialog = false
+                showAddFieldSheet = false
             }
         )
     }
 
     editingFieldIndex?.let { idx ->
         if (idx < state.fields.size) {
-            AddFieldDialog(
+            AddFieldSheet(
                 existingField = state.fields[idx],
                 onDismiss = { editingFieldIndex = null },
                 onAdd = { field ->
@@ -350,7 +351,7 @@ private fun FieldConfigCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddFieldDialog(
+private fun AddFieldSheet(
     existingField: EventField? = null,
     onDismiss: () -> Unit,
     onAdd: (EventField) -> Unit
@@ -362,21 +363,37 @@ private fun AddFieldDialog(
     var options by remember { mutableStateOf(existingField?.options?.joinToString("\n") ?: "") }
     var nameError by remember { mutableStateOf<String?>(null) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (existingField == null) "Add Field" else "Edit Field") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it; nameError = null },
-                    label = { Text("Field Name *") },
-                    isError = nameError != null,
-                    supportingText = nameError?.let { { Text(it) } },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                if (existingField == null) "Add Field" else "Edit Field",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it; nameError = null },
+                label = { Text("Field Name *") },
+                isError = nameError != null,
+                supportingText = nameError?.let { { Text(it) } },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Field Type", style = MaterialTheme.typography.labelLarge)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(FieldType.entries) { type ->
@@ -387,60 +404,64 @@ private fun AddFieldDialog(
                         )
                     }
                 }
-
-                if (fieldType == FieldType.NUMERIC) {
-                    OutlinedTextField(
-                        value = unit,
-                        onValueChange = { unit = it },
-                        label = { Text("Unit (e.g. kg, ml)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                if (fieldType == FieldType.CHOICE || fieldType == FieldType.MULTI_SELECT) {
-                    OutlinedTextField(
-                        value = options,
-                        onValueChange = { options = it },
-                        label = { Text("Options (one per line)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 3,
-                        maxLines = 6
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Required field")
-                    Switch(checked = isRequired, onCheckedChange = { isRequired = it })
-                }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                if (name.isBlank()) {
-                    nameError = "Name is required"
-                    return@TextButton
-                }
-                onAdd(
-                    EventField(
-                        id = existingField?.id ?: 0L,
-                        name = name.trim(),
-                        type = fieldType,
-                        unit = unit.trim(),
-                        isRequired = isRequired,
-                        options = if (fieldType == FieldType.CHOICE || fieldType == FieldType.MULTI_SELECT) {
-                            options.lines().map { it.trim() }.filter { it.isNotBlank() }
-                        } else emptyList()
-                    )
+
+            if (fieldType == FieldType.NUMERIC) {
+                OutlinedTextField(
+                    value = unit,
+                    onValueChange = { unit = it },
+                    label = { Text("Unit (e.g. kg, ml)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
                 )
-            }) { Text("Save") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+
+            if (fieldType == FieldType.CHOICE || fieldType == FieldType.MULTI_SELECT) {
+                OutlinedTextField(
+                    value = options,
+                    onValueChange = { options = it },
+                    label = { Text("Options (one per line)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 6
+                )
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Required field")
+                Switch(checked = isRequired, onCheckedChange = { isRequired = it })
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = {
+                    if (name.isBlank()) {
+                        nameError = "Name is required"
+                        return@Button
+                    }
+                    onAdd(
+                        EventField(
+                            id = existingField?.id ?: 0L,
+                            name = name.trim(),
+                            type = fieldType,
+                            unit = unit.trim(),
+                            isRequired = isRequired,
+                            options = if (fieldType == FieldType.CHOICE || fieldType == FieldType.MULTI_SELECT) {
+                                options.lines().map { it.trim() }.filter { it.isNotBlank() }
+                            } else emptyList()
+                        )
+                    )
+                }) { Text("Save") }
+            }
         }
-    )
+    }
 }

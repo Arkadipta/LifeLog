@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -17,6 +18,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -252,16 +254,54 @@ fun EventDetailScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(entries, key = { it.id }) { entry ->
-                        EntryCard(
-                            entry = entry,
-                            fields = eventType?.fields ?: emptyList(),
-                            onEdit = {
-                                editingEntryId = entry.id
-                                showEntrySheet = true
-                            },
-                            onDelete = { deleteTarget = entry },
-                            modifier = Modifier.animateItem()
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = { value ->
+                                if (value == SwipeToDismissBoxValue.EndToStart) {
+                                    deleteTarget = entry
+                                }
+                                false
+                            }
                         )
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            backgroundContent = {
+                                val color by animateColorAsState(
+                                    targetValue = when (dismissState.targetValue) {
+                                        SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+                                        else -> Color.Transparent
+                                    },
+                                    label = "swipe_delete_bg"
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(color, MaterialTheme.shapes.medium)
+                                        .padding(end = 20.dp),
+                                    contentAlignment = Alignment.CenterEnd
+                                ) {
+                                    if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
+                                        Icon(
+                                            Icons.Rounded.Delete,
+                                            contentDescription = "Delete",
+                                            tint = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    }
+                                }
+                            },
+                            enableDismissFromEndToStart = true,
+                            enableDismissFromStartToEnd = false,
+                            modifier = Modifier.animateItem()
+                        ) {
+                            EntryCard(
+                                entry = entry,
+                                fields = eventType?.fields ?: emptyList(),
+                                onEdit = {
+                                    editingEntryId = entry.id
+                                    showEntrySheet = true
+                                },
+                                onDelete = { deleteTarget = entry }
+                            )
+                        }
                     }
                     item { Spacer(Modifier.height(80.dp)) }
                 }
