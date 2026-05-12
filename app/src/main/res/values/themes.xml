@@ -12,8 +12,4 @@
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
         <item name="postSplashScreenTheme">@style/Theme.LifeLog</item>
     </style>
-    <!-- Applied programmatically when the app's dark theme preference is enabled -->
-    <style name="Theme.LifeLog.Splash.Dark" parent="Theme.LifeLog.Splash">
-        <item name="windowSplashScreenBackground">#000000</item>
-    </style>
 </resources>
