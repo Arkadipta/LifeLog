@@ -18,7 +18,7 @@ data class UserPreferences(
     val useDynamicColor: Boolean = false
 )
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "user_preferences")
+internal val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "user_preferences")
 
 @Singleton
 class UserPreferencesRepository @Inject constructor(
