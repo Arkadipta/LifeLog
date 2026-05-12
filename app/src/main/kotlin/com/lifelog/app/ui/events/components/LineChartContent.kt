@@ -52,9 +52,9 @@ fun LineChartContent(data: ChartData.Line, accentColor: Color, modifier: Modifie
     val guidelineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
 
     val axisLabel = rememberTextComponent(color = onSurface)
-    val axisLine = rememberLineComponent(color = outlineColor, thickness = 1.dp)
-    val axisTick = rememberLineComponent(color = outlineColor, thickness = 1.dp)
-    val guideline = rememberLineComponent(color = guidelineColor, thickness = 0.5.dp)
+    val axisLine = rememberLineComponent(color = outlineColor, thickness = 3.dp)
+    val axisTick = rememberLineComponent(color = outlineColor, thickness = 3.dp)
+    val guideline = rememberLineComponent(color = guidelineColor, thickness = 0.dp)
 
     val lines = remember(accentColor, data.series.size) {
         data.series.indices.map { i ->
