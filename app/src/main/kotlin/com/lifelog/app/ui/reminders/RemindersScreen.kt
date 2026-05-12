@@ -7,7 +7,6 @@ import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -15,7 +14,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,7 +28,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -41,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.Reminder
 import com.lifelog.app.domain.model.RepeatType
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
+import com.lifelog.app.ui.components.SwipeDeleteBackground
 import com.lifelog.app.util.minutesFromMidnightToLabel
 import kotlinx.coroutines.delay
 
@@ -194,30 +192,7 @@ fun RemindersScreen(
                     )
                     SwipeToDismissBox(
                         state = dismissState,
-                        backgroundContent = {
-                            val color by animateColorAsState(
-                                targetValue = when (dismissState.targetValue) {
-                                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                                    else -> Color.Transparent
-                                },
-                                label = "swipe_delete_bg"
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(color, MaterialTheme.shapes.medium)
-                                    .padding(end = 20.dp),
-                                contentAlignment = Alignment.CenterEnd
-                            ) {
-                                if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
-                                    Icon(
-                                        Icons.Rounded.Delete,
-                                        contentDescription = "Delete",
-                                        tint = MaterialTheme.colorScheme.onErrorContainer
-                                    )
-                                }
-                            }
-                        },
+                        backgroundContent = { SwipeDeleteBackground(dismissState) },
                         enableDismissFromEndToStart = true,
                         enableDismissFromStartToEnd = false,
                         modifier = Modifier.animateItem()

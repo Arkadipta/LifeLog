@@ -82,7 +82,7 @@ private val bottomNavItems = listOf(
 )
 
 @Composable
-fun AppNavigation(startDestination: String? = null) {
+fun AppNavigation() {
     val navController = rememberNavController()
 
     Scaffold(

@@ -35,15 +35,7 @@ class MainActivity : ComponentActivity() {
                 amoledBlack = prefs.useAmoledBlack,
                 dynamicColor = prefs.useDynamicColor
             ) {
-                AppNavigation(
-                    startDestination = intent?.data?.let { uri ->
-                        when {
-                            uri.scheme == "lifelog" && uri.host == "quick_add" ->
-                                "events/${uri.getQueryParameter("eventId") ?: ""}"
-                            else -> null
-                        }
-                    }
-                )
+                AppNavigation()
             }
         }
     }

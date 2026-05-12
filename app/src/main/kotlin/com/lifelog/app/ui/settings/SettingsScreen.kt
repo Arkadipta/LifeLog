@@ -1,15 +1,10 @@
 package com.lifelog.app.ui.settings
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.DarkMode
-import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -25,35 +20,6 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val prefs by viewModel.prefs.collectAsStateWithLifecycle()
-    var snackbarMessage by remember { mutableStateOf<String?>(null) }
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("text/csv")
-    ) { uri ->
-        uri?.let {
-            viewModel.exportCsv(it, 0L) { success ->
-                snackbarMessage = if (success) "Exported successfully" else "Export failed"
-            }
-        }
-    }
-
-    val importLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let {
-            viewModel.importCsv(it, 0L) { count ->
-                snackbarMessage = if (count >= 0) "Imported $count entries" else "Import failed"
-            }
-        }
-    }
-
-    LaunchedEffect(snackbarMessage) {
-        snackbarMessage?.let {
-            snackbarHostState.showSnackbar(it)
-            snackbarMessage = null
-        }
-    }
 
     Scaffold(
         topBar = {
@@ -65,8 +31,7 @@ fun SettingsScreen(
                     }
                 }
             )
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -101,32 +66,6 @@ fun SettingsScreen(
                     subtitle = "Use colors from your wallpaper (Android 12+)",
                     checked = prefs.useDynamicColor,
                     onCheckedChange = viewModel::setDynamicColor
-                )
-            }
-
-            item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
-
-            item {
-                SettingsSectionHeader("Data")
-            }
-            item {
-                SettingsClickItem(
-                    title = "Export CSV",
-                    subtitle = "Export event entries to a CSV file",
-                    icon = { Icon(Icons.Rounded.Upload, null) },
-                    onClick = {
-                        exportLauncher.launch("lifelog_export.csv")
-                    }
-                )
-            }
-            item {
-                SettingsClickItem(
-                    title = "Import CSV",
-                    subtitle = "Import entries from a CSV file",
-                    icon = { Icon(Icons.Rounded.Download, null) },
-                    onClick = {
-                        importLauncher.launch(arrayOf("text/csv", "text/comma-separated-values"))
-                    }
                 )
             }
         }
@@ -165,32 +104,4 @@ private fun SettingsToggleItem(
             )
         }
     )
-}
-
-@Composable
-private fun SettingsClickItem(
-    title: String,
-    subtitle: String,
-    icon: (@Composable () -> Unit)? = null,
-    onClick: () -> Unit
-) {
-    // Surface(onClick) gives a correctly-anchored ripple for the full row
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        ListItem(
-            headlineContent = { Text(title) },
-            supportingContent = { Text(subtitle, style = MaterialTheme.typography.bodySmall) },
-            leadingContent = icon,
-            trailingContent = {
-                Icon(
-                    Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        )
-    }
 }

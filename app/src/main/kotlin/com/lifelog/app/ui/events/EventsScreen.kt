@@ -2,7 +2,6 @@ package com.lifelog.app.ui.events
 
 import android.provider.Settings as AndroidSettings
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -11,7 +10,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -36,6 +34,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
+import com.lifelog.app.ui.components.SwipeDeleteBackground
 import com.lifelog.app.ui.theme.LocalAmoledColors
 import com.lifelog.app.util.iconForName
 import kotlinx.coroutines.delay
@@ -217,31 +216,6 @@ fun EventsScreen(
     }
 }
 
-@Composable
-private fun RowScope.SwipeDeleteBackground(state: SwipeToDismissBoxState) {
-    val color by animateColorAsState(
-        targetValue = when (state.targetValue) {
-            SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-            else -> Color.Transparent
-        },
-        label = "swipe_delete_bg"
-    )
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(color, MaterialTheme.shapes.medium)
-            .padding(end = 20.dp),
-        contentAlignment = Alignment.CenterEnd
-    ) {
-        if (state.targetValue == SwipeToDismissBoxValue.EndToStart) {
-            Icon(
-                Icons.Rounded.Delete,
-                contentDescription = "Delete",
-                tint = MaterialTheme.colorScheme.onErrorContainer
-            )
-        }
-    }
-}
 
 @Composable
 private fun EventTypeCard(
