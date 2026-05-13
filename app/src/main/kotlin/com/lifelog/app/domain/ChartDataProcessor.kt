@@ -1,11 +1,14 @@
 package com.lifelog.app.domain
 
+import com.lifelog.app.domain.model.AggregationStrategy
 import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.ChartData
 import com.lifelog.app.domain.model.ChartType
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.FieldValue
+import com.lifelog.app.domain.model.TimeRange
+import java.util.Calendar
 
 object ChartDataProcessor {
 
@@ -19,51 +22,153 @@ object ChartDataProcessor {
         entries: List<EventEntry>,
         fields: List<EventField>
     ): ChartData {
+        val timeRange = TimeRange.fromDays(config.timeRangeDays)
         val filtered = applyTimeRange(entries, config.timeRangeDays)
         if (filtered.isEmpty()) return ChartData.InsufficientData
 
         return when (config.type) {
-            ChartType.LINE -> buildLineData(config, filtered, fields)
-            ChartType.BAR -> buildBarData(config, filtered, fields)
+            ChartType.LINE -> buildLineData(config, filtered, fields, timeRange)
+            ChartType.BAR -> buildBarData(config, filtered, fields, timeRange)
             ChartType.PIE -> buildPieData(config, filtered, fields)
         }
     }
 
+    // ── Bucketing ─────────────────────────────────────────────────────────────
+
+    /**
+     * Returns ordered (representativeTimestampMs, entriesInBucket) pairs for the
+     * given time range. All buckets are returned even if empty, so every series
+     * shares the same bucket index space.
+     */
+    private fun buildBuckets(
+        entries: List<EventEntry>,
+        timeRange: TimeRange
+    ): List<Pair<Long, List<EventEntry>>> {
+        return when (timeRange) {
+            TimeRange.DAY -> {
+                val dayStart = midnightToday()
+                (0 until 24).map { hour ->
+                    val start = dayStart + hour * 3_600_000L
+                    val end = start + 3_600_000L
+                    val mid = start + 1_800_000L
+                    Pair(mid, entries.filter { it.createdAt in start until end })
+                }
+            }
+
+            TimeRange.WEEK -> {
+                val todayMidnight = midnightToday()
+                (6 downTo 0).map { daysAgo ->
+                    val start = todayMidnight - daysAgo * 86_400_000L
+                    val end = start + 86_400_000L
+                    val mid = start + 43_200_000L
+                    Pair(mid, entries.filter { it.createdAt in start until end })
+                }
+            }
+
+            TimeRange.MONTH -> {
+                val todayMidnight = midnightToday()
+                // 4 weekly buckets: [−28d, −21d), [−21d, −14d), [−14d, −7d), [−7d, 0+1d)
+                (3 downTo 0).map { weeksAgo ->
+                    val start = todayMidnight - (weeksAgo + 1) * 7 * 86_400_000L
+                    val end = if (weeksAgo == 0) todayMidnight + 86_400_000L
+                               else todayMidnight - weeksAgo * 7 * 86_400_000L
+                    val mid = (start + end) / 2
+                    Pair(mid, entries.filter { it.createdAt in start until end })
+                }
+            }
+
+            TimeRange.YEAR -> {
+                val today = Calendar.getInstance()
+                (11 downTo 0).map { monthsAgo ->
+                    val startCal = Calendar.getInstance().apply {
+                        set(Calendar.YEAR, today.get(Calendar.YEAR))
+                        set(Calendar.MONTH, today.get(Calendar.MONTH))
+                        set(Calendar.DAY_OF_MONTH, 1)
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                        add(Calendar.MONTH, -monthsAgo)
+                    }
+                    val endCal = Calendar.getInstance().apply {
+                        timeInMillis = startCal.timeInMillis
+                        add(Calendar.MONTH, 1)
+                    }
+                    val start = startCal.timeInMillis
+                    val end = endCal.timeInMillis
+                    Pair((start + end) / 2, entries.filter { it.createdAt in start until end })
+                }
+            }
+
+            TimeRange.ALL -> {
+                val sorted = entries.sortedBy { it.createdAt }
+                if (sorted.isEmpty()) return emptyList()
+                val minTime = sorted.first().createdAt
+                val maxTime = sorted.last().createdAt
+                if (minTime == maxTime) return listOf(Pair(minTime, sorted))
+                val binCount = 20
+                val binSize = (maxTime - minTime + 1) / binCount
+                (0 until binCount).map { i ->
+                    val start = minTime + i * binSize
+                    val end = if (i == binCount - 1) maxTime + 1 else start + binSize
+                    val mid = start + binSize / 2
+                    Pair(mid, entries.filter { it.createdAt in start until end })
+                }
+            }
+        }
+    }
+
+    // ── Line / Bar builders ───────────────────────────────────────────────────
+
     private fun buildLineData(
         config: ChartConfig,
         entries: List<EventEntry>,
-        fields: List<EventField>
+        fields: List<EventField>,
+        timeRange: TimeRange
     ): ChartData {
         val fieldMap = fields.associateBy { it.id }
-        val sorted = entries.sortedBy { it.createdAt }
+        val buckets = buildBuckets(entries.sortedBy { it.createdAt }, timeRange)
+        val timestamps = buckets.map { it.first }
+
         val series = config.numericFieldIds.mapNotNull { fieldId ->
             val field = fieldMap[fieldId] ?: return@mapNotNull null
-            val points = sorted.mapNotNull { entry ->
-                val v = entry.fieldValues[fieldId] as? FieldValue.Numeric ?: return@mapNotNull null
-                ChartData.Line.Point(entry.createdAt, v.value)
+            val points = buckets.mapIndexedNotNull { idx, (_, bucketEntries) ->
+                val values = numericValues(bucketEntries, fieldId)
+                if (values.isEmpty()) null
+                else ChartData.Line.Point(idx, aggregate(values, config.aggregation))
             }
             if (points.isEmpty()) null else ChartData.Line.Series(field.name, points)
         }
-        return if (series.isEmpty()) ChartData.Empty else ChartData.Line(series)
+
+        return if (series.isEmpty()) ChartData.Empty
+               else ChartData.Line(series, timeRange, timestamps)
     }
 
     private fun buildBarData(
         config: ChartConfig,
         entries: List<EventEntry>,
-        fields: List<EventField>
+        fields: List<EventField>,
+        timeRange: TimeRange
     ): ChartData {
         val fieldMap = fields.associateBy { it.id }
-        val sorted = entries.sortedBy { it.createdAt }
+        val buckets = buildBuckets(entries.sortedBy { it.createdAt }, timeRange)
+        val timestamps = buckets.map { it.first }
+
         val series = config.numericFieldIds.mapNotNull { fieldId ->
             val field = fieldMap[fieldId] ?: return@mapNotNull null
-            val points = sorted.mapNotNull { entry ->
-                val v = entry.fieldValues[fieldId] as? FieldValue.Numeric ?: return@mapNotNull null
-                ChartData.Bar.Point(entry.createdAt, v.value)
+            val points = buckets.mapIndexedNotNull { idx, (_, bucketEntries) ->
+                val values = numericValues(bucketEntries, fieldId)
+                if (values.isEmpty()) null
+                else ChartData.Bar.Point(idx, aggregate(values, config.aggregation))
             }
             if (points.isEmpty()) null else ChartData.Bar.Series(field.name, points)
         }
-        return if (series.isEmpty()) ChartData.Empty else ChartData.Bar(series)
+
+        return if (series.isEmpty()) ChartData.Empty
+               else ChartData.Bar(series, timeRange, timestamps)
     }
+
+    // ── Pie builder ───────────────────────────────────────────────────────────
 
     private fun buildPieData(
         config: ChartConfig,
@@ -99,9 +204,36 @@ object ChartDataProcessor {
         return ChartData.Pie(slices)
     }
 
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private fun numericValues(entries: List<EventEntry>, fieldId: Long): List<Double> =
+        entries.mapNotNull { (it.fieldValues[fieldId] as? FieldValue.Numeric)?.value }
+
+    private fun aggregate(values: List<Double>, strategy: AggregationStrategy): Double =
+        when (strategy) {
+            AggregationStrategy.MEAN -> values.average()
+            AggregationStrategy.SUM -> values.sum()
+            AggregationStrategy.MIN -> values.min()
+            AggregationStrategy.MAX -> values.max()
+            AggregationStrategy.MEDIAN -> {
+                val sorted = values.sorted()
+                val mid = sorted.size / 2
+                if (sorted.size % 2 == 0) (sorted[mid - 1] + sorted[mid]) / 2.0
+                else sorted[mid]
+            }
+            AggregationStrategy.LATEST -> values.last()
+        }
+
     private fun applyTimeRange(entries: List<EventEntry>, days: Int?): List<EventEntry> {
         if (days == null) return entries
         val cutoff = System.currentTimeMillis() - days * 86_400_000L
         return entries.filter { it.createdAt >= cutoff }
     }
+
+    private fun midnightToday(): Long = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
 }

@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.lifelog.app.domain.model.AggregationStrategy
 import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.ChartType
 import com.lifelog.app.domain.model.EventField
@@ -80,6 +81,9 @@ fun ChartConfigSheet(
         mutableStateOf(TimeRange.fromDays(editing?.timeRangeDays))
     }
     var selectedColor by remember { mutableStateOf(editing?.colorArgb) }
+    var selectedAggregation by remember {
+        mutableStateOf(editing?.aggregation ?: AggregationStrategy.MEAN)
+    }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -140,6 +144,27 @@ fun ChartConfigSheet(
                         shape = SegmentedButtonDefaults.itemShape(i, TimeRange.entries.size),
                         label = { Text(range.displayName) }
                     )
+                }
+            }
+
+            // Aggregation (line + bar only)
+            if (selectedType != ChartType.PIE) {
+                HorizontalDivider()
+                Text(
+                    text = "Aggregation",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                val aggEntries = AggregationStrategy.entries
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    aggEntries.forEachIndexed { i, agg ->
+                        SegmentedButton(
+                            selected = selectedAggregation == agg,
+                            onClick = { selectedAggregation = agg },
+                            shape = SegmentedButtonDefaults.itemShape(i, aggEntries.size),
+                            label = { Text(agg.displayName) }
+                        )
+                    }
                 }
             }
 
@@ -264,7 +289,9 @@ fun ChartConfigSheet(
                             timeRangeDays = selectedTimeRange.days,
                             colorArgb = selectedColor,
                             sortOrder = editing?.sortOrder ?: 0,
-                            createdAt = editing?.createdAt ?: System.currentTimeMillis()
+                            createdAt = editing?.createdAt ?: System.currentTimeMillis(),
+                            aggregation = if (selectedType == ChartType.PIE) AggregationStrategy.SUM
+                                          else selectedAggregation
                         )
                     )
                     onDismiss()

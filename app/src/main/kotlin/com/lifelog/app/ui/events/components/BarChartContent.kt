@@ -9,11 +9,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.ChartData
+import com.lifelog.app.domain.model.TimeRange
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.axis.rememberBottom
 import com.patrykandpatrick.vico.compose.cartesian.axis.rememberStart
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberColumnCartesianLayer
 import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
+import com.patrykandpatrick.vico.compose.cartesian.rememberVicoScrollState
 import com.patrykandpatrick.vico.compose.common.component.rememberLineComponent
 import com.patrykandpatrick.vico.compose.common.component.rememberTextComponent
 import com.patrykandpatrick.vico.core.cartesian.axis.HorizontalAxis
@@ -28,6 +30,9 @@ import java.util.Locale
 
 @Composable
 fun BarChartContent(data: ChartData.Bar, accentColor: Color, modifier: Modifier = Modifier) {
+    val totalPoints = data.bucketTimestamps.size
+    val tickStep = (totalPoints / 4).coerceAtLeast(1)
+
     val modelProducer = remember { CartesianChartModelProducer() }
 
     LaunchedEffect(data) {
@@ -35,7 +40,7 @@ fun BarChartContent(data: ChartData.Bar, accentColor: Color, modifier: Modifier 
             columnSeries {
                 data.series.forEach { series ->
                     series(
-                        x = series.points.map { it.timestampMs.toFloat() },
+                        x = series.points.map { it.bucketIndex.toFloat() },
                         y = series.points.map { it.value.toFloat() }
                     )
                 }
@@ -45,7 +50,7 @@ fun BarChartContent(data: ChartData.Bar, accentColor: Color, modifier: Modifier 
 
     val onSurface = MaterialTheme.colorScheme.onSurface
     val outlineColor = MaterialTheme.colorScheme.outline
-    val guidelineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val guidelineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
 
     val axisLabel = rememberTextComponent(color = onSurface)
     val axisLine = rememberLineComponent(color = outlineColor, thickness = 1.dp)
@@ -58,7 +63,7 @@ fun BarChartContent(data: ChartData.Bar, accentColor: Color, modifier: Modifier 
         }
     }
 
-    val dateFormatter = remember { SimpleDateFormat("MM/dd", Locale.getDefault()) }
+    val xValueFormatter = rememberXFormatter(data.timeRange, data.bucketTimestamps, tickStep)
 
     CartesianChartHost(
         chart = rememberCartesianChart(
@@ -77,18 +82,43 @@ fun BarChartContent(data: ChartData.Bar, accentColor: Color, modifier: Modifier 
                 line = axisLine,
                 tick = axisTick,
                 guideline = guideline,
+                itemPlacer = remember { VerticalAxis.ItemPlacer.count(count = { 4 }) }
             ),
             bottomAxis = HorizontalAxis.rememberBottom(
                 label = axisLabel,
                 line = axisLine,
                 tick = axisTick,
                 guideline = null,
-                valueFormatter = { _, value, _ ->
-                    dateFormatter.format(Date(value.toLong()))
-                }
+                valueFormatter = { _, value, _ -> xValueFormatter(value.toInt()) }
             )
         ),
         modelProducer = modelProducer,
+        scrollState = rememberVicoScrollState(scrollEnabled = false),
         modifier = modifier.fillMaxSize()
     )
+}
+
+@Composable
+private fun rememberXFormatter(
+    timeRange: TimeRange,
+    bucketTimestamps: List<Long>,
+    tickStep: Int
+): (Int) -> String {
+    return remember(timeRange, bucketTimestamps, tickStep) {
+        val fmt = xDateFormatter(timeRange)
+        val timestamps = bucketTimestamps
+        val step = tickStep
+        { idx: Int ->
+            if (idx % step == 0 && idx in timestamps.indices) fmt.format(Date(timestamps[idx]))
+            else ""
+        }
+    }
+}
+
+private fun xDateFormatter(timeRange: TimeRange): SimpleDateFormat = when (timeRange) {
+    TimeRange.DAY -> SimpleDateFormat("HH:mm", Locale.getDefault())
+    TimeRange.WEEK -> SimpleDateFormat("EEE", Locale.getDefault())
+    TimeRange.MONTH -> SimpleDateFormat("MMM d", Locale.getDefault())
+    TimeRange.YEAR -> SimpleDateFormat("MMM", Locale.getDefault())
+    TimeRange.ALL -> SimpleDateFormat("MMM yy", Locale.getDefault())
 }
