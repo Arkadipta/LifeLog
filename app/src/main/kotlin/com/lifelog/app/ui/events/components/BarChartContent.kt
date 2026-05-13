@@ -39,10 +39,20 @@ fun BarChartContent(data: ChartData.Bar, accentColor: Color, modifier: Modifier 
         modelProducer.runTransaction {
             columnSeries {
                 data.series.forEach { series ->
-                    series(
-                        x = series.points.map { it.bucketIndex.toFloat() },
-                        y = series.points.map { it.value.toFloat() }
-                    )
+                    val pts = series.points
+                    if (pts.size == 1) {
+                        val p = pts.first()
+                        val synthIdx = if (p.bucketIndex > 0) p.bucketIndex - 1 else p.bucketIndex + 1
+                        series(
+                            x = listOf(synthIdx.toFloat(), p.bucketIndex.toFloat()),
+                            y = listOf(0f, p.value.toFloat())
+                        )
+                    } else {
+                        series(
+                            x = pts.map { it.bucketIndex.toFloat() },
+                            y = pts.map { it.value.toFloat() }
+                        )
+                    }
                 }
             }
         }
