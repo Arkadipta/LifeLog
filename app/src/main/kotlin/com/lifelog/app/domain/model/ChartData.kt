@@ -8,7 +8,8 @@ sealed class ChartData {
         val timeRange: TimeRange,
         val bucketTimestamps: List<Long>
     ) : ChartData() {
-        data class Series(val fieldName: String, val points: List<Point>)
+        /** colorArgb == null means "use the event accent color" */
+        data class Series(val fieldName: String, val colorArgb: Int?, val points: List<Point>)
         data class Point(val bucketIndex: Int, val value: Double)
     }
 

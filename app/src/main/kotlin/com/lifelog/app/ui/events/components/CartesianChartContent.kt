@@ -37,15 +37,15 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun CartesianChartContent(data: ChartData.Cartesian, accentColor: Color, modifier: Modifier = Modifier) {
+fun CartesianChartContent(data: ChartData.Cartesian, eventAccentColor: Color, modifier: Modifier = Modifier) {
     when (data.type) {
-        ChartType.BAR -> BarChartContent(data, accentColor, modifier)
-        else -> LineChartContent(data, accentColor, modifier)
+        ChartType.BAR -> BarChartContent(data, eventAccentColor, modifier)
+        else -> LineChartContent(data, eventAccentColor, modifier)
     }
 }
 
 @Composable
-private fun BarChartContent(data: ChartData.Cartesian, accentColor: Color, modifier: Modifier) {
+private fun BarChartContent(data: ChartData.Cartesian, eventAccentColor: Color, modifier: Modifier) {
     val tickStep = (data.bucketTimestamps.size / 4).coerceAtLeast(1)
     val modelProducer = remember { CartesianChartModelProducer() }
 
@@ -74,8 +74,8 @@ private fun BarChartContent(data: ChartData.Cartesian, accentColor: Color, modif
     val axisTick = rememberLineComponent(color = outlineColor, thickness = 1.dp)
     val guideline = rememberLineComponent(color = guidelineColor, thickness = 0.5.dp)
 
-    val columnColors = remember(accentColor, data.series.size) {
-        data.series.indices.map { i -> accentColor.copy(alpha = (1f - i * 0.25f).coerceAtLeast(0.4f)) }
+    val columnColors = data.series.map { series ->
+        series.colorArgb?.let { Color(it) } ?: eventAccentColor
     }
     val xValueFormatter = rememberXFormatter(data.timeRange, data.bucketTimestamps)
 
@@ -105,7 +105,7 @@ private fun BarChartContent(data: ChartData.Cartesian, accentColor: Color, modif
 }
 
 @Composable
-private fun LineChartContent(data: ChartData.Cartesian, accentColor: Color, modifier: Modifier) {
+private fun LineChartContent(data: ChartData.Cartesian, eventAccentColor: Color, modifier: Modifier) {
     val tickStep = (data.bucketTimestamps.size / 4).coerceAtLeast(1)
     val modelProducer = remember { CartesianChartModelProducer() }
 
@@ -134,8 +134,8 @@ private fun LineChartContent(data: ChartData.Cartesian, accentColor: Color, modi
     val axisTick = rememberLineComponent(color = outlineColor, thickness = 1.dp)
     val guideline = rememberLineComponent(color = guidelineColor, thickness = 0.5.dp)
 
-    val lines = remember(accentColor, data.series.size) {
-        data.series.indices.map { i -> accentColor.copy(alpha = (1f - i * 0.25f).coerceAtLeast(0.4f)) }
+    val seriesColors = data.series.map { series ->
+        series.colorArgb?.let { Color(it) } ?: eventAccentColor
     }
     val xValueFormatter = rememberXFormatter(data.timeRange, data.bucketTimestamps)
 
@@ -143,7 +143,7 @@ private fun LineChartContent(data: ChartData.Cartesian, accentColor: Color, modi
         chart = rememberCartesianChart(
             rememberLineCartesianLayer(
                 lineProvider = LineCartesianLayer.LineProvider.series(
-                    lines.map { color ->
+                    seriesColors.map { color ->
                         LineCartesianLayer.rememberLine(
                             fill = LineCartesianLayer.LineFill.single(fill(color)),
                             pointProvider = LineCartesianLayer.PointProvider.single(

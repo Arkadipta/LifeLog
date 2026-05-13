@@ -126,12 +126,14 @@ object ChartDataProcessor {
 
         val series = config.numericFieldIds.mapNotNull { fieldId ->
             val field = fieldMap[fieldId] ?: return@mapNotNull null
+            val seriesColor = config.fieldColors[fieldId] ?: config.colorArgb
             val points = buckets.mapIndexedNotNull { idx, (_, bucketEntries) ->
                 val values = numericValues(bucketEntries, fieldId)
                 if (values.isEmpty()) null
                 else ChartData.Cartesian.Point(idx, aggregate(values, config.aggregation))
             }
-            if (points.isEmpty()) null else ChartData.Cartesian.Series(field.name, points)
+            if (points.isEmpty()) null
+            else ChartData.Cartesian.Series(field.name, seriesColor, points)
         }
 
         return if (series.isEmpty()) ChartData.Empty

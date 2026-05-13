@@ -6,10 +6,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -19,12 +18,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -34,6 +35,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -44,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.AggregationStrategy
 import com.lifelog.app.domain.model.ChartConfig
@@ -52,6 +55,7 @@ import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.domain.model.TimeRange
 import java.util.UUID
+import androidx.compose.ui.graphics.toArgb
 
 private val PRESET_COLORS = listOf(
     0xFF6750A4, 0xFF409CFF, 0xFF4CAF50, 0xFFFF9800, 0xFFF44336,
@@ -59,7 +63,7 @@ private val PRESET_COLORS = listOf(
     0xFFFFEB3B, 0xFF607D8B
 ).map { it.toInt() }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChartConfigSheet(
     eventTypeId: Long,
@@ -82,10 +86,18 @@ fun ChartConfigSheet(
     var selectedTimeRange by remember {
         mutableStateOf(TimeRange.fromDays(editing?.timeRangeDays))
     }
-    var selectedColor by remember { mutableStateOf(editing?.colorArgb) }
+    // Per-field color map: key present = explicit color, absent = Auto
+    var selectedFieldColors by remember {
+        mutableStateOf<Map<Long, Int?>>(
+            editing?.fieldColors?.mapValues { (_, v) -> v } ?: emptyMap()
+        )
+    }
     var selectedAggregation by remember {
         mutableStateOf(editing?.aggregation ?: AggregationStrategy.MEAN)
     }
+
+    // fieldId whose color picker dialog is open; null = closed
+    var colorPickerFieldId by remember { mutableStateOf<Long?>(null) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -179,34 +191,6 @@ fun ChartConfigSheet(
 
             HorizontalDivider()
 
-            // Plot color
-            Text(
-                text = "Plot color",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                // "Auto" (use event color)
-                ColorDot(
-                    color = MaterialTheme.colorScheme.primary,
-                    selected = selectedColor == null,
-                    label = "Auto",
-                    onClick = { selectedColor = null }
-                )
-                PRESET_COLORS.forEach { argb ->
-                    ColorDot(
-                        color = Color(argb),
-                        selected = selectedColor == argb,
-                        onClick = { selectedColor = argb }
-                    )
-                }
-            }
-
-            HorizontalDivider()
-
             // Numeric field selection
             Text(
                 text = if (selectedType == ChartType.PIE) "Numeric field" else "Numeric fields",
@@ -242,7 +226,18 @@ fun ChartConfigSheet(
                         }
                         val label = if (field.unit.isNotBlank()) "${field.name} (${field.unit})"
                                     else field.name
-                        Text(label, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        // Color swatch — shown for selected line/bar fields; fixed size, no layout shift
+                        if (selectedType != ChartType.PIE && isSelected) {
+                            ColorSwatchButton(
+                                color = selectedFieldColors[field.id]?.let { Color(it) },
+                                onClick = { colorPickerFieldId = field.id }
+                            )
+                        }
                     }
                 }
             }
@@ -287,6 +282,9 @@ fun ChartConfigSheet(
 
             Button(
                 onClick = {
+                    val fieldColors = selectedFieldColors
+                        .filterValues { it != null }
+                        .mapValues { (_, v) -> v!! }
                     onSave(
                         ChartConfig(
                             id = editing?.id ?: UUID.randomUUID().toString(),
@@ -296,7 +294,8 @@ fun ChartConfigSheet(
                             numericFieldIds = selectedNumericIds.toList(),
                             groupByFieldId = if (selectedType == ChartType.PIE) selectedGroupId else null,
                             timeRangeDays = selectedTimeRange.days,
-                            colorArgb = selectedColor,
+                            colorArgb = null,
+                            fieldColors = fieldColors,
                             sortOrder = editing?.sortOrder ?: 0,
                             createdAt = editing?.createdAt ?: System.currentTimeMillis(),
                             aggregation = if (selectedType == ChartType.PIE) AggregationStrategy.SUM
@@ -312,19 +311,299 @@ fun ChartConfigSheet(
             }
         }
     }
+
+    // Color picker dialog — rendered as a sibling to the bottom sheet so it floats above it
+    colorPickerFieldId?.let { fieldId ->
+        SeriesColorPickerDialog(
+            currentColor = selectedFieldColors[fieldId],
+            onColorSelected = { color ->
+                selectedFieldColors = if (color == null)
+                    selectedFieldColors - fieldId
+                else
+                    selectedFieldColors + (fieldId to color)
+                colorPickerFieldId = null
+            },
+            onDismiss = { colorPickerFieldId = null }
+        )
+    }
+}
+
+/**
+ * A fixed-size 40×40 dp tappable button showing a 22 dp color swatch.
+ * Null color = Auto; renders as a neutral outlined circle.
+ */
+@Composable
+private fun ColorSwatchButton(
+    color: Color?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val swatchColor = color ?: MaterialTheme.colorScheme.surfaceVariant
+    val borderColor = if (color == null)
+        MaterialTheme.colorScheme.outline
+    else
+        MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+
+    IconButton(onClick = onClick, modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(CircleShape)
+                .border(1.5.dp, borderColor, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                modifier = Modifier.size(22.dp),
+                shape = CircleShape,
+                color = swatchColor
+            ) {}
+            // "A" overlay when Auto so the empty/neutral circle is not ambiguous
+            if (color == null) {
+                Text(
+                    text = "A",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Modal dialog with an "Auto" chip and a 4-column grid of preset color dots.
+ * Selecting any option immediately confirms and closes.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SeriesColorPickerDialog(
+    currentColor: Int?,
+    onColorSelected: (Int?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true
+    )
+
+    // Theme-aware palette instead of hardcoded Material 2-style colors
+    val palette = listOf(
+        MaterialTheme.colorScheme.primary,
+        MaterialTheme.colorScheme.secondary,
+        MaterialTheme.colorScheme.tertiary,
+        MaterialTheme.colorScheme.error,
+
+        MaterialTheme.colorScheme.primaryContainer,
+        MaterialTheme.colorScheme.secondaryContainer,
+        MaterialTheme.colorScheme.tertiaryContainer,
+        MaterialTheme.colorScheme.errorContainer,
+
+        Color(0xFF409CFF),
+        Color(0xFF4CAF50),
+        Color(0xFFFF9800),
+        Color(0xFFE91E63)
+    )
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        dragHandle = null,
+        tonalElevation = 2.dp,
+        shape = MaterialTheme.shapes.extraLarge
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(top = 8.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            Text(
+                text = "Series color",
+                style = MaterialTheme.typography.headlineSmall
+            )
+
+            // Auto option
+            Surface(
+                onClick = { onColorSelected(null) },
+                shape = MaterialTheme.shapes.large,
+                color = if (currentColor == null)
+                    MaterialTheme.colorScheme.secondaryContainer
+                else
+                    MaterialTheme.colorScheme.surfaceContainerHighest,
+                tonalElevation = if (currentColor == null) 2.dp else 0.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .border(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant,
+                                CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "A",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Automatic",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = "Inherit event color",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    if (currentColor == null) {
+                        Icon(
+                            Icons.Rounded.Check,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Preset colors",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                palette.chunked(4).forEach { rowColors ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(
+                            16.dp,
+                            Alignment.CenterHorizontally
+                        )
+                    ) {
+                        rowColors.forEach { color ->
+                            ExpressiveColorDot(
+                                color = color,
+                                selected = currentColor == color.toArgb(),
+                                onClick = {
+                                    onColorSelected(color.toArgb())
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
-private fun ColorDot(
+private fun ExpressiveColorDot(
     color: Color,
     selected: Boolean,
     onClick: () -> Unit,
-    label: String? = null,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = Color.Transparent,
+        modifier = modifier.size(64.dp)
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                modifier = Modifier.size(if (selected) 54.dp else 48.dp),
+                shape = CircleShape,
+                color = color,
+                tonalElevation = if (selected) 4.dp else 0.dp,
+                shadowElevation = if (selected) 2.dp else 0.dp
+            ) {}
+
+            if (selected) {
+                val luminance = color.luminance()
+
+                Icon(
+                    Icons.Rounded.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                    tint = if (luminance > 0.5f) Color.Black else Color.White
+                )
+            }
+        }
+    }
+}
+//@Composable
+//private fun SeriesColorPickerDialog(
+//    currentColor: Int?,
+//    onColorSelected: (Int?) -> Unit,
+//    onDismiss: () -> Unit
+//) {
+//    AlertDialog(
+//        onDismissRequest = onDismiss,
+//        title = { Text("Series color") },
+//        text = {
+//            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+//                // Auto option — clearly labeled chip spanning full width
+//                FilterChip(
+//                    selected = currentColor == null,
+//                    onClick = { onColorSelected(null) },
+//                    label = { Text("Auto (inherit event color)") },
+//                    modifier = Modifier.fillMaxWidth()
+//                )
+//
+//                // 4-column grid of preset colors (12 items → 3 rows of 4)
+//                PRESET_COLORS.chunked(4).forEach { rowColors ->
+//                    Row(
+//                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+//                        verticalAlignment = Alignment.CenterVertically
+//                    ) {
+//                        rowColors.forEach { argb ->
+//                            PickerColorDot(
+//                                color = Color(argb),
+//                                selected = currentColor == argb,
+//                                onClick = { onColorSelected(argb) }
+//                            )
+//                        }
+//                    }
+//                }
+//            }
+//        },
+//        confirmButton = {},
+//        dismissButton = {
+//            TextButton(onClick = onDismiss) { Text("Cancel") }
+//        }
+//    )
+//}
+
+/** 40 dp tappable color circle used inside the picker dialog. */
+@Composable
+private fun PickerColorDot(
+    color: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
-            .size(36.dp)
+            .size(40.dp)
             .clip(CircleShape)
             .then(
                 if (selected) Modifier.border(2.5.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
@@ -334,7 +613,7 @@ private fun ColorDot(
         contentAlignment = Alignment.Center
     ) {
         Surface(
-            modifier = Modifier.size(if (selected) 28.dp else 36.dp),
+            modifier = Modifier.size(if (selected) 32.dp else 40.dp),
             shape = CircleShape,
             color = color
         ) {}
@@ -343,7 +622,7 @@ private fun ColorDot(
             Icon(
                 Icons.Rounded.Check,
                 contentDescription = null,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(18.dp),
                 tint = if (lum > 0.4f) Color.Black else Color.White
             )
         }
