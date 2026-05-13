@@ -17,12 +17,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -32,6 +34,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -80,7 +83,7 @@ fun ChartConfigSheet(
     var selectedTimeRange by remember {
         mutableStateOf(TimeRange.fromDays(editing?.timeRangeDays))
     }
-    // Per-field color map: key present + non-null value = explicit color; absent/null = Auto
+    // Per-field color map: key present = explicit color, absent = Auto
     var selectedFieldColors by remember {
         mutableStateOf<Map<Long, Int?>>(
             editing?.fieldColors?.mapValues { (_, v) -> v } ?: emptyMap()
@@ -89,6 +92,9 @@ fun ChartConfigSheet(
     var selectedAggregation by remember {
         mutableStateOf(editing?.aggregation ?: AggregationStrategy.MEAN)
     }
+
+    // fieldId whose color picker dialog is open; null = closed
+    var colorPickerFieldId by remember { mutableStateOf<Long?>(null) }
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -197,44 +203,37 @@ fun ChartConfigSheet(
             } else {
                 numericFields.forEach { field ->
                     val isSelected = field.id in selectedNumericIds
-                    Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            if (selectedType == ChartType.PIE) {
-                                RadioButton(
-                                    selected = isSelected,
-                                    onClick = { selectedNumericIds = setOf(field.id) }
-                                )
-                            } else {
-                                Checkbox(
-                                    checked = isSelected,
-                                    onCheckedChange = { checked ->
-                                        selectedNumericIds = if (checked) selectedNumericIds + field.id
-                                        else selectedNumericIds - field.id
-                                    }
-                                )
-                            }
-                            val label = if (field.unit.isNotBlank()) "${field.name} (${field.unit})"
-                                        else field.name
-                            Text(
-                                label,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (selectedType == ChartType.PIE) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = { selectedNumericIds = setOf(field.id) }
                             )
-                            // Per-series color picker — only for selected line/bar fields
-                            if (selectedType != ChartType.PIE && isSelected) {
-                                SeriesColorPicker(
-                                    selectedColor = selectedFieldColors[field.id],
-                                    onColorSelected = { color ->
-                                        selectedFieldColors = if (color == null)
-                                            selectedFieldColors - field.id
-                                        else
-                                            selectedFieldColors + (field.id to color)
-                                    }
-                                )
-                            }
+                        } else {
+                            Checkbox(
+                                checked = isSelected,
+                                onCheckedChange = { checked ->
+                                    selectedNumericIds = if (checked) selectedNumericIds + field.id
+                                    else selectedNumericIds - field.id
+                                }
+                            )
+                        }
+                        val label = if (field.unit.isNotBlank()) "${field.name} (${field.unit})"
+                                    else field.name
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        // Color swatch — shown for selected line/bar fields; fixed size, no layout shift
+                        if (selectedType != ChartType.PIE && isSelected) {
+                            ColorSwatchButton(
+                                color = selectedFieldColors[field.id]?.let { Color(it) },
+                                onClick = { colorPickerFieldId = field.id }
+                            )
                         }
                     }
                 }
@@ -280,7 +279,6 @@ fun ChartConfigSheet(
 
             Button(
                 onClick = {
-                    // Collect only explicit (non-null) color selections into the persisted map
                     val fieldColors = selectedFieldColors
                         .filterValues { it != null }
                         .mapValues { (_, v) -> v!! }
@@ -310,57 +308,132 @@ fun ChartConfigSheet(
             }
         }
     }
+
+    // Color picker dialog — rendered as a sibling to the bottom sheet so it floats above it
+    colorPickerFieldId?.let { fieldId ->
+        SeriesColorPickerDialog(
+            currentColor = selectedFieldColors[fieldId],
+            onColorSelected = { color ->
+                selectedFieldColors = if (color == null)
+                    selectedFieldColors - fieldId
+                else
+                    selectedFieldColors + (fieldId to color)
+                colorPickerFieldId = null
+            },
+            onDismiss = { colorPickerFieldId = null }
+        )
+    }
 }
 
+/**
+ * A fixed-size 40×40 dp tappable button showing a 22 dp color swatch.
+ * Null color = Auto; renders as a neutral outlined circle.
+ */
 @Composable
-private fun SeriesColorPicker(
-    selectedColor: Int?,
-    onColorSelected: (Int?) -> Unit,
+private fun ColorSwatchButton(
+    color: Color?,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier.horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // "Auto" slot — shows theme primary as a preview with a dashed outline
-        SmallColorDot(
-            color = MaterialTheme.colorScheme.primary,
-            selected = selectedColor == null,
-            isAuto = true,
-            onClick = { onColorSelected(null) }
-        )
-        PRESET_COLORS.forEach { argb ->
-            SmallColorDot(
-                color = Color(argb),
-                selected = selectedColor == argb,
-                onClick = { onColorSelected(argb) }
-            )
+    val swatchColor = color ?: MaterialTheme.colorScheme.surfaceVariant
+    val borderColor = if (color == null)
+        MaterialTheme.colorScheme.outline
+    else
+        MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+
+    IconButton(onClick = onClick, modifier = modifier) {
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(CircleShape)
+                .border(1.5.dp, borderColor, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                modifier = Modifier.size(22.dp),
+                shape = CircleShape,
+                color = swatchColor
+            ) {}
+            // "A" overlay when Auto so the empty/neutral circle is not ambiguous
+            if (color == null) {
+                Text(
+                    text = "A",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
 
+/**
+ * Modal dialog with an "Auto" chip and a 4-column grid of preset color dots.
+ * Selecting any option immediately confirms and closes.
+ */
 @Composable
-private fun SmallColorDot(
+private fun SeriesColorPickerDialog(
+    currentColor: Int?,
+    onColorSelected: (Int?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Series color") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Auto option — clearly labeled chip spanning full width
+                FilterChip(
+                    selected = currentColor == null,
+                    onClick = { onColorSelected(null) },
+                    label = { Text("Auto (inherit event color)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // 4-column grid of preset colors (12 items → 3 rows of 4)
+                PRESET_COLORS.chunked(4).forEach { rowColors ->
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        rowColors.forEach { argb ->
+                            PickerColorDot(
+                                color = Color(argb),
+                                selected = currentColor == argb,
+                                onClick = { onColorSelected(argb) }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+/** 40 dp tappable color circle used inside the picker dialog. */
+@Composable
+private fun PickerColorDot(
     color: Color,
     selected: Boolean,
     onClick: () -> Unit,
-    isAuto: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
-            .size(24.dp)
+            .size(40.dp)
             .clip(CircleShape)
             .then(
-                if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                if (selected) Modifier.border(2.5.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
                 else Modifier
             )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Surface(
-            modifier = Modifier.size(if (selected) 18.dp else 24.dp),
+            modifier = Modifier.size(if (selected) 32.dp else 40.dp),
             shape = CircleShape,
             color = color
         ) {}
@@ -369,20 +442,9 @@ private fun SmallColorDot(
             Icon(
                 Icons.Rounded.Check,
                 contentDescription = null,
-                modifier = Modifier.size(12.dp),
+                modifier = Modifier.size(18.dp),
                 tint = if (lum > 0.4f) Color.Black else Color.White
-            )
-        } else if (isAuto) {
-            // "A" label to distinguish Auto from an explicit color
-            Text(
-                text = "A",
-                style = MaterialTheme.typography.labelSmall,
-                color = run {
-                    val lum = 0.2126f * color.red + 0.7152f * color.green + 0.0722f * color.blue
-                    if (lum > 0.4f) Color.Black else Color.White
-                }
             )
         }
     }
 }
-
