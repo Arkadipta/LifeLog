@@ -42,11 +42,10 @@ fun ChartCarousel(
             contentPadding = PaddingValues(horizontal = 16.dp)
         ) {
             items(charts, key = { it.id }) { config ->
-                val chartColor = config.colorArgb?.let { Color(it) } ?: eventAccentColor
                 ChartCard(
                     config = config,
                     data = chartDataMap[config.id] ?: ChartData.Empty,
-                    accentColor = chartColor,
+                    eventAccentColor = eventAccentColor,
                     onEdit = { onEditChart(config) },
                     onDelete = { onDeleteChart(config.id) },
                     modifier = Modifier

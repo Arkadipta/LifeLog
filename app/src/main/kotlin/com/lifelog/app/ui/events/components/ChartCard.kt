@@ -34,7 +34,7 @@ import com.lifelog.app.ui.theme.LocalAmoledColors
 fun ChartCard(
     config: ChartConfig,
     data: ChartData,
-    accentColor: Color,
+    eventAccentColor: Color,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
@@ -84,7 +84,7 @@ fun ChartCard(
 
             Box(modifier = Modifier.fillMaxSize()) {
                 when (data) {
-                    is ChartData.Cartesian -> CartesianChartContent(data = data, accentColor = accentColor)
+                    is ChartData.Cartesian -> CartesianChartContent(data = data, eventAccentColor = eventAccentColor)
                     is ChartData.Pie -> PieChartContent(data = data)
                     ChartData.Empty, ChartData.InsufficientData -> ChartEmptyState(data = data)
                 }

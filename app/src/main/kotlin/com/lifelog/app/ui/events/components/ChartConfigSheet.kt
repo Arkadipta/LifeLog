@@ -6,8 +6,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -59,7 +57,7 @@ private val PRESET_COLORS = listOf(
     0xFFFFEB3B, 0xFF607D8B
 ).map { it.toInt() }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChartConfigSheet(
     eventTypeId: Long,
@@ -82,7 +80,12 @@ fun ChartConfigSheet(
     var selectedTimeRange by remember {
         mutableStateOf(TimeRange.fromDays(editing?.timeRangeDays))
     }
-    var selectedColor by remember { mutableStateOf(editing?.colorArgb) }
+    // Per-field color map: key present + non-null value = explicit color; absent/null = Auto
+    var selectedFieldColors by remember {
+        mutableStateOf<Map<Long, Int?>>(
+            editing?.fieldColors?.mapValues { (_, v) -> v } ?: emptyMap()
+        )
+    }
     var selectedAggregation by remember {
         mutableStateOf(editing?.aggregation ?: AggregationStrategy.MEAN)
     }
@@ -179,34 +182,6 @@ fun ChartConfigSheet(
 
             HorizontalDivider()
 
-            // Plot color
-            Text(
-                text = "Plot color",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                // "Auto" (use event color)
-                ColorDot(
-                    color = MaterialTheme.colorScheme.primary,
-                    selected = selectedColor == null,
-                    label = "Auto",
-                    onClick = { selectedColor = null }
-                )
-                PRESET_COLORS.forEach { argb ->
-                    ColorDot(
-                        color = Color(argb),
-                        selected = selectedColor == argb,
-                        onClick = { selectedColor = argb }
-                    )
-                }
-            }
-
-            HorizontalDivider()
-
             // Numeric field selection
             Text(
                 text = if (selectedType == ChartType.PIE) "Numeric field" else "Numeric fields",
@@ -222,27 +197,45 @@ fun ChartConfigSheet(
             } else {
                 numericFields.forEach { field ->
                     val isSelected = field.id in selectedNumericIds
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        if (selectedType == ChartType.PIE) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = { selectedNumericIds = setOf(field.id) }
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (selectedType == ChartType.PIE) {
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = { selectedNumericIds = setOf(field.id) }
+                                )
+                            } else {
+                                Checkbox(
+                                    checked = isSelected,
+                                    onCheckedChange = { checked ->
+                                        selectedNumericIds = if (checked) selectedNumericIds + field.id
+                                        else selectedNumericIds - field.id
+                                    }
+                                )
+                            }
+                            val label = if (field.unit.isNotBlank()) "${field.name} (${field.unit})"
+                                        else field.name
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f)
                             )
-                        } else {
-                            Checkbox(
-                                checked = isSelected,
-                                onCheckedChange = { checked ->
-                                    selectedNumericIds = if (checked) selectedNumericIds + field.id
-                                    else selectedNumericIds - field.id
-                                }
-                            )
+                            // Per-series color picker — only for selected line/bar fields
+                            if (selectedType != ChartType.PIE && isSelected) {
+                                SeriesColorPicker(
+                                    selectedColor = selectedFieldColors[field.id],
+                                    onColorSelected = { color ->
+                                        selectedFieldColors = if (color == null)
+                                            selectedFieldColors - field.id
+                                        else
+                                            selectedFieldColors + (field.id to color)
+                                    }
+                                )
+                            }
                         }
-                        val label = if (field.unit.isNotBlank()) "${field.name} (${field.unit})"
-                                    else field.name
-                        Text(label, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
@@ -287,6 +280,10 @@ fun ChartConfigSheet(
 
             Button(
                 onClick = {
+                    // Collect only explicit (non-null) color selections into the persisted map
+                    val fieldColors = selectedFieldColors
+                        .filterValues { it != null }
+                        .mapValues { (_, v) -> v!! }
                     onSave(
                         ChartConfig(
                             id = editing?.id ?: UUID.randomUUID().toString(),
@@ -296,7 +293,8 @@ fun ChartConfigSheet(
                             numericFieldIds = selectedNumericIds.toList(),
                             groupByFieldId = if (selectedType == ChartType.PIE) selectedGroupId else null,
                             timeRangeDays = selectedTimeRange.days,
-                            colorArgb = selectedColor,
+                            colorArgb = null,
+                            fieldColors = fieldColors,
                             sortOrder = editing?.sortOrder ?: 0,
                             createdAt = editing?.createdAt ?: System.currentTimeMillis(),
                             aggregation = if (selectedType == ChartType.PIE) AggregationStrategy.SUM
@@ -315,26 +313,54 @@ fun ChartConfigSheet(
 }
 
 @Composable
-private fun ColorDot(
+private fun SeriesColorPicker(
+    selectedColor: Int?,
+    onColorSelected: (Int?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // "Auto" slot — shows theme primary as a preview with a dashed outline
+        SmallColorDot(
+            color = MaterialTheme.colorScheme.primary,
+            selected = selectedColor == null,
+            isAuto = true,
+            onClick = { onColorSelected(null) }
+        )
+        PRESET_COLORS.forEach { argb ->
+            SmallColorDot(
+                color = Color(argb),
+                selected = selectedColor == argb,
+                onClick = { onColorSelected(argb) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SmallColorDot(
     color: Color,
     selected: Boolean,
     onClick: () -> Unit,
-    label: String? = null,
+    isAuto: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
-            .size(36.dp)
+            .size(24.dp)
             .clip(CircleShape)
             .then(
-                if (selected) Modifier.border(2.5.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
                 else Modifier
             )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Surface(
-            modifier = Modifier.size(if (selected) 28.dp else 36.dp),
+            modifier = Modifier.size(if (selected) 18.dp else 24.dp),
             shape = CircleShape,
             color = color
         ) {}
@@ -343,9 +369,20 @@ private fun ColorDot(
             Icon(
                 Icons.Rounded.Check,
                 contentDescription = null,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(12.dp),
                 tint = if (lum > 0.4f) Color.Black else Color.White
+            )
+        } else if (isAuto) {
+            // "A" label to distinguish Auto from an explicit color
+            Text(
+                text = "A",
+                style = MaterialTheme.typography.labelSmall,
+                color = run {
+                    val lum = 0.2126f * color.red + 0.7152f * color.green + 0.0722f * color.blue
+                    if (lum > 0.4f) Color.Black else Color.White
+                }
             )
         }
     }
 }
+
