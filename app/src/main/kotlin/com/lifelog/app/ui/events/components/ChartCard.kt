@@ -84,8 +84,7 @@ fun ChartCard(
 
             Box(modifier = Modifier.fillMaxSize()) {
                 when (data) {
-                    is ChartData.Line -> LineChartContent(data = data, accentColor = accentColor)
-                    is ChartData.Bar -> BarChartContent(data = data, accentColor = accentColor)
+                    is ChartData.Cartesian -> CartesianChartContent(data = data, accentColor = accentColor)
                     is ChartData.Pie -> PieChartContent(data = data)
                     ChartData.Empty, ChartData.InsufficientData -> ChartEmptyState(data = data)
                 }

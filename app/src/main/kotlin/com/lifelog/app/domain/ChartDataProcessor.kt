@@ -27,8 +27,7 @@ object ChartDataProcessor {
         if (filtered.isEmpty()) return ChartData.InsufficientData
 
         return when (config.type) {
-            ChartType.LINE -> buildLineData(config, filtered, fields, timeRange)
-            ChartType.BAR -> buildBarData(config, filtered, fields, timeRange)
+            ChartType.LINE, ChartType.BAR -> buildCartesianData(config, filtered, fields, timeRange)
             ChartType.PIE -> buildPieData(config, filtered, fields)
         }
     }
@@ -50,8 +49,7 @@ object ChartDataProcessor {
                 (0 until 24).map { hour ->
                     val start = dayStart + hour * 3_600_000L
                     val end = start + 3_600_000L
-                    val mid = start + 1_800_000L
-                    Pair(mid, entries.filter { it.createdAt in start until end })
+                    Pair(start + 1_800_000L, entries.filter { it.createdAt in start until end })
                 }
             }
 
@@ -60,20 +58,17 @@ object ChartDataProcessor {
                 (6 downTo 0).map { daysAgo ->
                     val start = todayMidnight - daysAgo * 86_400_000L
                     val end = start + 86_400_000L
-                    val mid = start + 43_200_000L
-                    Pair(mid, entries.filter { it.createdAt in start until end })
+                    Pair(start + 43_200_000L, entries.filter { it.createdAt in start until end })
                 }
             }
 
             TimeRange.MONTH -> {
                 val todayMidnight = midnightToday()
-                // 4 weekly buckets: [−28d, −21d), [−21d, −14d), [−14d, −7d), [−7d, 0+1d)
                 (3 downTo 0).map { weeksAgo ->
                     val start = todayMidnight - (weeksAgo + 1) * 7 * 86_400_000L
                     val end = if (weeksAgo == 0) todayMidnight + 86_400_000L
                                else todayMidnight - weeksAgo * 7 * 86_400_000L
-                    val mid = (start + end) / 2
-                    Pair(mid, entries.filter { it.createdAt in start until end })
+                    Pair((start + end) / 2, entries.filter { it.createdAt in start until end })
                 }
             }
 
@@ -111,16 +106,15 @@ object ChartDataProcessor {
                 (0 until binCount).map { i ->
                     val start = minTime + i * binSize
                     val end = if (i == binCount - 1) maxTime + 1 else start + binSize
-                    val mid = start + binSize / 2
-                    Pair(mid, entries.filter { it.createdAt in start until end })
+                    Pair(start + binSize / 2, entries.filter { it.createdAt in start until end })
                 }
             }
         }
     }
 
-    // ── Line / Bar builders ───────────────────────────────────────────────────
+    // ── Cartesian (Line + Bar) builder ────────────────────────────────────────
 
-    private fun buildLineData(
+    private fun buildCartesianData(
         config: ChartConfig,
         entries: List<EventEntry>,
         fields: List<EventField>,
@@ -135,37 +129,13 @@ object ChartDataProcessor {
             val points = buckets.mapIndexedNotNull { idx, (_, bucketEntries) ->
                 val values = numericValues(bucketEntries, fieldId)
                 if (values.isEmpty()) null
-                else ChartData.Line.Point(idx, aggregate(values, config.aggregation))
+                else ChartData.Cartesian.Point(idx, aggregate(values, config.aggregation))
             }
-            if (points.isEmpty()) null else ChartData.Line.Series(field.name, points)
+            if (points.isEmpty()) null else ChartData.Cartesian.Series(field.name, points)
         }
 
         return if (series.isEmpty()) ChartData.Empty
-               else ChartData.Line(series, timeRange, timestamps)
-    }
-
-    private fun buildBarData(
-        config: ChartConfig,
-        entries: List<EventEntry>,
-        fields: List<EventField>,
-        timeRange: TimeRange
-    ): ChartData {
-        val fieldMap = fields.associateBy { it.id }
-        val buckets = buildBuckets(entries.sortedBy { it.createdAt }, timeRange)
-        val timestamps = buckets.map { it.first }
-
-        val series = config.numericFieldIds.mapNotNull { fieldId ->
-            val field = fieldMap[fieldId] ?: return@mapNotNull null
-            val points = buckets.mapIndexedNotNull { idx, (_, bucketEntries) ->
-                val values = numericValues(bucketEntries, fieldId)
-                if (values.isEmpty()) null
-                else ChartData.Bar.Point(idx, aggregate(values, config.aggregation))
-            }
-            if (points.isEmpty()) null else ChartData.Bar.Series(field.name, points)
-        }
-
-        return if (series.isEmpty()) ChartData.Empty
-               else ChartData.Bar(series, timeRange, timestamps)
+               else ChartData.Cartesian(config.type, series, timeRange, timestamps)
     }
 
     // ── Pie builder ───────────────────────────────────────────────────────────
