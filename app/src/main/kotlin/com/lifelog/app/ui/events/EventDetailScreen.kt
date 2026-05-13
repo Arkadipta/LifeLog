@@ -124,17 +124,17 @@ fun EventDetailScreen(
     // Pre-multiply the 10% event tint over the surface color to get a fully opaque color.
     // This avoids compositing ambiguity in the status bar area and lets us derive the
     // correct icon appearance (light vs dark) for any event color / theme combination.
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val appBarColorTarget = eventType?.let {
-        val ec = Color(it.colorArgb)
-        Color(
-            red   = surfaceColor.red   + (ec.red   - surfaceColor.red)   * 0.1f,
-            green = surfaceColor.green + (ec.green - surfaceColor.green) * 0.1f,
-            blue  = surfaceColor.blue  + (ec.blue  - surfaceColor.blue)  * 0.1f,
-        )
-    } ?: surfaceColor
-    val appBarColor by animateColorAsState(appBarColorTarget, label = "appbar_color")
-
+//    val surfaceColor = MaterialTheme.colorScheme.surface
+//    val appBarColorTarget = eventType?.let {
+//        val ec = Color(it.colorArgb)
+//        Color(
+//            red   = surfaceColor.red   + (ec.red   - surfaceColor.red)   * 0.1f,
+//            green = surfaceColor.green + (ec.green - surfaceColor.green) * 0.1f,
+//            blue  = surfaceColor.blue  + (ec.blue  - surfaceColor.blue)  * 0.1f,
+//        )
+//    } ?: surfaceColor
+//    val appBarColor by animateColorAsState(appBarColorTarget, label = "appbar_color")
+    val appBarColor = MaterialTheme.colorScheme.surface
     val view = LocalView.current
     val darkTheme = isSystemInDarkTheme()
     val insetsController = remember(view) {
