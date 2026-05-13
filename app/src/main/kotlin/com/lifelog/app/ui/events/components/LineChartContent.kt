@@ -132,7 +132,7 @@ private fun rememberXFormatter(
         val fmt = xDateFormatter(timeRange)
         val timestamps = bucketTimestamps
         { idx: Int ->
-            if (idx in timestamps.indices) fmt.format(Date(timestamps[idx])) else ""
+            if (idx in timestamps.indices) fmt.format(Date(timestamps[idx])) else " "
         }
     }
 }
