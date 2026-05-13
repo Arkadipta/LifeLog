@@ -84,7 +84,7 @@ private fun BarChartContent(data: ChartData.Cartesian, accentColor: Color, modif
             rememberColumnCartesianLayer(
                 columnProvider = ColumnCartesianLayer.ColumnProvider.series(
                     columnColors.map { color ->
-                        rememberLineComponent(color = color, shape = CorneredShape.rounded(25))
+                        rememberLineComponent(color = color, thickness = 24.dp, shape = CorneredShape.rounded(25))
                     }
                 )
             ),
