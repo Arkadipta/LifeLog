@@ -79,7 +79,7 @@ fun LineChartContent(data: ChartData.Line, accentColor: Color, modifier: Modifie
         }
     }
 
-    val xValueFormatter = rememberXFormatter(data.timeRange, data.bucketTimestamps, tickStep)
+    val xValueFormatter = rememberXFormatter(data.timeRange, data.bucketTimestamps)
 
     CartesianChartHost(
         chart = rememberCartesianChart(
@@ -113,6 +113,7 @@ fun LineChartContent(data: ChartData.Line, accentColor: Color, modifier: Modifie
                 line = axisLine,
                 tick = axisTick,
                 guideline = null,
+                itemPlacer = HorizontalAxis.ItemPlacer.aligned(spacing = tickStep),
                 valueFormatter = { _, value, _ -> xValueFormatter(value.toInt()) }
             )
         ),
@@ -126,15 +127,12 @@ fun LineChartContent(data: ChartData.Line, accentColor: Color, modifier: Modifie
 private fun rememberXFormatter(
     timeRange: TimeRange,
     bucketTimestamps: List<Long>,
-    tickStep: Int
 ): (Int) -> String {
-    return remember(timeRange, bucketTimestamps, tickStep) {
+    return remember(timeRange, bucketTimestamps) {
         val fmt = xDateFormatter(timeRange)
         val timestamps = bucketTimestamps
-        val step = tickStep
         { idx: Int ->
-            if (idx % step == 0 && idx in timestamps.indices) fmt.format(Date(timestamps[idx]))
-            else ""
+            if (idx in timestamps.indices) fmt.format(Date(timestamps[idx])) else ""
         }
     }
 }
