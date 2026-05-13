@@ -2,6 +2,7 @@ package com.lifelog.app.ui.events.components
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -136,13 +138,17 @@ fun ChartConfigSheet(
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                TimeRange.entries.forEachIndexed { i, range ->
-                    SegmentedButton(
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                TimeRange.entries.forEach { range ->
+                    FilterChip(
                         selected = selectedTimeRange == range,
                         onClick = { selectedTimeRange = range },
-                        shape = SegmentedButtonDefaults.itemShape(i, TimeRange.entries.size),
-                        label = { Text(range.displayName) }
+                        label = { Text(range.displayName, maxLines = 1) }
                     )
                 }
             }
@@ -155,14 +161,17 @@ fun ChartConfigSheet(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                val aggEntries = AggregationStrategy.entries
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    aggEntries.forEachIndexed { i, agg ->
-                        SegmentedButton(
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AggregationStrategy.entries.forEach { agg ->
+                        FilterChip(
                             selected = selectedAggregation == agg,
                             onClick = { selectedAggregation = agg },
-                            shape = SegmentedButtonDefaults.itemShape(i, aggEntries.size),
-                            label = { Text(agg.displayName) }
+                            label = { Text(agg.displayName, maxLines = 1) }
                         )
                     }
                 }
