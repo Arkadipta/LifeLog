@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.ChartData
+import com.lifelog.app.domain.model.TimeRange
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.axis.rememberBottom
 import com.patrykandpatrick.vico.compose.cartesian.axis.rememberStart
@@ -16,6 +17,7 @@ import com.patrykandpatrick.vico.compose.cartesian.layer.point
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLine
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLineCartesianLayer
 import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
+import com.patrykandpatrick.vico.compose.cartesian.rememberVicoScrollState
 import com.patrykandpatrick.vico.compose.common.component.rememberLineComponent
 import com.patrykandpatrick.vico.compose.common.component.rememberShapeComponent
 import com.patrykandpatrick.vico.compose.common.component.rememberTextComponent
@@ -32,16 +34,31 @@ import java.util.Locale
 
 @Composable
 fun LineChartContent(data: ChartData.Line, accentColor: Color, modifier: Modifier = Modifier) {
+    val totalPoints = data.bucketTimestamps.size
+    val tickStep = (totalPoints / 4).coerceAtLeast(1)
+
     val modelProducer = remember { CartesianChartModelProducer() }
 
     LaunchedEffect(data) {
         modelProducer.runTransaction {
             lineSeries {
                 data.series.forEach { series ->
-                    series(
-                        x = series.points.map { it.timestampMs.toFloat() },
-                        y = series.points.map { it.value.toFloat() }
-                    )
+                    val pts = series.points
+                    // Single-point series: inject a synthetic adjacent point so Vico draws a
+                    // flat visible line instead of an isolated dot, and axes render correctly.
+                    if (pts.size == 1) {
+                        val p = pts.first()
+                        val synthIdx = if (p.bucketIndex > 0) p.bucketIndex - 1 else p.bucketIndex + 1
+                        series(
+                            x = listOf(synthIdx.toFloat(), p.bucketIndex.toFloat()),
+                            y = listOf(p.value.toFloat(), p.value.toFloat())
+                        )
+                    } else {
+                        series(
+                            x = pts.map { it.bucketIndex.toFloat() },
+                            y = pts.map { it.value.toFloat() }
+                        )
+                    }
                 }
             }
         }
@@ -49,12 +66,12 @@ fun LineChartContent(data: ChartData.Line, accentColor: Color, modifier: Modifie
 
     val onSurface = MaterialTheme.colorScheme.onSurface
     val outlineColor = MaterialTheme.colorScheme.outline
-    val guidelineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val guidelineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
 
     val axisLabel = rememberTextComponent(color = onSurface)
-    val axisLine = rememberLineComponent(color = outlineColor, thickness = 3.dp)
-    val axisTick = rememberLineComponent(color = outlineColor, thickness = 3.dp)
-    val guideline = rememberLineComponent(color = guidelineColor, thickness = 0.dp)
+    val axisLine = rememberLineComponent(color = outlineColor, thickness = 1.dp)
+    val axisTick = rememberLineComponent(color = outlineColor, thickness = 1.dp)
+    val guideline = rememberLineComponent(color = guidelineColor, thickness = 0.5.dp)
 
     val lines = remember(accentColor, data.series.size) {
         data.series.indices.map { i ->
@@ -62,7 +79,7 @@ fun LineChartContent(data: ChartData.Line, accentColor: Color, modifier: Modifie
         }
     }
 
-    val dateFormatter = remember { SimpleDateFormat("MM/dd", Locale.getDefault()) }
+    val xValueFormatter = rememberXFormatter(data.timeRange, data.bucketTimestamps)
 
     CartesianChartHost(
         chart = rememberCartesianChart(
@@ -77,7 +94,7 @@ fun LineChartContent(data: ChartData.Line, accentColor: Color, modifier: Modifie
                                         color = color,
                                         shape = CorneredShape.rounded(50)
                                     ),
-                                    6.dp
+                                    4.dp
                                 )
                             )
                         )
@@ -89,18 +106,41 @@ fun LineChartContent(data: ChartData.Line, accentColor: Color, modifier: Modifie
                 line = axisLine,
                 tick = axisTick,
                 guideline = guideline,
+                itemPlacer = RobustCountItemPlacer
             ),
             bottomAxis = HorizontalAxis.rememberBottom(
                 label = axisLabel,
                 line = axisLine,
                 tick = axisTick,
                 guideline = null,
-                valueFormatter = { _, value, _ ->
-                    dateFormatter.format(Date(value.toLong()))
-                }
+                itemPlacer = HorizontalAxis.ItemPlacer.aligned(spacing = tickStep),
+                valueFormatter = { _, value, _ -> xValueFormatter(value.toInt()) }
             )
         ),
         modelProducer = modelProducer,
+        scrollState = rememberVicoScrollState(scrollEnabled = false),
         modifier = modifier.fillMaxSize()
     )
+}
+
+@Composable
+private fun rememberXFormatter(
+    timeRange: TimeRange,
+    bucketTimestamps: List<Long>,
+): (Int) -> String {
+    return remember(timeRange, bucketTimestamps) {
+        val fmt = xDateFormatter(timeRange)
+        val timestamps = bucketTimestamps
+        { idx: Int ->
+            if (idx in timestamps.indices) fmt.format(Date(timestamps[idx])) else " "
+        }
+    }
+}
+
+private fun xDateFormatter(timeRange: TimeRange): SimpleDateFormat = when (timeRange) {
+    TimeRange.DAY -> SimpleDateFormat("HH:mm", Locale.getDefault())
+    TimeRange.WEEK -> SimpleDateFormat("EEE", Locale.getDefault())
+    TimeRange.MONTH -> SimpleDateFormat("MMM d", Locale.getDefault())
+    TimeRange.YEAR -> SimpleDateFormat("MMM", Locale.getDefault())
+    TimeRange.ALL -> SimpleDateFormat("MMM yy", Locale.getDefault())
 }

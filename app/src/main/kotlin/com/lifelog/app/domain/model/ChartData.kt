@@ -2,14 +2,23 @@ package com.lifelog.app.domain.model
 
 sealed class ChartData {
 
-    data class Line(val series: List<Series>) : ChartData() {
+    data class Line(
+        val series: List<Series>,
+        val timeRange: TimeRange,
+        val bucketTimestamps: List<Long>
+    ) : ChartData() {
         data class Series(val fieldName: String, val points: List<Point>)
-        data class Point(val timestampMs: Long, val value: Double)
+        /** bucketIndex is the position of this point in bucketTimestamps */
+        data class Point(val bucketIndex: Int, val value: Double)
     }
 
-    data class Bar(val series: List<Series>) : ChartData() {
+    data class Bar(
+        val series: List<Series>,
+        val timeRange: TimeRange,
+        val bucketTimestamps: List<Long>
+    ) : ChartData() {
         data class Series(val fieldName: String, val points: List<Point>)
-        data class Point(val timestampMs: Long, val value: Double)
+        data class Point(val bucketIndex: Int, val value: Double)
     }
 
     data class Pie(val slices: List<Slice>) : ChartData() {

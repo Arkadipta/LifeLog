@@ -14,5 +14,6 @@ data class ChartConfig(
     val timeRangeDays: Int? = null,
     val colorArgb: Int? = null,
     val sortOrder: Int = 0,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val aggregation: AggregationStrategy = AggregationStrategy.MEAN
 )
