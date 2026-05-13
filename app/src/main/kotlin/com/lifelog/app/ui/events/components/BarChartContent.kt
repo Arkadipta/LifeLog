@@ -82,7 +82,7 @@ fun BarChartContent(data: ChartData.Bar, accentColor: Color, modifier: Modifier 
                 line = axisLine,
                 tick = axisTick,
                 guideline = guideline,
-                itemPlacer = remember { VerticalAxis.ItemPlacer.count(count = { 4 }) }
+                itemPlacer = RobustCountItemPlacer
             ),
             bottomAxis = HorizontalAxis.rememberBottom(
                 label = axisLabel,

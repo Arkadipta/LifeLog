@@ -1,20 +1,12 @@
 package com.lifelog.app.ui.events.components
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.ChartData
 import com.lifelog.app.domain.model.TimeRange
@@ -45,27 +37,28 @@ fun LineChartContent(data: ChartData.Line, accentColor: Color, modifier: Modifie
     val totalPoints = data.bucketTimestamps.size
     val tickStep = (totalPoints / 4).coerceAtLeast(1)
 
-    // Sparse: only 1 data point across all series → render as horizontal level line
-    val allPoints = data.series.flatMap { it.points }
-    if (allPoints.size <= 1) {
-        SparseHorizontalLine(
-            value = allPoints.firstOrNull()?.value ?: 0.0,
-            color = accentColor,
-            modifier = modifier.fillMaxSize()
-        )
-        return
-    }
-
     val modelProducer = remember { CartesianChartModelProducer() }
 
     LaunchedEffect(data) {
         modelProducer.runTransaction {
             lineSeries {
                 data.series.forEach { series ->
-                    series(
-                        x = series.points.map { it.bucketIndex.toFloat() },
-                        y = series.points.map { it.value.toFloat() }
-                    )
+                    val pts = series.points
+                    // Single-point series: inject a synthetic adjacent point so Vico draws a
+                    // flat visible line instead of an isolated dot, and axes render correctly.
+                    if (pts.size == 1) {
+                        val p = pts.first()
+                        val synthIdx = if (p.bucketIndex > 0) p.bucketIndex - 1 else p.bucketIndex + 1
+                        series(
+                            x = listOf(synthIdx.toFloat(), p.bucketIndex.toFloat()),
+                            y = listOf(p.value.toFloat(), p.value.toFloat())
+                        )
+                    } else {
+                        series(
+                            x = pts.map { it.bucketIndex.toFloat() },
+                            y = pts.map { it.value.toFloat() }
+                        )
+                    }
                 }
             }
         }
@@ -113,7 +106,7 @@ fun LineChartContent(data: ChartData.Line, accentColor: Color, modifier: Modifie
                 line = axisLine,
                 tick = axisTick,
                 guideline = guideline,
-                itemPlacer = remember { VerticalAxis.ItemPlacer.count(count = { 4 }) }
+                itemPlacer = RobustCountItemPlacer
             ),
             bottomAxis = HorizontalAxis.rememberBottom(
                 label = axisLabel,
@@ -127,31 +120,6 @@ fun LineChartContent(data: ChartData.Line, accentColor: Color, modifier: Modifie
         scrollState = rememberVicoScrollState(scrollEnabled = false),
         modifier = modifier.fillMaxSize()
     )
-}
-
-/** Dashed horizontal line for single-point sparse data. */
-@Composable
-private fun SparseHorizontalLine(value: Double, color: Color, modifier: Modifier = Modifier) {
-    val label = if (value % 1.0 == 0.0) value.toLong().toString() else "%.2f".format(value)
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val y = size.height / 2f
-            drawLine(
-                color = color,
-                start = Offset(0f, y),
-                end = Offset(size.width, y),
-                strokeWidth = 2.dp.toPx(),
-                cap = StrokeCap.Round,
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f))
-            )
-        }
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = color,
-            modifier = Modifier.padding(bottom = 4.dp)
-        )
-    }
 }
 
 @Composable
