@@ -33,7 +33,6 @@ class QuickAddActivity : ComponentActivity() {
                 initial = UserPreferences()
             )
             LifeLogTheme(
-                darkTheme = prefs.useDarkTheme,
                 amoledBlack = prefs.useAmoledBlack,
                 dynamicColor = prefs.useDynamicColor
             ) {

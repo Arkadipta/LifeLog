@@ -19,7 +19,6 @@ class SettingsViewModel @Inject constructor(
     val prefs: StateFlow<UserPreferences> = prefsRepo.userPreferences
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UserPreferences())
 
-    fun setDarkTheme(v: Boolean) = viewModelScope.launch { prefsRepo.setDarkTheme(v) }
     fun setAmoledBlack(v: Boolean) = viewModelScope.launch { prefsRepo.setAmoledBlack(v) }
     fun setDynamicColor(v: Boolean) = viewModelScope.launch { prefsRepo.setDynamicColor(v) }
 }

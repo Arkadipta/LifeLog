@@ -7,12 +7,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.lifecycle.lifecycleScope
 import com.lifelog.app.data.repository.UserPreferencesRepository
 import com.lifelog.app.ui.navigation.AppNavigation
 import com.lifelog.app.ui.theme.LifeLogTheme
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -31,7 +29,6 @@ class MainActivity : ComponentActivity() {
                 initial = com.lifelog.app.data.repository.UserPreferences()
             )
             LifeLogTheme(
-                darkTheme = prefs.useDarkTheme,
                 amoledBlack = prefs.useAmoledBlack,
                 dynamicColor = prefs.useDynamicColor
             ) {

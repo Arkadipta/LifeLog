@@ -1,10 +1,10 @@
 package com.lifelog.app.ui.settings
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -20,6 +20,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val prefs by viewModel.prefs.collectAsStateWithLifecycle()
+    val systemInDarkTheme = isSystemInDarkTheme()
 
     Scaffold(
         topBar = {
@@ -44,20 +45,11 @@ fun SettingsScreen(
             }
             item {
                 SettingsToggleItem(
-                    title = "Dark Theme",
-                    subtitle = "Use dark colors throughout the app",
-                    checked = prefs.useDarkTheme,
-                    onCheckedChange = viewModel::setDarkTheme,
-                    icon = { Icon(Icons.Rounded.DarkMode, null) }
-                )
-            }
-            item {
-                SettingsToggleItem(
                     title = "Pure Black (AMOLED)",
-                    subtitle = "Use true black backgrounds for OLED screens",
+                    subtitle = "Use true black backgrounds for OLED screens (dark mode only)",
                     checked = prefs.useAmoledBlack,
                     onCheckedChange = viewModel::setAmoledBlack,
-                    enabled = prefs.useDarkTheme
+                    enabled = systemInDarkTheme
                 )
             }
             item {

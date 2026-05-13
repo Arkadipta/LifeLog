@@ -15,6 +15,7 @@ import com.patrykandpatrick.vico.compose.cartesian.axis.rememberStart
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberColumnCartesianLayer
 import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
 import com.patrykandpatrick.vico.compose.common.component.rememberLineComponent
+import com.patrykandpatrick.vico.compose.common.component.rememberTextComponent
 import com.patrykandpatrick.vico.core.cartesian.axis.HorizontalAxis
 import com.patrykandpatrick.vico.core.cartesian.axis.VerticalAxis
 import com.patrykandpatrick.vico.core.cartesian.data.CartesianChartModelProducer
@@ -42,7 +43,13 @@ fun BarChartContent(data: ChartData.Bar, accentColor: Color, modifier: Modifier 
         }
     }
 
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val outlineColor = MaterialTheme.colorScheme.outline
     val guidelineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+
+    val axisLabel = rememberTextComponent(color = onSurface)
+    val axisLine = rememberLineComponent(color = outlineColor, thickness = 1.dp)
+    val axisTick = rememberLineComponent(color = outlineColor, thickness = 1.dp)
     val guideline = rememberLineComponent(color = guidelineColor, thickness = 0.5.dp)
 
     val columnColors = remember(accentColor, data.series.size) {
@@ -65,8 +72,16 @@ fun BarChartContent(data: ChartData.Bar, accentColor: Color, modifier: Modifier 
                     }
                 )
             ),
-            startAxis = VerticalAxis.rememberStart(guideline = guideline),
+            startAxis = VerticalAxis.rememberStart(
+                label = axisLabel,
+                line = axisLine,
+                tick = axisTick,
+                guideline = guideline,
+            ),
             bottomAxis = HorizontalAxis.rememberBottom(
+                label = axisLabel,
+                line = axisLine,
+                tick = axisTick,
                 guideline = null,
                 valueFormatter = { _, value, _ ->
                     dateFormatter.format(Date(value.toLong()))

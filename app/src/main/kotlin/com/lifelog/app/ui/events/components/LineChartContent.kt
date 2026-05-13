@@ -7,7 +7,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.ChartData
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
@@ -19,6 +18,7 @@ import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLineCartesianLa
 import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
 import com.patrykandpatrick.vico.compose.common.component.rememberLineComponent
 import com.patrykandpatrick.vico.compose.common.component.rememberShapeComponent
+import com.patrykandpatrick.vico.compose.common.component.rememberTextComponent
 import com.patrykandpatrick.vico.compose.common.fill
 import com.patrykandpatrick.vico.core.cartesian.axis.HorizontalAxis
 import com.patrykandpatrick.vico.core.cartesian.axis.VerticalAxis
@@ -47,8 +47,14 @@ fun LineChartContent(data: ChartData.Line, accentColor: Color, modifier: Modifie
         }
     }
 
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val outlineColor = MaterialTheme.colorScheme.outline
     val guidelineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-    val guideline = rememberLineComponent(color = guidelineColor, thickness = 0.5.dp)
+
+    val axisLabel = rememberTextComponent(color = onSurface)
+    val axisLine = rememberLineComponent(color = outlineColor, thickness = 3.dp)
+    val axisTick = rememberLineComponent(color = outlineColor, thickness = 3.dp)
+    val guideline = rememberLineComponent(color = guidelineColor, thickness = 0.dp)
 
     val lines = remember(accentColor, data.series.size) {
         data.series.indices.map { i ->
@@ -78,8 +84,16 @@ fun LineChartContent(data: ChartData.Line, accentColor: Color, modifier: Modifie
                     }
                 )
             ),
-            startAxis = VerticalAxis.rememberStart(guideline = guideline),
+            startAxis = VerticalAxis.rememberStart(
+                label = axisLabel,
+                line = axisLine,
+                tick = axisTick,
+                guideline = guideline,
+            ),
             bottomAxis = HorizontalAxis.rememberBottom(
+                label = axisLabel,
+                line = axisLine,
+                tick = axisTick,
                 guideline = null,
                 valueFormatter = { _, value, _ ->
                     dateFormatter.format(Date(value.toLong()))
