@@ -3,10 +3,12 @@ package com.lifelog.app.ui.events
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
+import com.lifelog.app.data.repository.ReminderRepository
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.model.FieldValue
+import com.lifelog.app.notifications.ReminderScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,14 +29,16 @@ data class EntryFormState(
 
 @HiltViewModel
 class EntryViewModel @Inject constructor(
-    private val repository: EventRepository
+    private val repository: EventRepository,
+    private val reminderRepository: ReminderRepository,
+    private val reminderScheduler: ReminderScheduler
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(EntryFormState())
     val state: StateFlow<EntryFormState> = _state.asStateFlow()
 
     fun loadEventType(eventTypeId: Long) {
-        _state.value = EntryFormState()  // sync: clears isSaved before any LaunchedEffect reads it
+        _state.value = EntryFormState()
         viewModelScope.launch {
             val eventType = repository.getEventType(eventTypeId)
             _state.update { it.copy(eventType = eventType) }
@@ -42,7 +46,7 @@ class EntryViewModel @Inject constructor(
     }
 
     fun loadEntry(entryId: Long) {
-        _state.value = EntryFormState(isLoading = true)  // sync: clears isSaved before any LaunchedEffect reads it
+        _state.value = EntryFormState(isLoading = true)
         viewModelScope.launch {
             val entry = repository.getEntry(entryId)
             if (entry != null) {
@@ -86,6 +90,14 @@ class EntryViewModel @Inject constructor(
                 createdAt = current.createdAt
             )
             repository.saveEntry(entry)
+
+            // Reschedule any TIME_SINCE_LAST reminders linked to this event type
+            reminderRepository.rescheduleTimeSinceLast(
+                eventTypeId = eventTypeId,
+                entryAt = current.createdAt,
+                schedule = { reminder -> reminderScheduler.schedule(reminder) }
+            )
+
             _state.update { it.copy(isLoading = false, isSaved = true) }
         }
     }

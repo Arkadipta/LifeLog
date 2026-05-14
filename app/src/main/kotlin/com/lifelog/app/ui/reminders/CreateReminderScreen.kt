@@ -4,11 +4,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,7 +23,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.lifelog.app.domain.model.RepeatType
+import com.lifelog.app.domain.model.DeliveryType
+import com.lifelog.app.domain.model.RecurrenceType
 import com.lifelog.app.util.minutesFromMidnightToLabel
 import java.util.Calendar
 
@@ -82,6 +87,8 @@ fun CreateReminderScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+
+            // ── Title ───────────────────────────────────────────────────────
             item {
                 OutlinedTextField(
                     value = state.title,
@@ -94,6 +101,7 @@ fun CreateReminderScreen(
                 )
             }
 
+            // ── Message ──────────────────────────────────────────────────────
             item {
                 OutlinedTextField(
                     value = state.message,
@@ -104,6 +112,7 @@ fun CreateReminderScreen(
                 )
             }
 
+            // ── Linked event ─────────────────────────────────────────────────
             item {
                 OutlinedCard(
                     onClick = { showEventPicker = true },
@@ -111,21 +120,51 @@ fun CreateReminderScreen(
                 ) {
                     ListItem(
                         headlineContent = { Text("Linked Event") },
-                        supportingContent = {
-                            Text(state.eventTypeName ?: "All Events (Global)")
-                        }
+                        supportingContent = { Text(state.eventTypeName ?: "All Events (Global)") }
                     )
                 }
             }
 
+            // ── Delivery type ─────────────────────────────────────────────────
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Delivery", style = MaterialTheme.typography.labelLarge)
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        DeliveryType.entries.forEachIndexed { idx, dt ->
+                            SegmentedButton(
+                                selected = state.deliveryType == dt,
+                                onClick = { viewModel.setDeliveryType(dt) },
+                                shape = SegmentedButtonDefaults.itemShape(index = idx, count = DeliveryType.entries.size),
+                                icon = {
+                                    Icon(
+                                        if (dt == DeliveryType.ALARM) Icons.Rounded.Alarm
+                                        else Icons.Rounded.NotificationsActive,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            ) { Text(dt.displayName) }
+                        }
+                    }
+                    if (state.deliveryType == DeliveryType.ALARM) {
+                        Text(
+                            "Alarm shows a full-screen alert and rings even in silent mode.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // ── Recurrence type ───────────────────────────────────────────────
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Repeat", style = MaterialTheme.typography.labelLarge)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(RepeatType.entries) { type ->
+                        items(RecurrenceType.entries) { type ->
                             FilterChip(
-                                selected = state.repeatType == type,
-                                onClick = { viewModel.setRepeatType(type) },
+                                selected = state.recurrenceRule.type == type,
+                                onClick = { viewModel.setRecurrenceType(type) },
                                 label = { Text(type.displayName) }
                             )
                         }
@@ -133,21 +172,87 @@ fun CreateReminderScreen(
                 }
             }
 
-            if (state.repeatType == RepeatType.INTERVAL) {
+            // ── Interval input (INTERVAL type) ────────────────────────────────
+            if (state.recurrenceRule.type == RecurrenceType.INTERVAL) {
                 item {
-                    OutlinedTextField(
-                        value = state.repeatIntervalHours.toString(),
-                        onValueChange = { v ->
-                            v.toIntOrNull()?.let { viewModel.setIntervalHours(it) }
-                        },
-                        label = { Text("Interval (hours)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
+                    val hours = state.recurrenceRule.intervalMinutes / 60
+                    val mins  = state.recurrenceRule.intervalMinutes % 60
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = hours.toString(),
+                            onValueChange = { v ->
+                                val h = v.toIntOrNull() ?: 0
+                                viewModel.setIntervalMinutes(h * 60 + mins)
+                            },
+                            label = { Text("Hours") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                        OutlinedTextField(
+                            value = mins.toString(),
+                            onValueChange = { v ->
+                                val m = (v.toIntOrNull() ?: 0).coerceIn(0, 59)
+                                viewModel.setIntervalMinutes(hours * 60 + m)
+                            },
+                            label = { Text("Minutes") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                    }
                 }
             }
 
-            if (state.repeatType != RepeatType.INTERVAL) {
+            // ── TIME_SINCE_LAST duration input ───────────────────────────────
+            if (state.recurrenceRule.type == RecurrenceType.TIME_SINCE_LAST) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val hours = state.recurrenceRule.timeSinceLastMinutes / 60
+                        val mins  = state.recurrenceRule.timeSinceLastMinutes % 60
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = hours.toString(),
+                                onValueChange = { v ->
+                                    val h = v.toIntOrNull() ?: 0
+                                    viewModel.setTimeSinceLastTotalMinutes(h * 60 + mins)
+                                },
+                                label = { Text("Hours after last entry") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                            OutlinedTextField(
+                                value = mins.toString(),
+                                onValueChange = { v ->
+                                    val m = (v.toIntOrNull() ?: 0).coerceIn(0, 59)
+                                    viewModel.setTimeSinceLastTotalMinutes(hours * 60 + m)
+                                },
+                                label = { Text("Min") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                        }
+                        Text(
+                            "Fires automatically N hours after the last linked entry. Resets on each new entry.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // ── Time picker (non-INTERVAL, non-TIME_SINCE_LAST) ───────────────
+            val showTimePicker2 = state.recurrenceRule.type != RecurrenceType.INTERVAL &&
+                state.recurrenceRule.type != RecurrenceType.TIME_SINCE_LAST
+            if (showTimePicker2) {
                 item {
                     OutlinedCard(
                         onClick = { showTimePicker = true },
@@ -156,28 +261,24 @@ fun CreateReminderScreen(
                         ListItem(
                             headlineContent = { Text("Time") },
                             supportingContent = {
-                                Text(minutesFromMidnightToLabel(state.timeOfDayMinutes))
+                                Text(minutesFromMidnightToLabel(state.recurrenceRule.timeOfDayMinutes))
                             }
                         )
                     }
                 }
             }
 
-            if (state.repeatType == RepeatType.WEEKLY) {
+            // ── RecurrenceRuleEditor (WEEKLY / MONTHLY / YEARLY) ─────────────
+            val needsEditor = state.recurrenceRule.type in listOf(
+                RecurrenceType.WEEKLY, RecurrenceType.MONTHLY, RecurrenceType.YEARLY
+            )
+            if (needsEditor) {
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Days of Week", style = MaterialTheme.typography.labelLarge)
-                        val days = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(days.indices.toList()) { idx ->
-                                FilterChip(
-                                    selected = state.daysOfWeek.contains(idx),
-                                    onClick = { viewModel.toggleDayOfWeek(idx) },
-                                    label = { Text(days[idx]) }
-                                )
-                            }
-                        }
-                    }
+                    RecurrenceRuleEditor(
+                        rule = state.recurrenceRule,
+                        onRuleChange = viewModel::setRecurrenceRule,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
 
@@ -185,10 +286,11 @@ fun CreateReminderScreen(
         }
     }
 
+    // ── Time picker dialog ────────────────────────────────────────────────────
     if (showTimePicker) {
         val cal = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, state.timeOfDayMinutes / 60)
-            set(Calendar.MINUTE, state.timeOfDayMinutes % 60)
+            set(Calendar.HOUR_OF_DAY, state.recurrenceRule.timeOfDayMinutes / 60)
+            set(Calendar.MINUTE, state.recurrenceRule.timeOfDayMinutes % 60)
         }
         val timeState = rememberTimePickerState(
             initialHour = cal.get(Calendar.HOUR_OF_DAY),
@@ -244,6 +346,7 @@ fun CreateReminderScreen(
         }
     }
 
+    // ── Event picker dialog ────────────────────────────────────────────────────
     if (showEventPicker) {
         AlertDialog(
             onDismissRequest = { showEventPicker = false },
@@ -251,18 +354,12 @@ fun CreateReminderScreen(
             text = {
                 Column {
                     TextButton(
-                        onClick = {
-                            viewModel.setEventType(null, null)
-                            showEventPicker = false
-                        },
+                        onClick = { viewModel.setEventType(null, null); showEventPicker = false },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("All Events (Global)") }
                     state.eventTypes.forEach { et ->
                         TextButton(
-                            onClick = {
-                                viewModel.setEventType(et.id, et.name)
-                                showEventPicker = false
-                            },
+                            onClick = { viewModel.setEventType(et.id, et.name); showEventPicker = false },
                             modifier = Modifier.fillMaxWidth()
                         ) { Text(et.name) }
                     }

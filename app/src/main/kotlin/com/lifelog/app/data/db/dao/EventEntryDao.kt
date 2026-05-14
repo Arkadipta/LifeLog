@@ -34,4 +34,7 @@ interface EventEntryDao {
 
     @Query("SELECT * FROM event_entries WHERE eventTypeId = :eventTypeId ORDER BY createdAt ASC")
     suspend fun getAllForExport(eventTypeId: Long): List<EventEntryEntity>
+
+    @Query("SELECT * FROM event_entries WHERE eventTypeId = :eventTypeId ORDER BY createdAt DESC LIMIT 1")
+    suspend fun getLatestForEventType(eventTypeId: Long): EventEntryEntity?
 }
