@@ -37,45 +37,15 @@ fun RecurrenceRuleEditor(
                         onRuleChange(rule.copy(daysOfWeek = updated.sorted()))
                     }
                 )
-            }
-            RecurrenceType.MONTHLY -> {
-                MonthSelectorRow(
-                    selected = rule.months,
-                    onToggle = { m ->
-                        val updated = if (m in rule.months) rule.months - m else rule.months + m
-                        onRuleChange(rule.copy(months = updated.sorted()))
-                    },
-                    onSelectAll = { onRuleChange(rule.copy(months = emptyList())) },
-                    onSelectEven = { onRuleChange(rule.copy(months = (0..11 step 2).toList())) },
-                    onSelectOdd  = { onRuleChange(rule.copy(months = (1..11 step 2).toList())) }
-                )
-                DayOfMonthModePill(
-                    mode = rule.dayOfMonthMode,
-                    onModeChange = { onRuleChange(rule.copy(dayOfMonthMode = it)) }
-                )
-                when (rule.dayOfMonthMode) {
-                    DayOfMonthMode.DAY_OF_MONTH -> DomEditor(
-                        selected = rule.daysOfMonth,
-                        onToggle = { d ->
-                            val updated = if (d in rule.daysOfMonth) rule.daysOfMonth - d else rule.daysOfMonth + d
-                            onRuleChange(rule.copy(daysOfMonth = updated.sorted()))
-                        }
-                    )
-                    DayOfMonthMode.DAY_OF_WEEK -> DowPositionEditor(
-                        selectedDays = rule.daysOfWeek,
-                        selectedPositions = rule.weekPositions,
-                        onToggleDay = { day ->
-                            val updated = if (day in rule.daysOfWeek) rule.daysOfWeek - day else rule.daysOfWeek + day
-                            onRuleChange(rule.copy(daysOfWeek = updated.sorted()))
-                        },
-                        onTogglePosition = { pos ->
-                            val updated = if (pos in rule.weekPositions) rule.weekPositions - pos else rule.weekPositions + pos
-                            onRuleChange(rule.copy(weekPositions = updated))
-                        }
+                if (rule.daysOfWeek.isEmpty()) {
+                    Text(
+                        "No days selected — fires every day.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-            RecurrenceType.YEARLY -> {
+            RecurrenceType.MONTHLY, RecurrenceType.YEARLY -> {
                 MonthSelectorRow(
                     selected = rule.months,
                     onToggle = { m ->

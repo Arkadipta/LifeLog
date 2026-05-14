@@ -161,7 +161,13 @@ fun CreateReminderScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Repeat", style = MaterialTheme.typography.labelLarge)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(RecurrenceType.entries) { type ->
+                        items(listOf(
+                            RecurrenceType.NONE,
+                            RecurrenceType.WEEKLY,
+                            RecurrenceType.MONTHLY,
+                            RecurrenceType.INTERVAL,
+                            RecurrenceType.TIME_SINCE_LAST
+                        )) { type ->
                             FilterChip(
                                 selected = state.recurrenceRule.type == type,
                                 onClick = { viewModel.setRecurrenceType(type) },

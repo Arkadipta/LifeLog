@@ -6,8 +6,8 @@ import kotlinx.serialization.Serializable
 enum class RecurrenceType(val displayName: String) {
     NONE("Once"),
     DAILY("Daily"),
-    WEEKLY("Weekly"),
-    MONTHLY("Monthly"),
+    WEEKLY("Daily / Weekly"),
+    MONTHLY("Monthly / Yearly"),
     YEARLY("Yearly"),
     INTERVAL("Every N hours"),
     TIME_SINCE_LAST("Since last entry")
