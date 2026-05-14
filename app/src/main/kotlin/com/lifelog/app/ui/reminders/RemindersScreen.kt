@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -35,11 +36,12 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lifelog.app.domain.RecurrenceCalculator
+import com.lifelog.app.domain.model.DeliveryType
+import com.lifelog.app.domain.model.RecurrenceType
 import com.lifelog.app.domain.model.Reminder
-import com.lifelog.app.domain.model.RepeatType
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
 import com.lifelog.app.ui.components.SwipeDeleteBackground
-import com.lifelog.app.util.minutesFromMidnightToLabel
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -60,10 +62,7 @@ fun RemindersScreen(
     }
     var fabVisible by remember { mutableStateOf(!animationsEnabled) }
     LaunchedEffect(Unit) {
-        if (animationsEnabled) {
-            delay(200)
-            fabVisible = true
-        }
+        if (animationsEnabled) { delay(200); fabVisible = true }
     }
 
     var notificationPermissionGranted by remember {
@@ -100,17 +99,11 @@ fun RemindersScreen(
             AnimatedVisibility(
                 visible = fabVisible,
                 enter = scaleIn(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    ),
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
                     initialScale = 0.85f
                 ) + fadeIn(tween(150)),
                 exit = scaleOut(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    ),
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
                     targetScale = 0.85f
                 ) + fadeOut(tween(100))
             ) {
@@ -124,9 +117,7 @@ fun RemindersScreen(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
     ) { padding ->
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+            modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -141,11 +132,7 @@ fun RemindersScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                Icons.Rounded.NotificationsOff,
-                                null,
-                                tint = MaterialTheme.colorScheme.onErrorContainer
-                            )
+                            Icon(Icons.Rounded.NotificationsOff, null, tint = MaterialTheme.colorScheme.onErrorContainer)
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     "Notifications disabled",
@@ -159,13 +146,11 @@ fun RemindersScreen(
                                     color = MaterialTheme.colorScheme.onErrorContainer
                                 )
                             }
-                            TextButton(
-                                onClick = {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                        permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                    }
+                            TextButton(onClick = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                 }
-                            ) { Text("Allow") }
+                            }) { Text("Allow") }
                         }
                     }
                 }
@@ -184,9 +169,7 @@ fun RemindersScreen(
                 items(reminders, key = { it.id }) { reminder ->
                     val dismissState = rememberSwipeToDismissBoxState(
                         confirmValueChange = { value ->
-                            if (value == SwipeToDismissBoxValue.EndToStart) {
-                                deleteTarget = reminder
-                            }
+                            if (value == SwipeToDismissBoxValue.EndToStart) deleteTarget = reminder
                             false
                         }
                     )
@@ -218,10 +201,7 @@ fun RemindersScreen(
             text = { Text("\"${target.title}\" will be deleted.") },
             confirmButton = {
                 FilledTonalButton(
-                    onClick = {
-                        viewModel.delete(target)
-                        deleteTarget = null
-                    },
+                    onClick = { viewModel.delete(target); deleteTarget = null },
                     colors = ButtonDefaults.filledTonalButtonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
                         contentColor = MaterialTheme.colorScheme.onErrorContainer
@@ -244,27 +224,26 @@ private fun ReminderCard(
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val isAlarm = reminder.deliveryType == DeliveryType.ALARM
 
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Icon(
-                Icons.Rounded.Alarm,
-                null,
+                if (isAlarm) Icons.Rounded.Alarm else Icons.Rounded.NotificationsActive,
+                contentDescription = if (isAlarm) "Alarm" else "Notification",
                 tint = if (reminder.isActive) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
+                       else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(28.dp)
             )
 
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(reminder.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
                 if (reminder.eventTypeName != null) {
                     Text(
@@ -273,11 +252,18 @@ private fun ReminderCard(
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
+
+                // Compact schedule line
+                val rule = reminder.recurrenceRule
+                if (rule.type == RecurrenceType.WEEKLY && rule.daysOfWeek.isNotEmpty()) {
+                    CompactWeekdayBadge(activeDays = rule.daysOfWeek)
+                }
                 Text(
-                    buildReminderSubtitle(reminder),
+                    RecurrenceCalculator.describeRule(rule),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
                 if (reminder.message.isNotBlank()) {
                     Text(
                         reminder.message,
@@ -288,20 +274,13 @@ private fun ReminderCard(
                 }
             }
 
-            // Switch is the primary control; edit/delete live in a MoreVert menu
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(
-                    checked = reminder.isActive,
-                    onCheckedChange = { onToggle() }
-                )
+                Switch(checked = reminder.isActive, onCheckedChange = { onToggle() })
                 Box {
                     IconButton(onClick = { menuExpanded = true }) {
                         Icon(Icons.Rounded.MoreVert, "Options")
                     }
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false }
-                    ) {
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         DropdownMenuItem(
                             text = { Text("Edit") },
                             leadingIcon = { Icon(Icons.Rounded.Edit, null) },
@@ -309,29 +288,12 @@ private fun ReminderCard(
                         )
                         DropdownMenuItem(
                             text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                            leadingIcon = {
-                                Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error)
-                            },
+                            leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
                             onClick = { menuExpanded = false; onDelete() }
                         )
                     }
                 }
             }
         }
-    }
-}
-
-private fun buildReminderSubtitle(reminder: Reminder): String {
-    val time = minutesFromMidnightToLabel(reminder.timeOfDayMinutes)
-    return when (reminder.repeatType) {
-        RepeatType.NONE -> "Once at $time"
-        RepeatType.DAILY -> "Daily at $time"
-        RepeatType.WEEKLY -> {
-            val days = reminder.daysOfWeek.joinToString(", ") {
-                listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat").getOrElse(it) { "?" }
-            }
-            "Weekly on $days at $time"
-        }
-        RepeatType.INTERVAL -> "Every ${reminder.repeatIntervalMinutes / 60}h"
     }
 }

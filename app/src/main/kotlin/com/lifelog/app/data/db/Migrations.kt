@@ -23,3 +23,11 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
         )
     }
 }
+
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE reminders ADD COLUMN deliveryType TEXT NOT NULL DEFAULT 'NOTIFICATION'")
+        db.execSQL("ALTER TABLE reminders ADD COLUMN recurrenceType TEXT NOT NULL DEFAULT 'DAILY'")
+        db.execSQL("ALTER TABLE reminders ADD COLUMN recurrenceRuleJson TEXT NOT NULL DEFAULT ''")
+    }
+}

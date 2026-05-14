@@ -21,7 +21,7 @@ import com.lifelog.app.data.db.entity.ReminderEntity
         ReminderEntity::class,
         ChartConfigEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class LifeLogDatabase : RoomDatabase() {

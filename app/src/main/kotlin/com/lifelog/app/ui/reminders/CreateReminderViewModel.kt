@@ -4,9 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.data.repository.ReminderRepository
+import com.lifelog.app.domain.RecurrenceCalculator
+import com.lifelog.app.domain.model.DeliveryType
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.domain.model.RecurrenceRule
+import com.lifelog.app.domain.model.RecurrenceType
 import com.lifelog.app.domain.model.Reminder
-import com.lifelog.app.domain.model.RepeatType
 import com.lifelog.app.notifications.ReminderScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,7 +17,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.Calendar
 import javax.inject.Inject
 
 data class CreateReminderUiState(
@@ -22,10 +24,10 @@ data class CreateReminderUiState(
     val message: String = "",
     val eventTypeId: Long? = null,
     val eventTypeName: String? = null,
-    val repeatType: RepeatType = RepeatType.DAILY,
-    val repeatIntervalHours: Int = 1,
-    val daysOfWeek: List<Int> = listOf(1, 2, 3, 4, 5),
-    val timeOfDayMinutes: Int = 8 * 60,
+    val deliveryType: DeliveryType = DeliveryType.NOTIFICATION,
+    val recurrenceRule: RecurrenceRule = RecurrenceRule(type = RecurrenceType.DAILY),
+    // TIME_SINCE_LAST: optional entry datetime that seeds the initial trigger calculation
+    val timeSinceLastEventDateTime: Long? = null,
     val eventTypes: List<EventType> = emptyList(),
     val isLoading: Boolean = false,
     val isSaved: Boolean = false,
@@ -59,25 +61,53 @@ class CreateReminderViewModel @Inject constructor(
                     message = reminder.message,
                     eventTypeId = reminder.eventTypeId,
                     eventTypeName = reminder.eventTypeName,
-                    repeatType = reminder.repeatType,
-                    repeatIntervalHours = reminder.repeatIntervalMinutes / 60,
-                    daysOfWeek = reminder.daysOfWeek,
-                    timeOfDayMinutes = reminder.timeOfDayMinutes
+                    deliveryType = reminder.deliveryType,
+                    recurrenceRule = reminder.recurrenceRule
                 )
             }
         }
     }
 
+    // ── Field updaters ────────────────────────────────────────────────────────
+
     fun setTitle(v: String) = _state.update { it.copy(title = v, titleError = null) }
     fun setMessage(v: String) = _state.update { it.copy(message = v) }
     fun setEventType(id: Long?, name: String?) = _state.update { it.copy(eventTypeId = id, eventTypeName = name) }
-    fun setRepeatType(v: RepeatType) = _state.update { it.copy(repeatType = v) }
-    fun setIntervalHours(v: Int) = _state.update { it.copy(repeatIntervalHours = v.coerceAtLeast(1)) }
-    fun setTimeOfDay(minutes: Int) = _state.update { it.copy(timeOfDayMinutes = minutes) }
-    fun toggleDayOfWeek(day: Int) = _state.update {
-        val days = if (it.daysOfWeek.contains(day)) it.daysOfWeek - day else it.daysOfWeek + day
-        it.copy(daysOfWeek = days.sorted())
+    fun setDeliveryType(v: DeliveryType) = _state.update { it.copy(deliveryType = v) }
+
+    fun setRecurrenceType(type: RecurrenceType) = _state.update {
+        it.copy(recurrenceRule = it.recurrenceRule.copy(type = type))
     }
+
+    fun setRecurrenceRule(rule: RecurrenceRule) = _state.update { it.copy(recurrenceRule = rule) }
+
+    fun setTimeOfDay(minutes: Int) = _state.update {
+        it.copy(recurrenceRule = it.recurrenceRule.copy(timeOfDayMinutes = minutes))
+    }
+
+    fun setIntervalHours(hours: Int) = _state.update {
+        val mins = hours.coerceAtLeast(1) * 60
+        it.copy(recurrenceRule = it.recurrenceRule.copy(intervalMinutes = mins))
+    }
+
+    fun setIntervalMinutes(totalMinutes: Int) = _state.update {
+        it.copy(recurrenceRule = it.recurrenceRule.copy(intervalMinutes = totalMinutes.coerceAtLeast(1)))
+    }
+
+    fun setTimeSinceLastHours(hours: Int) = _state.update {
+        val mins = hours.coerceAtLeast(1) * 60
+        it.copy(recurrenceRule = it.recurrenceRule.copy(timeSinceLastMinutes = mins))
+    }
+
+    fun setTimeSinceLastTotalMinutes(totalMinutes: Int) = _state.update {
+        it.copy(recurrenceRule = it.recurrenceRule.copy(timeSinceLastMinutes = totalMinutes.coerceAtLeast(1)))
+    }
+
+    fun setTimeSinceLastEventDateTime(epochMs: Long?) = _state.update {
+        it.copy(timeSinceLastEventDateTime = epochMs)
+    }
+
+    // ── Save ──────────────────────────────────────────────────────────────────
 
     fun save(existingId: Long = 0L) {
         val title = _state.value.title.trim()
@@ -88,38 +118,34 @@ class CreateReminderViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             val current = _state.value
-            val nextTrigger = computeNextTrigger(current)
+            val nextTrigger = RecurrenceCalculator.computeInitialTrigger(
+                rule = current.recurrenceRule,
+                now = System.currentTimeMillis(),
+                eventDateTime = current.timeSinceLastEventDateTime
+            ) ?: run {
+                // TIME_SINCE_LAST already elapsed — save as active but don't schedule immediately
+                System.currentTimeMillis()
+            }
+
             val reminder = Reminder(
                 id = existingId,
                 eventTypeId = current.eventTypeId,
                 eventTypeName = current.eventTypeName,
                 title = title,
                 message = current.message.trim(),
-                repeatType = current.repeatType,
-                repeatIntervalMinutes = current.repeatIntervalHours * 60,
-                daysOfWeek = current.daysOfWeek,
-                timeOfDayMinutes = current.timeOfDayMinutes,
+                deliveryType = current.deliveryType,
+                recurrenceRule = current.recurrenceRule,
                 nextTriggerAt = nextTrigger,
                 isActive = true
             )
             val id = reminderRepository.save(reminder)
-            scheduler.schedule(reminder.copy(id = id))
-            _state.update { it.copy(isLoading = false, isSaved = true) }
-        }
-    }
 
-    private fun computeNextTrigger(state: CreateReminderUiState): Long {
-        val now = Calendar.getInstance()
-        val target = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, state.timeOfDayMinutes / 60)
-            set(Calendar.MINUTE, state.timeOfDayMinutes % 60)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        if (target.before(now)) target.add(Calendar.DAY_OF_YEAR, 1)
-        return when (state.repeatType) {
-            RepeatType.INTERVAL -> System.currentTimeMillis() + state.repeatIntervalHours * 3_600_000L
-            else -> target.timeInMillis
+            // Only schedule if the trigger is in the future
+            if (nextTrigger > System.currentTimeMillis()) {
+                scheduler.schedule(reminder.copy(id = id))
+            }
+
+            _state.update { it.copy(isLoading = false, isSaved = true) }
         }
     }
 }

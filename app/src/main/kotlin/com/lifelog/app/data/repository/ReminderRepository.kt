@@ -4,6 +4,7 @@ import com.lifelog.app.data.db.toDomain
 import com.lifelog.app.data.db.toEntity
 import com.lifelog.app.data.db.dao.EventTypeDao
 import com.lifelog.app.data.db.dao.ReminderDao
+import com.lifelog.app.domain.RecurrenceCalculator
 import com.lifelog.app.domain.model.Reminder
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -61,5 +62,30 @@ class ReminderRepository @Inject constructor(
 
     suspend fun updateNextTrigger(id: Long, nextTriggerAt: Long) {
         reminderDao.updateNextTrigger(id, nextTriggerAt)
+    }
+
+    /**
+     * Called after a new entry is logged for [eventTypeId].
+     * Finds all active TIME_SINCE_LAST reminders linked to that event type,
+     * computes new nextTriggerAt based on [entryAt], persists it,
+     * and invokes [schedule] so the caller can reschedule the alarm.
+     */
+    suspend fun rescheduleTimeSinceLast(
+        eventTypeId: Long,
+        entryAt: Long,
+        schedule: suspend (Reminder) -> Unit
+    ) {
+        val entities = reminderDao.getActiveTimeSinceLastByEventType(eventTypeId)
+        for (entity in entities) {
+            val typeName = eventTypeDao.getById(eventTypeId)?.name
+            val reminder = entity.toDomain(typeName)
+            val nextTrigger = RecurrenceCalculator.computeNextTrigger(
+                rule = reminder.recurrenceRule,
+                after = System.currentTimeMillis(),
+                lastEntryAt = entryAt
+            ) ?: continue
+            reminderDao.updateNextTrigger(reminder.id, nextTrigger)
+            schedule(reminder.copy(nextTriggerAt = nextTrigger))
+        }
     }
 }

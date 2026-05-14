@@ -6,13 +6,15 @@ import com.lifelog.app.data.db.entity.EventFieldEntity
 import com.lifelog.app.data.db.entity.EventTypeEntity
 import com.lifelog.app.data.db.entity.ReminderEntity
 import com.lifelog.app.domain.model.ChartConfig
+import com.lifelog.app.domain.model.DeliveryType
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.domain.model.FieldValue
+import com.lifelog.app.domain.model.RecurrenceRule
+import com.lifelog.app.domain.model.RecurrenceType
 import com.lifelog.app.domain.model.Reminder
-import com.lifelog.app.domain.model.RepeatType
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -101,16 +103,56 @@ fun EventEntry.toEntity() = EventEntryEntity(
     updatedAt = updatedAt
 )
 
-fun ReminderEntity.toDomain(eventTypeName: String? = null) = Reminder(
+fun ReminderEntity.toDomain(eventTypeName: String? = null): Reminder {
+    val rule = resolveRecurrenceRule()
+    return Reminder(
+        id = id,
+        eventTypeId = eventTypeId,
+        eventTypeName = eventTypeName,
+        title = title,
+        message = message,
+        deliveryType = runCatching { DeliveryType.valueOf(deliveryType) }.getOrDefault(DeliveryType.NOTIFICATION),
+        recurrenceRule = rule,
+        nextTriggerAt = nextTriggerAt,
+        isActive = isActive
+    )
+}
+
+private fun ReminderEntity.resolveRecurrenceRule(): RecurrenceRule {
+    if (recurrenceRuleJson.isNotBlank()) {
+        runCatching { appJson.decodeFromString<RecurrenceRule>(recurrenceRuleJson) }.getOrNull()
+            ?.let { return it }
+    }
+    // Migrate from legacy columns (pre-v3 rows)
+    return when (runCatching { LegacyRepeatType.valueOf(repeatType) }.getOrDefault(LegacyRepeatType.NONE)) {
+        LegacyRepeatType.NONE -> RecurrenceRule(type = RecurrenceType.NONE, timeOfDayMinutes = timeOfDayMinutes)
+        LegacyRepeatType.DAILY -> RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = timeOfDayMinutes)
+        LegacyRepeatType.WEEKLY -> RecurrenceRule(
+            type = RecurrenceType.WEEKLY,
+            timeOfDayMinutes = timeOfDayMinutes,
+            daysOfWeek = runCatching { appJson.decodeFromString<List<Int>>(daysOfWeekJson) }.getOrDefault(emptyList())
+        )
+        LegacyRepeatType.INTERVAL -> RecurrenceRule(
+            type = RecurrenceType.INTERVAL,
+            intervalMinutes = repeatIntervalMinutes
+        )
+    }
+}
+
+private enum class LegacyRepeatType { NONE, DAILY, WEEKLY, INTERVAL }
+
+fun Reminder.toEntity() = ReminderEntity(
     id = id,
     eventTypeId = eventTypeId,
-    eventTypeName = eventTypeName,
     title = title,
     message = message,
-    repeatType = RepeatType.valueOf(repeatType),
-    repeatIntervalMinutes = repeatIntervalMinutes,
-    daysOfWeek = appJson.decodeFromString<List<Int>>(daysOfWeekJson),
-    timeOfDayMinutes = timeOfDayMinutes,
+    repeatType = "NONE",
+    repeatIntervalMinutes = recurrenceRule.intervalMinutes,
+    daysOfWeekJson = "[]",
+    timeOfDayMinutes = recurrenceRule.timeOfDayMinutes,
+    deliveryType = deliveryType.name,
+    recurrenceType = recurrenceRule.type.name,
+    recurrenceRuleJson = appJson.encodeToString(recurrenceRule),
     nextTriggerAt = nextTriggerAt,
     isActive = isActive
 )
@@ -129,17 +171,4 @@ fun ChartConfig.toEntity() = ChartConfigEntity(
     configJson = appJson.encodeToString(ChartConfig.serializer(), this),
     sortOrder = sortOrder,
     createdAt = createdAt
-)
-
-fun Reminder.toEntity() = ReminderEntity(
-    id = id,
-    eventTypeId = eventTypeId,
-    title = title,
-    message = message,
-    repeatType = repeatType.name,
-    repeatIntervalMinutes = repeatIntervalMinutes,
-    daysOfWeekJson = appJson.encodeToString<List<Int>>(daysOfWeek),
-    timeOfDayMinutes = timeOfDayMinutes,
-    nextTriggerAt = nextTriggerAt,
-    isActive = isActive
 )

@@ -34,4 +34,7 @@ interface ReminderDao {
 
     @Query("UPDATE reminders SET nextTriggerAt = :nextTriggerAt WHERE id = :id")
     suspend fun updateNextTrigger(id: Long, nextTriggerAt: Long)
+
+    @Query("SELECT * FROM reminders WHERE eventTypeId = :eventTypeId AND recurrenceType = 'TIME_SINCE_LAST' AND isActive = 1")
+    suspend fun getActiveTimeSinceLastByEventType(eventTypeId: Long): List<ReminderEntity>
 }
