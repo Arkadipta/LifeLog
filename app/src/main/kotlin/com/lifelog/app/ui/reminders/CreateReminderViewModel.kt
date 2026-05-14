@@ -85,18 +85,8 @@ class CreateReminderViewModel @Inject constructor(
         it.copy(recurrenceRule = it.recurrenceRule.copy(timeOfDayMinutes = minutes))
     }
 
-    fun setIntervalHours(hours: Int) = _state.update {
-        val mins = hours.coerceAtLeast(1) * 60
-        it.copy(recurrenceRule = it.recurrenceRule.copy(intervalMinutes = mins))
-    }
-
     fun setIntervalMinutes(totalMinutes: Int) = _state.update {
         it.copy(recurrenceRule = it.recurrenceRule.copy(intervalMinutes = totalMinutes.coerceAtLeast(1)))
-    }
-
-    fun setTimeSinceLastHours(hours: Int) = _state.update {
-        val mins = hours.coerceAtLeast(1) * 60
-        it.copy(recurrenceRule = it.recurrenceRule.copy(timeSinceLastMinutes = mins))
     }
 
     fun setTimeSinceLastTotalMinutes(totalMinutes: Int) = _state.update {

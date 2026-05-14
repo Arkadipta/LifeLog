@@ -24,10 +24,8 @@ object RecurrenceCalculator {
         RecurrenceType.NONE -> null
         RecurrenceType.INTERVAL -> after + rule.intervalMinutes * 60_000L
         RecurrenceType.TIME_SINCE_LAST -> timeSinceLastTrigger(rule, after, lastEntryAt)
-        RecurrenceType.DAILY -> nextDailyTrigger(rule, after)
-        RecurrenceType.WEEKLY -> nextWeeklyTrigger(rule, after)
-        RecurrenceType.MONTHLY -> nextMonthlyTrigger(rule, after)
-        RecurrenceType.YEARLY -> nextYearlyTrigger(rule, after)
+        RecurrenceType.DAILY, RecurrenceType.WEEKLY -> nextWeeklyTrigger(rule, after)
+        RecurrenceType.MONTHLY, RecurrenceType.YEARLY -> nextMonthlyTrigger(rule, after)
     }
 
     /**
@@ -69,17 +67,13 @@ object RecurrenceCalculator {
         return if (trigger > now) trigger else null
     }
 
-    // ── Daily ────────────────────────────────────────────────────────────────
-
-    private fun nextDailyTrigger(rule: RecurrenceRule, after: Long): Long {
-        val t = calAtTime(after, rule.timeOfDayMinutes)
-        return if (t > after) t else calAtTime(after, rule.timeOfDayMinutes, dayOffset = 1)
-    }
-
-    // ── Weekly ───────────────────────────────────────────────────────────────
+    // ── Weekly (also handles DAILY: empty daysOfWeek = every day) ───────────
 
     private fun nextWeeklyTrigger(rule: RecurrenceRule, after: Long): Long {
-        if (rule.daysOfWeek.isEmpty()) return nextDailyTrigger(rule, after)
+        if (rule.daysOfWeek.isEmpty()) {
+            val t = calAtTime(after, rule.timeOfDayMinutes)
+            return if (t > after) t else calAtTime(after, rule.timeOfDayMinutes, dayOffset = 1)
+        }
         val h = rule.timeOfDayMinutes / 60
         val m = rule.timeOfDayMinutes % 60
         for (offset in 0..7) {
@@ -94,7 +88,8 @@ object RecurrenceCalculator {
             val dow = cal.get(Calendar.DAY_OF_WEEK) - 1 // 0=Sun..6=Sat
             if (dow in rule.daysOfWeek && cal.timeInMillis > after) return cal.timeInMillis
         }
-        return nextDailyTrigger(rule, after)
+        val t = calAtTime(after, rule.timeOfDayMinutes)
+        return if (t > after) t else calAtTime(after, rule.timeOfDayMinutes, dayOffset = 1)
     }
 
     // ── Monthly ──────────────────────────────────────────────────────────────
@@ -119,28 +114,6 @@ object RecurrenceCalculator {
             triggersInMonth(rule, monthCal).filter { it > after }.minOrNull()?.let { return it }
         }
         return after + 30L * 24 * 3600 * 1000
-    }
-
-    // ── Yearly ───────────────────────────────────────────────────────────────
-
-    private fun nextYearlyTrigger(rule: RecurrenceRule, after: Long): Long {
-        val base = Calendar.getInstance().apply { timeInMillis = after }
-        val currentYear = base.get(Calendar.YEAR)
-        val monthsToUse = if (rule.months.isEmpty()) (0..11).toList() else rule.months.sorted()
-
-        for (yearOffset in 0..5) {
-            val year = currentYear + yearOffset
-            for (month in monthsToUse) {
-                val monthCal = Calendar.getInstance().apply {
-                    set(Calendar.YEAR, year); set(Calendar.MONTH, month)
-                    set(Calendar.DAY_OF_MONTH, 1)
-                    set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
-                    set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-                }
-                triggersInMonth(rule, monthCal).filter { it > after }.minOrNull()?.let { return it }
-            }
-        }
-        return after + 365L * 24 * 3600 * 1000
     }
 
     // ── Month trigger helpers ─────────────────────────────────────────────────
@@ -219,15 +192,14 @@ object RecurrenceCalculator {
         val time = minutesToTimeLabel(rule.timeOfDayMinutes)
         return when (rule.type) {
             RecurrenceType.NONE -> "Once at $time"
-            RecurrenceType.DAILY -> "Daily at $time"
-            RecurrenceType.WEEKLY -> {
-                val days = rule.daysOfWeek.joinToString(", ") {
-                    listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat").getOrElse(it) { "?" }
+            RecurrenceType.DAILY, RecurrenceType.WEEKLY -> {
+                if (rule.daysOfWeek.isEmpty()) "Daily at $time"
+                else {
+                    val days = rule.daysOfWeek.joinToString(", ") { DAY_SHORT.getOrElse(it) { "?" } }
+                    "Weekly on $days at $time"
                 }
-                "Weekly on $days at $time"
             }
-            RecurrenceType.MONTHLY -> buildMonthlyDescription(rule, time)
-            RecurrenceType.YEARLY -> buildYearlyDescription(rule, time)
+            RecurrenceType.MONTHLY, RecurrenceType.YEARLY -> buildMonthlyDescription(rule, time)
             RecurrenceType.INTERVAL -> {
                 val h = rule.intervalMinutes / 60; val m = rule.intervalMinutes % 60
                 if (m == 0) "Every ${h}h" else "Every ${h}h ${m}m"
@@ -241,29 +213,11 @@ object RecurrenceCalculator {
 
     private fun buildMonthlyDescription(rule: RecurrenceRule, time: String): String {
         val monthPart = when {
-            rule.months.isEmpty() -> "every month"
+            rule.months.isEmpty() -> if (rule.type == RecurrenceType.YEARLY) "every year" else "every month"
             rule.months == (0..11 step 2).toList() -> "even months"
             rule.months == (1..11 step 2).toList() -> "odd months"
             else -> rule.months.joinToString(", ") { MONTH_SHORT[it] }
         }
-        val datePart = when (rule.dayOfMonthMode) {
-            DayOfMonthMode.DAY_OF_MONTH -> rule.daysOfMonth.joinToString(", ") {
-                if (it == -1) "last day" else ordinal(it)
-            }
-            DayOfMonthMode.DAY_OF_WEEK -> {
-                val days = rule.daysOfWeek.joinToString("/") { DAY_SHORT[it] }
-                val pos = rule.weekPositions.joinToString(", ") {
-                    if (it == -1) "Last" else WEEK_POS_LABEL[it - 1]
-                }
-                "$pos $days"
-            }
-        }
-        return "$datePart of $monthPart at $time"
-    }
-
-    private fun buildYearlyDescription(rule: RecurrenceRule, time: String): String {
-        val monthPart = if (rule.months.isEmpty()) "every year"
-        else rule.months.joinToString(", ") { MONTH_SHORT[it] }
         val datePart = when (rule.dayOfMonthMode) {
             DayOfMonthMode.DAY_OF_MONTH -> rule.daysOfMonth.joinToString(", ") {
                 if (it == -1) "last day" else ordinal(it)
