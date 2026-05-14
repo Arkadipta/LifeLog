@@ -106,11 +106,11 @@ fun EntryFormSheet(
                                     Icons.Rounded.CalendarMonth,
                                     null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(24.dp)
                                 )
                                 Text(
                                     state.createdAt.toDisplayDate(),
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Medium
                                 )
                             }
@@ -130,11 +130,11 @@ fun EntryFormSheet(
                                     Icons.Rounded.AccessTime,
                                     null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(24.dp)
                                 )
                                 Text(
                                     state.createdAt.toDisplayTime(),
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Medium
                                 )
                             }
