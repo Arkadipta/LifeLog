@@ -26,31 +26,36 @@ class CsvManager @Inject constructor(
 
     fun exportToCsv(uri: Uri, eventType: EventType, entries: List<EventEntry>) {
         context.contentResolver.openOutputStream(uri)?.use { os ->
-            val writer = OutputStreamWriter(os)
-
-            // Header row: id, created_at, updated_at, note, field1, field2, ...
-            val headerCols = mutableListOf("id", "created_at", "updated_at", "note")
-            eventType.fields.forEach { field ->
-                headerCols.add(sanitizeCsvField(field.name))
-            }
-            writer.write(headerCols.joinToString(",") + "\n")
-
-            // Data rows
-            entries.forEach { entry ->
-                val cols = mutableListOf(
-                    entry.id.toString(),
-                    entry.createdAt.toIso8601(),
-                    entry.updatedAt.toIso8601(),
-                    escapeCsv(entry.note)
-                )
-                eventType.fields.forEach { field ->
-                    val value = entry.fieldValues[field.id]?.displayString() ?: ""
-                    cols.add(escapeCsv(value))
-                }
-                writer.write(cols.joinToString(",") + "\n")
-            }
-            writer.flush()
+            writeCsvStream(os, eventType, entries)
         }
+    }
+
+    fun writeCsvStream(outputStream: java.io.OutputStream, eventType: EventType, entries: List<EventEntry>) {
+        val writer = OutputStreamWriter(outputStream)
+
+        // Header row: id, created_at, updated_at, note, field1, field2, ...
+        val headerCols = mutableListOf("id", "created_at", "updated_at", "note")
+        eventType.fields.forEach { field ->
+            headerCols.add(sanitizeCsvField(field.name))
+        }
+        writer.write(headerCols.joinToString(",") + "\n")
+
+        // Data rows
+        entries.forEach { entry ->
+            val cols = mutableListOf(
+                entry.id.toString(),
+                entry.createdAt.toIso8601(),
+                entry.updatedAt.toIso8601(),
+                escapeCsv(entry.note)
+            )
+            eventType.fields.forEach { field ->
+                val value = entry.fieldValues[field.id]?.displayString() ?: ""
+                cols.add(escapeCsv(value))
+            }
+            writer.write(cols.joinToString(",") + "\n")
+        }
+        writer.flush()
+        // Caller is responsible for closing outputStream
     }
 
     suspend fun importFromCsv(uri: Uri, eventType: EventType): Int {

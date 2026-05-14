@@ -37,4 +37,7 @@ interface ReminderDao {
 
     @Query("SELECT * FROM reminders WHERE eventTypeId = :eventTypeId AND recurrenceType = 'TIME_SINCE_LAST' AND isActive = 1")
     suspend fun getActiveTimeSinceLastByEventType(eventTypeId: Long): List<ReminderEntity>
+
+    @Query("SELECT * FROM reminders ORDER BY id ASC")
+    suspend fun getAll(): List<ReminderEntity>
 }

@@ -17,4 +17,7 @@ interface ChartConfigDao {
 
     @Query("DELETE FROM chart_configs WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("SELECT * FROM chart_configs ORDER BY eventTypeId ASC, sortOrder ASC")
+    suspend fun getAll(): List<ChartConfigEntity>
 }

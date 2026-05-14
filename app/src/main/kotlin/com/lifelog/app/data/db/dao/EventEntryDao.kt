@@ -32,6 +32,9 @@ interface EventEntryDao {
     @Query("DELETE FROM event_entries WHERE id = :id")
     suspend fun deleteById(id: Long)
 
+    @Query("SELECT * FROM event_entries ORDER BY createdAt ASC")
+    suspend fun getAllEntries(): List<EventEntryEntity>
+
     @Query("SELECT * FROM event_entries WHERE eventTypeId = :eventTypeId ORDER BY createdAt ASC")
     suspend fun getAllForExport(eventTypeId: Long): List<EventEntryEntity>
 

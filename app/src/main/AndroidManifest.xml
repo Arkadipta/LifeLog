@@ -113,7 +113,7 @@
                 android:resource="@xml/timeline_widget_info" />
         </receiver>
 
-        <!-- WorkManager initializer -->
+        <!-- WorkManager: disable default auto-init so HiltWorkerFactory (Configuration.Provider) is used -->
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="${applicationId}.androidx-startup"
@@ -121,7 +121,8 @@
             tools:node="merge">
             <meta-data
                 android:name="androidx.work.WorkManagerInitializer"
-                android:value="androidx.startup" />
+                android:value="androidx.startup"
+                tools:node="remove" />
         </provider>
 
     </application>
