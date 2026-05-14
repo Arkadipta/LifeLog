@@ -180,11 +180,16 @@ private fun ChartWidgetContent(
                         val headerH = if (!isSmall && data.chartTitle.isNotBlank()) (28 * density).toInt() else 0
                         val bitmapH = ((size.height.value * density).toInt() - headerH).coerceAtLeast(80)
 
+                        val nightMask = android.content.res.Configuration.UI_MODE_NIGHT_MASK
+                        val nightYes = android.content.res.Configuration.UI_MODE_NIGHT_YES
+                        val isDark = context.resources.configuration.uiMode and nightMask == nightYes
+
                         val bitmap: Bitmap = ChartBitmapRenderer.render(
                             data = chartData,
                             widthPx = bitmapW,
                             heightPx = bitmapH,
-                            isDark = false
+                            isDark = isDark,
+                            density = density
                         )
                         Image(
                             provider = ImageProvider(bitmap),

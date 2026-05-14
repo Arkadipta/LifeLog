@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventField
-import com.lifelog.app.domain.model.FieldValue
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,14 +28,14 @@ class TimelineViewModel @Inject constructor(
     private val _selectedTags = MutableStateFlow<Set<String>>(emptySet())
     val selectedTags: StateFlow<Set<String>> = _selectedTags.asStateFlow()
 
-    /** All distinct MULTI_SELECT values across all entries — drives the tag chip row. */
+    /**
+     * Distinct event type names present in the timeline — shown as filter chips.
+     * Using event type names ensures chips appear as soon as there is more than
+     * one event type, without requiring users to have MULTI_SELECT fields.
+     */
     val availableTags: StateFlow<List<String>> = repository.observeAllEntries()
         .map { entries ->
-            entries.flatMap { entry ->
-                entry.fieldValues.values
-                    .filterIsInstance<FieldValue.MultiSelect>()
-                    .flatMap { it.values }
-            }.distinct().sorted()
+            entries.map { it.eventTypeName }.filter { it.isNotBlank() }.distinct().sorted()
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -50,13 +49,7 @@ class TimelineViewModel @Inject constructor(
                 e.eventTypeName.contains(query, ignoreCase = true) ||
                 e.note.contains(query, ignoreCase = true)
 
-            val matchesTags = tags.isEmpty() || run {
-                val entryTags = e.fieldValues.values
-                    .filterIsInstance<FieldValue.MultiSelect>()
-                    .flatMap { it.values }
-                    .toSet()
-                tags.any { it in entryTags }
-            }
+            val matchesTags = tags.isEmpty() || e.eventTypeName in tags
 
             matchesSearch && matchesTags
         }
