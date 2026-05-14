@@ -133,6 +133,14 @@ class EventRepository @Inject constructor(
         }
     }
 
+    suspend fun getAllEventTypesForExport(): List<EventType> {
+        return eventTypeDao.getAll().map { entity ->
+            val fields = eventFieldDao.getByEventType(entity.id).map { it.toDomain() }
+            val count = eventTypeDao.getEntryCount(entity.id)
+            entity.toDomain(fields, count)
+        }
+    }
+
     suspend fun getAllEntriesForEventType(eventTypeId: Long): List<EventEntry> {
         val type = eventTypeDao.getById(eventTypeId)
         return eventEntryDao.getAllForExport(eventTypeId).map { e ->

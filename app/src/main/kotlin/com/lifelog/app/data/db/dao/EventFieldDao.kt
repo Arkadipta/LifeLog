@@ -34,4 +34,7 @@ interface EventFieldDao {
 
     @Query("DELETE FROM event_fields WHERE eventTypeId = :eventTypeId")
     suspend fun deleteAllForEventType(eventTypeId: Long)
+
+    @Query("SELECT * FROM event_fields ORDER BY eventTypeId ASC, sortOrder ASC")
+    suspend fun getAll(): List<EventFieldEntity>
 }

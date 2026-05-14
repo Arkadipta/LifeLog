@@ -31,4 +31,7 @@ interface EventTypeDao {
 
     @Query("SELECT COUNT(*) FROM event_entries WHERE eventTypeId = :eventTypeId")
     suspend fun getEntryCount(eventTypeId: Long): Int
+
+    @Query("SELECT * FROM event_types ORDER BY id ASC")
+    suspend fun getAll(): List<EventTypeEntity>
 }
