@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:minWidth="180dp"
-    android:minHeight="180dp"
+    android:minWidth="160dp"
+    android:minHeight="160dp"
     android:minResizeWidth="120dp"
-    android:minResizeHeight="100dp"
+    android:minResizeHeight="120dp"
     android:targetCellWidth="3"
     android:targetCellHeight="3"
     android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/widget_placeholder"
     android:widgetCategory="home_screen"
-    android:configure="com.lifelog.app.widget.TimelineWidgetConfigActivity"
+    android:configure="com.lifelog.app.widget.ChartWidgetConfigActivity"
     android:widgetFeatures="reconfigurable" />

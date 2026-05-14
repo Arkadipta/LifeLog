@@ -54,6 +54,26 @@
             </intent-filter>
         </activity>
 
+        <!-- Widget config: shown when user places or reconfigures the Timeline widget -->
+        <activity
+            android:name=".widget.TimelineWidgetConfigActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <!-- Widget config: shown when user places or reconfigures the Chart widget -->
+        <activity
+            android:name=".widget.ChartWidgetConfigActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
         <!-- Transparent activity to show entry form from widget tap.
              taskAffinity="" + excludeFromRecents keeps it out of the app task
              so the launcher stays visible behind the form instead of the app. -->
@@ -111,6 +131,19 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/timeline_widget_info" />
+        </receiver>
+
+        <!-- Chart Widget -->
+        <receiver
+            android:name=".widget.ChartWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_chart_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/chart_widget_info" />
         </receiver>
 
         <!-- WorkManager: disable default auto-init so HiltWorkerFactory (Configuration.Provider) is used -->

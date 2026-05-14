@@ -20,6 +20,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
+import com.lifelog.app.ui.components.FilterChipsRow
 import com.lifelog.app.ui.components.SwipeDeleteBackground
 import com.lifelog.app.ui.events.EntryCard
 import com.lifelog.app.ui.events.EntryFormSheet
@@ -33,10 +34,13 @@ fun TimelineScreen(
     val entries by viewModel.entries.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val fieldsMap by viewModel.fieldsMap.collectAsStateWithLifecycle()
+    val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
+    val selectedTags by viewModel.selectedTags.collectAsStateWithLifecycle()
     var deleteTarget by remember { mutableStateOf<EventEntry?>(null) }
     var editingEntryId by remember { mutableStateOf<Long?>(null) }
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val isFiltered = searchQuery.isNotBlank() || selectedTags.isNotEmpty()
 
     Scaffold(
         topBar = {
@@ -82,7 +86,19 @@ fun TimelineScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {}
 
-            if (entries.isEmpty() && searchQuery.isBlank()) {
+            FilterChipsRow(
+                chips = availableTags,
+                selectedChips = selectedTags,
+                onToggle = viewModel::toggleTag,
+                modifier = Modifier.fillMaxWidth(),
+                startPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
+            )
+
+            if (availableTags.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+            }
+
+            if (entries.isEmpty() && !isFiltered) {
                 EmptyStatePlaceholder(
                     icon = Icons.Rounded.Timeline,
                     title = "No entries yet",
@@ -92,7 +108,8 @@ fun TimelineScreen(
             } else if (entries.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        "No entries match \"$searchQuery\"",
+                        if (searchQuery.isNotBlank()) "No entries match \"$searchQuery\""
+                        else "No entries match the selected tags",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

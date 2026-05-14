@@ -23,6 +23,9 @@ interface EventEntryDao {
     @Query("SELECT * FROM event_entries ORDER BY createdAt DESC LIMIT :limit")
     suspend fun getRecent(limit: Int): List<EventEntryEntity>
 
+    @Query("SELECT * FROM event_entries WHERE eventTypeId = :eventTypeId ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun getRecentForEventType(eventTypeId: Long, limit: Int): List<EventEntryEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: EventEntryEntity): Long
 

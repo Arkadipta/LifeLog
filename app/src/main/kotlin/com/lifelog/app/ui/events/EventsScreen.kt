@@ -34,6 +34,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
+import com.lifelog.app.ui.components.FilterChipsRow
 import com.lifelog.app.ui.components.SwipeDeleteBackground
 import com.lifelog.app.ui.theme.LocalAmoledColors
 import com.lifelog.app.util.iconForName
@@ -49,6 +50,8 @@ fun EventsScreen(
 ) {
     val eventTypes by viewModel.eventTypes.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val availableCategories by viewModel.availableCategories.collectAsStateWithLifecycle()
+    val selectedCategories by viewModel.selectedCategories.collectAsStateWithLifecycle()
     var deleteTarget by remember { mutableStateOf<EventType?>(null) }
 
     val context = LocalContext.current
@@ -141,7 +144,20 @@ fun EventsScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {}
 
-            if (eventTypes.isEmpty() && searchQuery.isBlank()) {
+            FilterChipsRow(
+                chips = availableCategories,
+                selectedChips = selectedCategories,
+                onToggle = viewModel::toggleCategory,
+                modifier = Modifier.fillMaxWidth(),
+                startPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
+            )
+
+            if (availableCategories.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+            }
+
+            val isFiltered = searchQuery.isNotBlank() || selectedCategories.isNotEmpty()
+            if (eventTypes.isEmpty() && !isFiltered) {
                 EmptyStatePlaceholder(
                     icon = Icons.Rounded.Add,
                     title = "No events yet",
@@ -151,7 +167,8 @@ fun EventsScreen(
             } else if (eventTypes.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        "No events match \"$searchQuery\"",
+                        if (searchQuery.isNotBlank()) "No events match \"$searchQuery\""
+                        else "No events in the selected categories",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

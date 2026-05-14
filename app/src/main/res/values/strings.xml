@@ -3,6 +3,7 @@
     <string name="app_name">LifeLog</string>
     <string name="widget_quick_add_label">LifeLog Quick Add</string>
     <string name="widget_timeline_label">LifeLog Timeline</string>
+    <string name="widget_chart_label">LifeLog Chart</string>
     <string name="shortcut_add_entry">Log Entry</string>
     <string name="shortcut_timeline">Timeline</string>
 </resources>

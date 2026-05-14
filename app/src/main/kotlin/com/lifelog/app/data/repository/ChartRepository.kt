@@ -21,4 +21,10 @@ class ChartRepository @Inject constructor(
 
     suspend fun deleteChart(id: String) =
         chartConfigDao.deleteById(id)
+
+    suspend fun getChartsForEvent(eventTypeId: Long): List<ChartConfig> =
+        chartConfigDao.getByEventType(eventTypeId).map { it.toDomain() }
+
+    suspend fun getChart(id: String): ChartConfig? =
+        chartConfigDao.getById(id)?.toDomain()
 }

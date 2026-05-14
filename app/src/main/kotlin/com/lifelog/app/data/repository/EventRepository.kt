@@ -133,6 +133,17 @@ class EventRepository @Inject constructor(
         }
     }
 
+    suspend fun getRecentEntriesForEvent(eventTypeId: Long, limit: Int = 10): List<EventEntry> {
+        val type = eventTypeDao.getById(eventTypeId)
+        return eventEntryDao.getRecentForEventType(eventTypeId, limit).map { e ->
+            e.toDomain(
+                eventTypeName = type?.name ?: "",
+                eventTypeColor = type?.colorArgb ?: EventType.DEFAULT_COLOR,
+                eventTypeIcon = type?.iconName ?: "star"
+            )
+        }
+    }
+
     suspend fun getAllEventTypesForExport(): List<EventType> {
         return eventTypeDao.getAll().map { entity ->
             val fields = eventFieldDao.getByEventType(entity.id).map { it.toDomain() }
