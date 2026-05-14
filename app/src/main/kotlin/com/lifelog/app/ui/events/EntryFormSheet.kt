@@ -10,6 +10,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -171,62 +173,87 @@ private fun DateTimePickerDialog(
         initialHour = cal.get(Calendar.HOUR_OF_DAY),
         initialMinute = cal.get(Calendar.MINUTE)
     )
-    var showTime by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableIntStateOf(0) }
+    val haptic = LocalHapticFeedback.current
 
-    if (!showTime) {
-        DatePickerDialog(
-            onDismissRequest = onDismiss,
-            confirmButton = {
-                TextButton(onClick = { showTime = true }) { Text("Next") }
-            },
-            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-        ) {
-            DatePicker(state = datePickerState)
+    // Haptic feedback whenever the clock hand moves to a new value
+    var lastHour by remember { mutableIntStateOf(timePickerState.hour) }
+    var lastMinute by remember { mutableIntStateOf(timePickerState.minute) }
+    LaunchedEffect(timePickerState.hour, timePickerState.minute) {
+        if (timePickerState.hour != lastHour || timePickerState.minute != lastMinute) {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            lastHour = timePickerState.hour
+            lastMinute = timePickerState.minute
         }
-    } else {
-        // Use a properly-sized Dialog so TimePicker isn't clipped by AlertDialog constraints
-        Dialog(
-            onDismissRequest = onDismiss,
-            properties = DialogProperties(usePlatformDefaultWidth = false)
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            shape = MaterialTheme.shapes.extraLarge
         ) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                shape = MaterialTheme.shapes.extraLarge
+            Column(
+                modifier = Modifier.padding(top = 24.dp, start = 24.dp, end = 24.dp, bottom = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        "Select Time",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier
-                            .align(Alignment.Start)
-                            .padding(bottom = 20.dp)
+                Text(
+                    "Select Date & Time",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier
+                        .align(Alignment.Start)
+                        .padding(bottom = 16.dp)
+                )
+
+                TabRow(selectedTabIndex = selectedTab) {
+                    Tab(
+                        selected = selectedTab == 0,
+                        onClick = { selectedTab = 0 },
+                        text = { Text("Date") }
                     )
+                    Tab(
+                        selected = selectedTab == 1,
+                        onClick = { selectedTab = 1 },
+                        text = { Text("Time") }
+                    )
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                if (selectedTab == 0) {
+                    DatePicker(
+                        state = datePickerState,
+                        showModeToggle = false,
+                        title = null,
+                        headline = null
+                    )
+                } else {
                     TimePicker(state = timePickerState)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(onClick = onDismiss) { Text("Back") }
-                        Spacer(Modifier.width(8.dp))
-                        TextButton(onClick = {
-                            val selectedDate = datePickerState.selectedDateMillis ?: initialTime
-                            val resultCal = Calendar.getInstance().apply {
-                                timeInMillis = selectedDate
-                                set(Calendar.HOUR_OF_DAY, timePickerState.hour)
-                                set(Calendar.MINUTE, timePickerState.minute)
-                                set(Calendar.SECOND, 0)
-                                set(Calendar.MILLISECOND, 0)
-                            }
-                            onConfirm(resultCal.timeInMillis)
-                        }) { Text("Set") }
-                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Spacer(Modifier.width(8.dp))
+                    TextButton(onClick = {
+                        val selectedDate = datePickerState.selectedDateMillis ?: initialTime
+                        val resultCal = Calendar.getInstance().apply {
+                            timeInMillis = selectedDate
+                            set(Calendar.HOUR_OF_DAY, timePickerState.hour)
+                            set(Calendar.MINUTE, timePickerState.minute)
+                            set(Calendar.SECOND, 0)
+                            set(Calendar.MILLISECOND, 0)
+                        }
+                        onConfirm(resultCal.timeInMillis)
+                    }) { Text("Set") }
                 }
             }
         }
