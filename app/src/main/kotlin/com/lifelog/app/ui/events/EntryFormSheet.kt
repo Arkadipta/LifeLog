@@ -5,11 +5,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessTime
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -17,7 +20,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.ui.events.components.FieldInput
-import com.lifelog.app.util.toDisplayDateTime
+import com.lifelog.app.util.toDisplayDate
+import com.lifelog.app.util.toDisplayTime
 import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,7 +46,8 @@ fun EntryFormSheet(
         if (state.isSaved) onDismiss()
     }
 
-    var showDateTimePicker by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -78,30 +83,61 @@ fun EntryFormSheet(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Timestamp row
-                OutlinedCard(
-                    onClick = { showDateTimePicker = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(
-                            Icons.Rounded.AccessTime,
-                            null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Column {
-                            Text("Timestamp", style = MaterialTheme.typography.labelMedium)
-                            Text(
-                                state.createdAt.toDisplayDateTime(),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
-                            )
+                // Timestamp row — date and time are independently tappable
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Timestamp",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedCard(
+                            onClick = { showDatePicker = true },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                            ) {
+                                Icon(
+                                    Icons.Rounded.CalendarMonth,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Text(
+                                    state.createdAt.toDisplayDate(),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                        OutlinedCard(
+                            onClick = { showTimePicker = true },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                            ) {
+                                Icon(
+                                    Icons.Rounded.AccessTime,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Text(
+                                    state.createdAt.toDisplayTime(),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 }
@@ -146,47 +182,53 @@ fun EntryFormSheet(
         }
     }
 
-    if (showDateTimePicker) {
-        DateTimePickerDialog(
-            initialTime = state.createdAt,
-            onDismiss = { showDateTimePicker = false },
-            onConfirm = { time ->
-                viewModel.setCreatedAt(time)
-                showDateTimePicker = false
-            }
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = state.createdAt
         )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DateTimePickerDialog(
-    initialTime: Long,
-    onDismiss: () -> Unit,
-    onConfirm: (Long) -> Unit
-) {
-    val cal = Calendar.getInstance().apply { timeInMillis = initialTime }
-    val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialTime)
-    val timePickerState = rememberTimePickerState(
-        initialHour = cal.get(Calendar.HOUR_OF_DAY),
-        initialMinute = cal.get(Calendar.MINUTE)
-    )
-    var showTime by remember { mutableStateOf(false) }
-
-    if (!showTime) {
         DatePickerDialog(
-            onDismissRequest = onDismiss,
+            onDismissRequest = { showDatePicker = false },
             confirmButton = {
-                TextButton(onClick = { showTime = true }) { Text("Next") }
+                TextButton(onClick = {
+                    val selectedDate = datePickerState.selectedDateMillis ?: state.createdAt
+                    val cal = Calendar.getInstance().apply {
+                        val current = Calendar.getInstance().also { it.timeInMillis = state.createdAt }
+                        timeInMillis = selectedDate
+                        set(Calendar.HOUR_OF_DAY, current.get(Calendar.HOUR_OF_DAY))
+                        set(Calendar.MINUTE, current.get(Calendar.MINUTE))
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    viewModel.setCreatedAt(cal.timeInMillis)
+                    showDatePicker = false
+                }) { Text("Set") }
             },
-            dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+            }
         ) {
             DatePicker(state = datePickerState)
         }
-    } else {
-        // Use a properly-sized Dialog so TimePicker isn't clipped by AlertDialog constraints
+    }
+
+    if (showTimePicker) {
+        val cal = Calendar.getInstance().apply { timeInMillis = state.createdAt }
+        val timePickerState = rememberTimePickerState(
+            initialHour = cal.get(Calendar.HOUR_OF_DAY),
+            initialMinute = cal.get(Calendar.MINUTE)
+        )
+        val haptic = LocalHapticFeedback.current
+        var lastHour by remember { mutableIntStateOf(timePickerState.hour) }
+        var lastMinute by remember { mutableIntStateOf(timePickerState.minute) }
+        LaunchedEffect(timePickerState.hour, timePickerState.minute) {
+            if (timePickerState.hour != lastHour || timePickerState.minute != lastMinute) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                lastHour = timePickerState.hour
+                lastMinute = timePickerState.minute
+            }
+        }
         Dialog(
-            onDismissRequest = onDismiss,
+            onDismissRequest = { showTimePicker = false },
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             Card(
@@ -213,18 +255,18 @@ private fun DateTimePickerDialog(
                             .padding(top = 12.dp),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(onClick = onDismiss) { Text("Back") }
+                        TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
                         Spacer(Modifier.width(8.dp))
                         TextButton(onClick = {
-                            val selectedDate = datePickerState.selectedDateMillis ?: initialTime
                             val resultCal = Calendar.getInstance().apply {
-                                timeInMillis = selectedDate
+                                timeInMillis = state.createdAt
                                 set(Calendar.HOUR_OF_DAY, timePickerState.hour)
                                 set(Calendar.MINUTE, timePickerState.minute)
                                 set(Calendar.SECOND, 0)
                                 set(Calendar.MILLISECOND, 0)
                             }
-                            onConfirm(resultCal.timeInMillis)
+                            viewModel.setCreatedAt(resultCal.timeInMillis)
+                            showTimePicker = false
                         }) { Text("Set") }
                     }
                 }
@@ -232,3 +274,4 @@ private fun DateTimePickerDialog(
         }
     }
 }
+

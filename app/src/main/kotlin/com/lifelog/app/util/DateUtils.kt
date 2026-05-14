@@ -1,13 +1,21 @@
 package com.lifelog.app.util
 
+import java.text.DateFormatSymbols
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-private val dateTimeFormat = SimpleDateFormat("MMM d, yyyy  h:mm a", Locale.getDefault())
+private fun simpleDateFormat(pattern: String) =
+    SimpleDateFormat(pattern, Locale.getDefault()).apply {
+        dateFormatSymbols = DateFormatSymbols(Locale.getDefault()).apply {
+            amPmStrings = arrayOf("AM", "PM")
+        }
+    }
+
+private val dateTimeFormat = simpleDateFormat("MMM d, yyyy  h:mm a")
 private val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
-private val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
+private val timeFormat = simpleDateFormat("h:mm a")
 private val iso8601Format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
 
 fun Long.toDisplayDateTime(): String = dateTimeFormat.format(Date(this))

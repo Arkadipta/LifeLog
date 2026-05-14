@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
@@ -192,7 +194,16 @@ fun CreateReminderScreen(
             initialHour = cal.get(Calendar.HOUR_OF_DAY),
             initialMinute = cal.get(Calendar.MINUTE)
         )
-        // Use a properly-sized Dialog so TimePicker isn't clipped by AlertDialog constraints
+        val haptic = LocalHapticFeedback.current
+        var lastHour by remember { mutableIntStateOf(timeState.hour) }
+        var lastMinute by remember { mutableIntStateOf(timeState.minute) }
+        LaunchedEffect(timeState.hour, timeState.minute) {
+            if (timeState.hour != lastHour || timeState.minute != lastMinute) {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                lastHour = timeState.hour
+                lastMinute = timeState.minute
+            }
+        }
         Dialog(
             onDismissRequest = { showTimePicker = false },
             properties = DialogProperties(usePlatformDefaultWidth = false)
