@@ -19,9 +19,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.domain.model.EventType
@@ -32,6 +36,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
@@ -65,28 +70,60 @@ class QuickAddWidgetConfigActivity : ComponentActivity() {
             LifeLogTheme {
                 ConfigScreen(
                     onEventSelected = { eventType ->
-                        // 1. Persist to SharedPreferences — no GlanceId dependency.
-                        WidgetPrefs.saveQuickAdd(
-                            context = this,
-                            appWidgetId = appWidgetId,
-                            eventId = eventType.id,
-                            eventName = eventType.name,
-                            eventColor = eventType.colorArgb,
-                            eventIcon = eventType.iconName,
-                        )
+                        lifecycleScope.launch {
+                            // Always write SharedPreferences — reliable for new widgets
+                            // where GlanceId registry entry may not exist yet.
+                            WidgetPrefs.saveQuickAdd(
+                                context = this@QuickAddWidgetConfigActivity,
+                                appWidgetId = appWidgetId,
+                                eventId = eventType.id,
+                                eventName = eventType.name,
+                                eventColor = eventType.colorArgb,
+                                eventIcon = eventType.iconName,
+                            )
 
-                        // 2. Trigger provideGlance via broadcast.
-                        sendBroadcast(Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
-                            component = ComponentName(this@QuickAddWidgetConfigActivity,
-                                QuickAddWidgetReceiver::class.java)
-                            putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, intArrayOf(appWidgetId))
-                        })
+                            // Also write Glance DataStore when GlanceId is available.
+                            val manager = GlanceAppWidgetManager(this@QuickAddWidgetConfigActivity)
+                            val glanceId = manager.getGlanceIds(QuickAddWidget::class.java)
+                                .firstOrNull { manager.getAppWidgetId(it) == appWidgetId }
 
-                        setResult(
-                            RESULT_OK,
-                            Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                        )
-                        finish()
+                            if (glanceId != null) {
+                                updateAppWidgetState(
+                                    this@QuickAddWidgetConfigActivity,
+                                    PreferencesGlanceStateDefinition,
+                                    glanceId
+                                ) { prefs ->
+                                    prefs.toMutablePreferences().apply {
+                                        this[QuickAddWidget.PREF_EVENT_ID] = eventType.id
+                                        this[QuickAddWidget.PREF_EVENT_NAME] = eventType.name
+                                        this[QuickAddWidget.PREF_EVENT_COLOR] = eventType.colorArgb
+                                        this[QuickAddWidget.PREF_EVENT_ICON] = eventType.iconName
+                                    }
+                                }
+                                QuickAddWidget().update(this@QuickAddWidgetConfigActivity, glanceId)
+                            } else {
+                                sendBroadcast(
+                                    Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
+                                        component = ComponentName(
+                                            this@QuickAddWidgetConfigActivity,
+                                            QuickAddWidgetReceiver::class.java
+                                        )
+                                        putExtra(
+                                            AppWidgetManager.EXTRA_APPWIDGET_IDS,
+                                            intArrayOf(appWidgetId)
+                                        )
+                                    }
+                                )
+                            }
+
+                            setResult(
+                                RESULT_OK,
+                                Intent().putExtra(
+                                    AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId
+                                )
+                            )
+                            finish()
+                        }
                     },
                     onCancel = {
                         setResult(RESULT_CANCELED)
@@ -121,9 +158,7 @@ private fun ConfigScreen(
     ) { padding ->
         if (eventTypes.isEmpty()) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
+                modifier = Modifier.fillMaxSize().padding(padding),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -134,9 +169,7 @@ private fun ConfigScreen(
             }
         } else {
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
+                modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -165,12 +198,12 @@ private fun EventPickerCard(eventType: EventType, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        )
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -189,7 +222,11 @@ private fun EventPickerCard(eventType: EventType, onClick: () -> Unit) {
                 }
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(eventType.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    eventType.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
                 if (eventType.description.isNotBlank()) {
                     Text(
                         eventType.description,

@@ -19,9 +19,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.ChartRepository
 import com.lifelog.app.data.repository.EventRepository
@@ -81,39 +85,70 @@ class ChartWidgetConfigActivity : ComponentActivity() {
             return
         }
 
-        // Pre-set CANCELED so a back-gesture always cancels widget placement correctly.
         setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
 
         setContent {
             LifeLogTheme {
                 ChartConfigFlow(
                     onComplete = { eventType, chart ->
-                        // 1. Persist config in SharedPreferences — works for both new and
-                        //    existing widgets without requiring a GlanceId to exist first.
-                        WidgetPrefs.saveChart(
-                            context = this,
-                            appWidgetId = appWidgetId,
-                            eventTypeId = eventType.id,
-                            chartConfigId = chart.id,
-                            eventTypeName = eventType.name,
-                            chartTitle = chart.title.ifBlank { eventType.name },
-                            eventColor = eventType.colorArgb,
-                        )
+                        lifecycleScope.launch {
+                            val chartTitle = chart.title.ifBlank { eventType.name }
 
-                        // 2. Send ACTION_APPWIDGET_UPDATE to the receiver so Glance calls
-                        //    provideGlance() immediately and renders the configured chart.
-                        val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
-                            component = ComponentName(this@ChartWidgetConfigActivity,
-                                ChartWidgetReceiver::class.java)
-                            putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, intArrayOf(appWidgetId))
+                            // Always write SharedPreferences — reliable for new widgets
+                            // where the GlanceId registry entry may not exist yet.
+                            WidgetPrefs.saveChart(
+                                context = this@ChartWidgetConfigActivity,
+                                appWidgetId = appWidgetId,
+                                eventTypeId = eventType.id,
+                                chartConfigId = chart.id,
+                                eventTypeName = eventType.name,
+                                chartTitle = chartTitle,
+                                eventColor = eventType.colorArgb,
+                            )
+
+                            // Also write Glance DataStore when GlanceId is available.
+                            val manager = GlanceAppWidgetManager(this@ChartWidgetConfigActivity)
+                            val glanceId = manager.getGlanceIds(ChartWidget::class.java)
+                                .firstOrNull { manager.getAppWidgetId(it) == appWidgetId }
+
+                            if (glanceId != null) {
+                                updateAppWidgetState(
+                                    this@ChartWidgetConfigActivity,
+                                    PreferencesGlanceStateDefinition,
+                                    glanceId
+                                ) { prefs ->
+                                    prefs.toMutablePreferences().apply {
+                                        this[ChartWidget.PREF_EVENT_TYPE_ID] = eventType.id
+                                        this[ChartWidget.PREF_CHART_CONFIG_ID] = chart.id
+                                        this[ChartWidget.PREF_EVENT_TYPE_NAME] = eventType.name
+                                        this[ChartWidget.PREF_CHART_TITLE] = chartTitle
+                                        this[ChartWidget.PREF_EVENT_COLOR] = eventType.colorArgb
+                                    }
+                                }
+                                ChartWidget().update(this@ChartWidgetConfigActivity, glanceId)
+                            } else {
+                                sendBroadcast(
+                                    Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
+                                        component = ComponentName(
+                                            this@ChartWidgetConfigActivity,
+                                            ChartWidgetReceiver::class.java
+                                        )
+                                        putExtra(
+                                            AppWidgetManager.EXTRA_APPWIDGET_IDS,
+                                            intArrayOf(appWidgetId)
+                                        )
+                                    }
+                                )
+                            }
+
+                            setResult(
+                                RESULT_OK,
+                                Intent().putExtra(
+                                    AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId
+                                )
+                            )
+                            finish()
                         }
-                        sendBroadcast(intent)
-
-                        setResult(
-                            RESULT_OK,
-                            Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                        )
-                        finish()
                     },
                     onCancel = {
                         setResult(RESULT_CANCELED)
@@ -188,13 +223,11 @@ private fun ChartConfigFlow(
 private fun PickEventStep(
     eventTypes: List<EventType>,
     padding: PaddingValues,
-    onEventSelected: (EventType) -> Unit
+    onEventSelected: (EventType) -> Unit,
 ) {
     if (eventTypes.isEmpty()) {
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+            modifier = Modifier.fillMaxSize().padding(padding),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -207,9 +240,7 @@ private fun PickEventStep(
     }
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding),
+        modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -232,13 +263,11 @@ private fun PickChartStep(
     eventType: EventType,
     charts: List<ChartConfig>,
     padding: PaddingValues,
-    onChartSelected: (ChartConfig) -> Unit
+    onChartSelected: (ChartConfig) -> Unit,
 ) {
     if (charts.isEmpty()) {
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+            modifier = Modifier.fillMaxSize().padding(padding),
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -261,9 +290,7 @@ private fun PickChartStep(
     }
 
     LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding),
+        modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -291,12 +318,12 @@ private fun ChartEventPickerCard(eventType: EventType, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        )
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -315,7 +342,11 @@ private fun ChartEventPickerCard(eventType: EventType, onClick: () -> Unit) {
                 }
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(eventType.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    eventType.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
                 if (eventType.description.isNotBlank()) {
                     Text(
                         eventType.description,
@@ -344,12 +375,12 @@ private fun ChartPickerCard(chart: ChartConfig, eventColor: Color, onClick: () -
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        )
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {

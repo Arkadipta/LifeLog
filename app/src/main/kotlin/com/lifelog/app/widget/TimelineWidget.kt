@@ -7,6 +7,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
@@ -20,9 +22,12 @@ import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
+import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.background
 import androidx.glance.layout.*
 import androidx.glance.material3.ColorProviders
+import androidx.glance.state.GlanceStateDefinition
+import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
@@ -45,6 +50,8 @@ interface TimelineWidgetEntryPoint {
 
 class TimelineWidget : GlanceAppWidget() {
 
+    override val stateDefinition: GlanceStateDefinition<*> = PreferencesGlanceStateDefinition
+
     override val sizeMode = SizeMode.Responsive(
         setOf(
             DpSize(120.dp, 100.dp),
@@ -54,22 +61,20 @@ class TimelineWidget : GlanceAppWidget() {
     )
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        // Resolve the Android widget ID so we can look up SharedPreferences.
-        // GlanceAppWidgetManager.getAppWidgetId() is a plain (non-suspend) function in
-        // Glance 1.1.0 — it just unwraps the internal int from the GlanceId.
-        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
-
-        val isConfigured = WidgetPrefs.isTimelineConfigured(context, appWidgetId)
-        val eventId = WidgetPrefs.getTimelineEventId(context, appWidgetId)
-        val eventName = WidgetPrefs.getTimelineEventName(context, appWidgetId)
-
         val repo = EntryPointAccessors.fromApplication(
             context.applicationContext,
             TimelineWidgetEntryPoint::class.java
         ).eventRepository()
 
+        // Config resolution priority:
+        //   1. SharedPreferences — written by config activity for new/reconfigured widgets.
+        //      This is the only path that works for brand-new widgets where the GlanceId
+        //      registry entry doesn't exist yet during the config activity.
+        //   2. Glance DataStore fallback — for widgets that were already configured before
+        //      this code was deployed (backward compatibility).
+        val (eventId, eventName, isConfigured) = resolveConfig(context, id)
+
         val entries: List<EventEntry> = if (!isConfigured) {
-            // Widget placed but config activity not finished yet — show nothing until configured.
             emptyList()
         } else {
             try {
@@ -87,7 +92,38 @@ class TimelineWidget : GlanceAppWidget() {
         }
     }
 
+    private suspend fun resolveConfig(
+        context: Context,
+        id: GlanceId,
+    ): Triple<Long, String, Boolean> {
+        // 1 — SharedPreferences (set by config activity for any widget, new or existing)
+        try {
+            val awId = GlanceAppWidgetManager(context).getAppWidgetId(id)
+            if (awId != AppWidgetManager.INVALID_APPWIDGET_ID &&
+                WidgetPrefs.isTimelineConfigured(context, awId)
+            ) {
+                return Triple(
+                    WidgetPrefs.getTimelineEventId(context, awId),
+                    WidgetPrefs.getTimelineEventName(context, awId),
+                    true,
+                )
+            }
+        } catch (_: Exception) {}
+
+        // 2 — Glance DataStore fallback (widgets configured before SharedPrefs migration)
+        val prefs = getAppWidgetState(context, PreferencesGlanceStateDefinition, id)
+        val storedId = prefs[PREF_EVENT_ID]
+        return if (storedId != null) {
+            Triple(storedId, prefs[PREF_EVENT_NAME] ?: "", true)
+        } else {
+            Triple(0L, "", false)
+        }
+    }
+
     companion object {
+        val PREF_EVENT_ID = longPreferencesKey("tl_event_id")
+        val PREF_EVENT_NAME = stringPreferencesKey("tl_event_name")
+
         val SMALL_SIZE = DpSize(120.dp, 100.dp)
         val MEDIUM_SIZE = DpSize(220.dp, 180.dp)
     }
@@ -129,25 +165,39 @@ private fun TimelineWidgetContent(
 
         when {
             !isConfigured -> {
-                Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = GlanceModifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
                         "Long-press to configure",
-                        style = TextStyle(fontSize = 11.sp, color = GlanceTheme.colors.onSurfaceVariant)
+                        style = TextStyle(
+                            fontSize = 11.sp,
+                            color = GlanceTheme.colors.onSurfaceVariant
+                        )
                     )
                 }
             }
             entries.isEmpty() -> {
-                Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(
+                    modifier = GlanceModifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
                         if (isCompact) "No entries" else "No entries yet. Tap to add.",
-                        style = TextStyle(fontSize = 11.sp, color = GlanceTheme.colors.onSurfaceVariant)
+                        style = TextStyle(
+                            fontSize = 11.sp,
+                            color = GlanceTheme.colors.onSurfaceVariant
+                        )
                     )
                 }
             }
             else -> {
                 LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
                     items(entries) { entry ->
-                        Column(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                        Column(
+                            modifier = GlanceModifier.fillMaxWidth().padding(vertical = 3.dp)
+                        ) {
                             Row(modifier = GlanceModifier.fillMaxWidth()) {
                                 Text(
                                     entry.eventTypeName,
@@ -193,10 +243,11 @@ class TimelineWidgetReceiver : GlanceAppWidgetReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        // Clean up SharedPreferences when the widget is removed from the home screen.
         if (intent.action == AppWidgetManager.ACTION_APPWIDGET_DELETED) {
-            val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,
-                AppWidgetManager.INVALID_APPWIDGET_ID)
+            val id = intent.getIntExtra(
+                AppWidgetManager.EXTRA_APPWIDGET_ID,
+                AppWidgetManager.INVALID_APPWIDGET_ID
+            )
             if (id != AppWidgetManager.INVALID_APPWIDGET_ID) {
                 WidgetPrefs.removeTimeline(context, id)
             }

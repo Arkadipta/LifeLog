@@ -19,14 +19,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.theme.LifeLogTheme
 import com.lifelog.app.util.iconForName
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 
-/** Sentinel meaning "show all events" — stored as event ID 0. */
 private const val ALL_EVENTS_ID = 0L
 
 @AndroidEntryPoint
@@ -46,37 +50,73 @@ class TimelineWidgetConfigActivity : ComponentActivity() {
             return
         }
 
-        // Pre-set CANCELED so a back-gesture always cancels widget placement correctly.
         setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
 
         setContent {
             LifeLogTheme {
                 TimelineConfigScreen(
                     onSelected = { eventType ->
-                        // 1. Persist config in SharedPreferences — works for both new and
-                        //    existing widgets, no GlanceId lookup required.
-                        WidgetPrefs.saveTimeline(
-                            context = this,
-                            appWidgetId = appWidgetId,
-                            eventId = eventType?.id ?: ALL_EVENTS_ID,
-                            eventName = eventType?.name ?: "",
-                        )
+                        lifecycleScope.launch {
+                            val eventId = eventType?.id ?: ALL_EVENTS_ID
+                            val eventName = eventType?.name ?: ""
 
-                        // 2. Tell Android to redraw this specific widget instance.
-                        //    GlanceAppWidgetReceiver.onReceive handles ACTION_APPWIDGET_UPDATE
-                        //    and calls provideGlance(), which now reads the saved SharedPrefs.
-                        val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
-                            component = ComponentName(this@TimelineWidgetConfigActivity,
-                                TimelineWidgetReceiver::class.java)
-                            putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, intArrayOf(appWidgetId))
+                            // Always write SharedPreferences — this is the reliable path
+                            // for new widgets where the GlanceId registry entry may not
+                            // exist yet (Glance registers IDs lazily after first render).
+                            WidgetPrefs.saveTimeline(
+                                context = this@TimelineWidgetConfigActivity,
+                                appWidgetId = appWidgetId,
+                                eventId = eventId,
+                                eventName = eventName,
+                            )
+
+                            // Also write Glance DataStore when the GlanceId is already
+                            // registered (existing widgets being reconfigured). This keeps
+                            // DataStore in sync so the DataStore fallback path stays fresh.
+                            val manager = GlanceAppWidgetManager(this@TimelineWidgetConfigActivity)
+                            val glanceId = manager.getGlanceIds(TimelineWidget::class.java)
+                                .firstOrNull { manager.getAppWidgetId(it) == appWidgetId }
+
+                            if (glanceId != null) {
+                                updateAppWidgetState(
+                                    this@TimelineWidgetConfigActivity,
+                                    PreferencesGlanceStateDefinition,
+                                    glanceId
+                                ) { prefs ->
+                                    prefs.toMutablePreferences().apply {
+                                        this[TimelineWidget.PREF_EVENT_ID] = eventId
+                                        this[TimelineWidget.PREF_EVENT_NAME] = eventName
+                                    }
+                                }
+                                TimelineWidget().update(
+                                    this@TimelineWidgetConfigActivity, glanceId
+                                )
+                            } else {
+                                // New widget: GlanceId not yet registered. SharedPreferences
+                                // written above; broadcast triggers provideGlance which reads
+                                // SharedPreferences via the primary path.
+                                sendBroadcast(
+                                    Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
+                                        component = ComponentName(
+                                            this@TimelineWidgetConfigActivity,
+                                            TimelineWidgetReceiver::class.java
+                                        )
+                                        putExtra(
+                                            AppWidgetManager.EXTRA_APPWIDGET_IDS,
+                                            intArrayOf(appWidgetId)
+                                        )
+                                    }
+                                )
+                            }
+
+                            setResult(
+                                RESULT_OK,
+                                Intent().putExtra(
+                                    AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId
+                                )
+                            )
+                            finish()
                         }
-                        sendBroadcast(intent)
-
-                        setResult(
-                            RESULT_OK,
-                            Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                        )
-                        finish()
                     },
                     onCancel = {
                         setResult(RESULT_CANCELED)
@@ -128,7 +168,9 @@ private fun TimelineConfigScreen(
                 Card(
                     onClick = { onSelected(null) },
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
                 ) {
                     Row(
                         modifier = Modifier
@@ -162,7 +204,10 @@ private fun TimelineConfigScreen(
                     )
                 }
                 items(eventTypes, key = { it.id }) { eventType ->
-                    TimelineEventPickerCard(eventType = eventType, onClick = { onSelected(eventType) })
+                    TimelineEventPickerCard(
+                        eventType = eventType,
+                        onClick = { onSelected(eventType) }
+                    )
                 }
             }
         }
@@ -175,7 +220,9 @@ private fun TimelineEventPickerCard(eventType: EventType, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        )
     ) {
         Row(
             modifier = Modifier
@@ -199,7 +246,11 @@ private fun TimelineEventPickerCard(eventType: EventType, onClick: () -> Unit) {
                 }
             }
             Column(modifier = Modifier.weight(1f)) {
-                Text(eventType.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(
+                    eventType.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
                 if (eventType.description.isNotBlank()) {
                     Text(
                         eventType.description,
