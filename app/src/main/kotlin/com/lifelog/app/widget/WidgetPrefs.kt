@@ -60,14 +60,12 @@ object WidgetPrefs {
         chartConfigId: String,
         eventTypeName: String,
         chartTitle: String,
-        eventColor: Int,
     ) {
         context.getSharedPreferences(CHART_PREFS, Context.MODE_PRIVATE).edit()
             .putLong(key(appWidgetId, "event_type_id"), eventTypeId)
             .putString(key(appWidgetId, "chart_config_id"), chartConfigId)
             .putString(key(appWidgetId, "event_type_name"), eventTypeName)
             .putString(key(appWidgetId, "chart_title"), chartTitle)
-            .putInt(key(appWidgetId, "event_color"), eventColor)
             .apply()
     }
 
@@ -93,7 +91,6 @@ object WidgetPrefs {
             .remove(key(appWidgetId, "chart_config_id"))
             .remove(key(appWidgetId, "event_type_name"))
             .remove(key(appWidgetId, "chart_title"))
-            .remove(key(appWidgetId, "event_color"))
             .apply()
     }
 
@@ -106,14 +103,10 @@ object WidgetPrefs {
         appWidgetId: Int,
         eventId: Long,
         eventName: String,
-        eventColor: Int,
-        eventIcon: String,
     ) {
         context.getSharedPreferences(QUICK_ADD_PREFS, Context.MODE_PRIVATE).edit()
             .putLong(key(appWidgetId, "event_id"), eventId)
             .putString(key(appWidgetId, "event_name"), eventName)
-            .putInt(key(appWidgetId, "event_color"), eventColor)
-            .putString(key(appWidgetId, "event_icon"), eventIcon)
             .apply()
     }
 
@@ -129,8 +122,6 @@ object WidgetPrefs {
         context.getSharedPreferences(QUICK_ADD_PREFS, Context.MODE_PRIVATE).edit()
             .remove(key(appWidgetId, "event_id"))
             .remove(key(appWidgetId, "event_name"))
-            .remove(key(appWidgetId, "event_color"))
-            .remove(key(appWidgetId, "event_icon"))
             .apply()
     }
 

@@ -19,13 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.glance.appwidget.state.updateAppWidgetState
-import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.ChartRepository
 import com.lifelog.app.data.repository.EventRepository
@@ -91,64 +87,20 @@ class ChartWidgetConfigActivity : ComponentActivity() {
             LifeLogTheme {
                 ChartConfigFlow(
                     onComplete = { eventType, chart ->
-                        lifecycleScope.launch {
-                            val chartTitle = chart.title.ifBlank { eventType.name }
-
-                            // Always write SharedPreferences — reliable for new widgets
-                            // where the GlanceId registry entry may not exist yet.
-                            WidgetPrefs.saveChart(
-                                context = this@ChartWidgetConfigActivity,
-                                appWidgetId = appWidgetId,
-                                eventTypeId = eventType.id,
-                                chartConfigId = chart.id,
-                                eventTypeName = eventType.name,
-                                chartTitle = chartTitle,
-                                eventColor = eventType.colorArgb,
-                            )
-
-                            // Also write Glance DataStore when GlanceId is available.
-                            val manager = GlanceAppWidgetManager(this@ChartWidgetConfigActivity)
-                            val glanceId = manager.getGlanceIds(ChartWidget::class.java)
-                                .firstOrNull { manager.getAppWidgetId(it) == appWidgetId }
-
-                            if (glanceId != null) {
-                                updateAppWidgetState(
-                                    this@ChartWidgetConfigActivity,
-                                    PreferencesGlanceStateDefinition,
-                                    glanceId
-                                ) { prefs ->
-                                    prefs.toMutablePreferences().apply {
-                                        this[ChartWidget.PREF_EVENT_TYPE_ID] = eventType.id
-                                        this[ChartWidget.PREF_CHART_CONFIG_ID] = chart.id
-                                        this[ChartWidget.PREF_EVENT_TYPE_NAME] = eventType.name
-                                        this[ChartWidget.PREF_CHART_TITLE] = chartTitle
-                                        this[ChartWidget.PREF_EVENT_COLOR] = eventType.colorArgb
-                                    }
-                                }
-                                ChartWidget().update(this@ChartWidgetConfigActivity, glanceId)
-                            } else {
-                                sendBroadcast(
-                                    Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
-                                        component = ComponentName(
-                                            this@ChartWidgetConfigActivity,
-                                            ChartWidgetReceiver::class.java
-                                        )
-                                        putExtra(
-                                            AppWidgetManager.EXTRA_APPWIDGET_IDS,
-                                            intArrayOf(appWidgetId)
-                                        )
-                                    }
-                                )
-                            }
-
-                            setResult(
-                                RESULT_OK,
-                                Intent().putExtra(
-                                    AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId
-                                )
-                            )
-                            finish()
-                        }
+                        WidgetPrefs.saveChart(
+                            context = this,
+                            appWidgetId = appWidgetId,
+                            eventTypeId = eventType.id,
+                            chartConfigId = chart.id,
+                            eventTypeName = eventType.name,
+                            chartTitle = chart.title.ifBlank { eventType.name },
+                        )
+                        sendBroadcast(Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
+                            component = ComponentName(this@ChartWidgetConfigActivity, ChartWidgetReceiver::class.java)
+                            putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, intArrayOf(appWidgetId))
+                        })
+                        setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
+                        finish()
                     },
                     onCancel = {
                         setResult(RESULT_CANCELED)

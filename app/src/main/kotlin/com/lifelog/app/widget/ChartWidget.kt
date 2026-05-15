@@ -8,7 +8,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.GlanceId
@@ -153,7 +152,6 @@ class ChartWidget : GlanceAppWidget() {
         val PREF_CHART_CONFIG_ID = stringPreferencesKey("cw_chart_config_id")
         val PREF_EVENT_TYPE_NAME = stringPreferencesKey("cw_event_type_name")
         val PREF_CHART_TITLE = stringPreferencesKey("cw_chart_title")
-        val PREF_EVENT_COLOR = intPreferencesKey("cw_event_color")
     }
 }
 

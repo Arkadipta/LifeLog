@@ -124,7 +124,6 @@ class TimelineWidget : GlanceAppWidget() {
         val PREF_EVENT_ID = longPreferencesKey("tl_event_id")
         val PREF_EVENT_NAME = stringPreferencesKey("tl_event_name")
 
-        val SMALL_SIZE = DpSize(120.dp, 100.dp)
         val MEDIUM_SIZE = DpSize(220.dp, 180.dp)
     }
 }

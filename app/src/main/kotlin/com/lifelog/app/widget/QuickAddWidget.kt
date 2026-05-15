@@ -6,7 +6,6 @@ import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.GlanceId
@@ -70,8 +69,6 @@ class QuickAddWidget : GlanceAppWidget() {
     companion object {
         val PREF_EVENT_ID = longPreferencesKey("event_id")
         val PREF_EVENT_NAME = stringPreferencesKey("event_name")
-        val PREF_EVENT_COLOR = intPreferencesKey("event_color")
-        val PREF_EVENT_ICON = stringPreferencesKey("event_icon")
     }
 }
 

@@ -16,20 +16,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.glance.appwidget.state.updateAppWidgetState
-import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.lifecycleScope
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.theme.LifeLogTheme
-import com.lifelog.app.util.iconForName
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.launch
 
 private const val ALL_EVENTS_ID = 0L
 
@@ -56,67 +49,18 @@ class TimelineWidgetConfigActivity : ComponentActivity() {
             LifeLogTheme {
                 TimelineConfigScreen(
                     onSelected = { eventType ->
-                        lifecycleScope.launch {
-                            val eventId = eventType?.id ?: ALL_EVENTS_ID
-                            val eventName = eventType?.name ?: ""
-
-                            // Always write SharedPreferences — this is the reliable path
-                            // for new widgets where the GlanceId registry entry may not
-                            // exist yet (Glance registers IDs lazily after first render).
-                            WidgetPrefs.saveTimeline(
-                                context = this@TimelineWidgetConfigActivity,
-                                appWidgetId = appWidgetId,
-                                eventId = eventId,
-                                eventName = eventName,
-                            )
-
-                            // Also write Glance DataStore when the GlanceId is already
-                            // registered (existing widgets being reconfigured). This keeps
-                            // DataStore in sync so the DataStore fallback path stays fresh.
-                            val manager = GlanceAppWidgetManager(this@TimelineWidgetConfigActivity)
-                            val glanceId = manager.getGlanceIds(TimelineWidget::class.java)
-                                .firstOrNull { manager.getAppWidgetId(it) == appWidgetId }
-
-                            if (glanceId != null) {
-                                updateAppWidgetState(
-                                    this@TimelineWidgetConfigActivity,
-                                    PreferencesGlanceStateDefinition,
-                                    glanceId
-                                ) { prefs ->
-                                    prefs.toMutablePreferences().apply {
-                                        this[TimelineWidget.PREF_EVENT_ID] = eventId
-                                        this[TimelineWidget.PREF_EVENT_NAME] = eventName
-                                    }
-                                }
-                                TimelineWidget().update(
-                                    this@TimelineWidgetConfigActivity, glanceId
-                                )
-                            } else {
-                                // New widget: GlanceId not yet registered. SharedPreferences
-                                // written above; broadcast triggers provideGlance which reads
-                                // SharedPreferences via the primary path.
-                                sendBroadcast(
-                                    Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
-                                        component = ComponentName(
-                                            this@TimelineWidgetConfigActivity,
-                                            TimelineWidgetReceiver::class.java
-                                        )
-                                        putExtra(
-                                            AppWidgetManager.EXTRA_APPWIDGET_IDS,
-                                            intArrayOf(appWidgetId)
-                                        )
-                                    }
-                                )
-                            }
-
-                            setResult(
-                                RESULT_OK,
-                                Intent().putExtra(
-                                    AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId
-                                )
-                            )
-                            finish()
-                        }
+                        WidgetPrefs.saveTimeline(
+                            context = this,
+                            appWidgetId = appWidgetId,
+                            eventId = eventType?.id ?: ALL_EVENTS_ID,
+                            eventName = eventType?.name ?: "",
+                        )
+                        sendBroadcast(Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
+                            component = ComponentName(this@TimelineWidgetConfigActivity, TimelineWidgetReceiver::class.java)
+                            putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, intArrayOf(appWidgetId))
+                        })
+                        setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
+                        finish()
                     },
                     onCancel = {
                         setResult(RESULT_CANCELED)
@@ -204,59 +148,9 @@ private fun TimelineConfigScreen(
                     )
                 }
                 items(eventTypes, key = { it.id }) { eventType ->
-                    TimelineEventPickerCard(
+                    EventPickerCard(
                         eventType = eventType,
                         onClick = { onSelected(eventType) }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TimelineEventPickerCard(eventType: EventType, onClick: () -> Unit) {
-    val color = Color(eventType.colorArgb)
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Surface(
-                shape = MaterialTheme.shapes.medium,
-                color = color.copy(alpha = 0.15f),
-                modifier = Modifier.size(44.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = iconForName(eventType.iconName),
-                        contentDescription = null,
-                        tint = color,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    eventType.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                if (eventType.description.isNotBlank()) {
-                    Text(
-                        eventType.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
                     )
                 }
             }
