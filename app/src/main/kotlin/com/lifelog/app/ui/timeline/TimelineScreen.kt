@@ -21,6 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
 import com.lifelog.app.ui.components.SwipeDeleteBackground
+import com.lifelog.app.ui.components.TagFilterRow
 import com.lifelog.app.ui.events.EntryCard
 import com.lifelog.app.ui.events.EntryFormSheet
 import com.lifelog.app.util.toDisplayDate
@@ -32,6 +33,8 @@ fun TimelineScreen(
 ) {
     val entries by viewModel.entries.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val filterState by viewModel.filterState.collectAsStateWithLifecycle()
+    val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
     val fieldsMap by viewModel.fieldsMap.collectAsStateWithLifecycle()
     var deleteTarget by remember { mutableStateOf<EventEntry?>(null) }
     var editingEntryId by remember { mutableStateOf<Long?>(null) }
@@ -82,7 +85,14 @@ fun TimelineScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {}
 
-            if (entries.isEmpty() && searchQuery.isBlank()) {
+            TagFilterRow(
+                tags = availableTags,
+                filterState = filterState,
+                onFilterChange = viewModel::updateFilter,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+
+            if (entries.isEmpty() && searchQuery.isBlank() && !filterState.hasActiveFilters) {
                 EmptyStatePlaceholder(
                     icon = Icons.Rounded.Timeline,
                     title = "No entries yet",
@@ -91,8 +101,14 @@ fun TimelineScreen(
                 )
             } else if (entries.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    val message = when {
+                        searchQuery.isNotBlank() && filterState.hasActiveFilters ->
+                            "No entries match \"$searchQuery\" with selected tags"
+                        searchQuery.isNotBlank() -> "No entries match \"$searchQuery\""
+                        else -> "No entries match the selected tags"
+                    }
                     Text(
-                        "No entries match \"$searchQuery\"",
+                        message,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

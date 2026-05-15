@@ -71,6 +71,7 @@ fun EventField.toEntity() = EventFieldEntity(
 
 fun EventEntryEntity.toDomain(
     eventTypeName: String = "",
+    eventTypeCategory: String = "",
     eventTypeColor: Int = EventType.DEFAULT_COLOR,
     eventTypeIcon: String = "star"
 ): EventEntry {
@@ -83,6 +84,7 @@ fun EventEntryEntity.toDomain(
         id = id,
         eventTypeId = eventTypeId,
         eventTypeName = eventTypeName,
+        eventTypeCategory = eventTypeCategory,
         eventTypeColor = eventTypeColor,
         eventTypeIcon = eventTypeIcon,
         fieldValues = rawValues.mapKeys { it.key.toLongOrNull() ?: 0L },
