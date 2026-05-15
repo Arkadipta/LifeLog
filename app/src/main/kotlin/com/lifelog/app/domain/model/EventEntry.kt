@@ -4,6 +4,7 @@ data class EventEntry(
     val id: Long = 0,
     val eventTypeId: Long,
     val eventTypeName: String = "",
+    val eventTypeCategory: String = "",
     val eventTypeColor: Int = EventType.DEFAULT_COLOR,
     val eventTypeIcon: String = "star",
     val fieldValues: Map<Long, FieldValue> = emptyMap(),

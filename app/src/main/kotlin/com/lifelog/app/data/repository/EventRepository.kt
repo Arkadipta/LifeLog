@@ -73,6 +73,7 @@ class EventRepository @Inject constructor(
             entries.map { e ->
                 e.toDomain(
                     eventTypeName = entity?.name ?: "",
+                    eventTypeCategory = entity?.category ?: "",
                     eventTypeColor = entity?.colorArgb ?: EventType.DEFAULT_COLOR,
                     eventTypeIcon = entity?.iconName ?: "star"
                 )
@@ -89,6 +90,7 @@ class EventRepository @Inject constructor(
                     val type = typeMap[e.eventTypeId]
                     e.toDomain(
                         eventTypeName = type?.name ?: "",
+                        eventTypeCategory = type?.category ?: "",
                         eventTypeColor = type?.colorArgb ?: EventType.DEFAULT_COLOR,
                         eventTypeIcon = type?.iconName ?: "star"
                     )
@@ -101,6 +103,7 @@ class EventRepository @Inject constructor(
         val type = eventTypeDao.getById(entity.eventTypeId)
         return entity.toDomain(
             eventTypeName = type?.name ?: "",
+            eventTypeCategory = type?.category ?: "",
             eventTypeColor = type?.colorArgb ?: EventType.DEFAULT_COLOR,
             eventTypeIcon = type?.iconName ?: "star"
         )
@@ -127,6 +130,7 @@ class EventRepository @Inject constructor(
             val type = types[e.eventTypeId]
             e.toDomain(
                 eventTypeName = type?.name ?: "",
+                eventTypeCategory = type?.category ?: "",
                 eventTypeColor = type?.colorArgb ?: EventType.DEFAULT_COLOR,
                 eventTypeIcon = type?.iconName ?: "star"
             )
@@ -146,6 +150,7 @@ class EventRepository @Inject constructor(
         return eventEntryDao.getAllForExport(eventTypeId).map { e ->
             e.toDomain(
                 eventTypeName = type?.name ?: "",
+                eventTypeCategory = type?.category ?: "",
                 eventTypeColor = type?.colorArgb ?: EventType.DEFAULT_COLOR,
                 eventTypeIcon = type?.iconName ?: "star"
             )

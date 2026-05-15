@@ -35,6 +35,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
 import com.lifelog.app.ui.components.SwipeDeleteBackground
+import com.lifelog.app.ui.components.TagFilterRow
 import com.lifelog.app.ui.theme.LocalAmoledColors
 import com.lifelog.app.util.iconForName
 import kotlinx.coroutines.delay
@@ -49,6 +50,8 @@ fun EventsScreen(
 ) {
     val eventTypes by viewModel.eventTypes.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val filterState by viewModel.filterState.collectAsStateWithLifecycle()
+    val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
     var deleteTarget by remember { mutableStateOf<EventType?>(null) }
 
     val context = LocalContext.current
@@ -141,7 +144,14 @@ fun EventsScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {}
 
-            if (eventTypes.isEmpty() && searchQuery.isBlank()) {
+            TagFilterRow(
+                tags = availableTags,
+                filterState = filterState,
+                onFilterChange = viewModel::updateFilter,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+
+            if (eventTypes.isEmpty() && searchQuery.isBlank() && !filterState.hasActiveFilters) {
                 EmptyStatePlaceholder(
                     icon = Icons.Rounded.Add,
                     title = "No events yet",
@@ -150,8 +160,14 @@ fun EventsScreen(
                 )
             } else if (eventTypes.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    val message = when {
+                        searchQuery.isNotBlank() && filterState.hasActiveFilters ->
+                            "No events match \"$searchQuery\" with selected tags"
+                        searchQuery.isNotBlank() -> "No events match \"$searchQuery\""
+                        else -> "No events match the selected tags"
+                    }
                     Text(
-                        "No events match \"$searchQuery\"",
+                        message,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
