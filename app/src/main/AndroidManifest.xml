@@ -54,6 +54,16 @@
             </intent-filter>
         </activity>
 
+        <!-- Widget config: shown when user places or reconfigures the Timeline widget -->
+        <activity
+            android:name=".widget.TimelineWidgetConfigActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
         <!-- Transparent activity to show entry form from widget tap.
              taskAffinity="" + excludeFromRecents keeps it out of the app task
              so the launcher stays visible behind the form instead of the app. -->

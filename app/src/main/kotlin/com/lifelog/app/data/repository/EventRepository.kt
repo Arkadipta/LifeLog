@@ -156,4 +156,39 @@ class EventRepository @Inject constructor(
             )
         }
     }
+
+    suspend fun getRecentEntriesByEventType(eventTypeId: Long, limit: Int = 10): List<EventEntry> {
+        val entities = eventEntryDao.getRecentByEventType(eventTypeId, limit)
+        val type = eventTypeDao.getById(eventTypeId)
+        return entities.map { e ->
+            e.toDomain(
+                eventTypeName = type?.name ?: "",
+                eventTypeCategory = type?.category ?: "",
+                eventTypeColor = type?.colorArgb ?: EventType.DEFAULT_COLOR,
+                eventTypeIcon = type?.iconName ?: "star"
+            )
+        }
+    }
+
+    suspend fun getRecentEntriesByCategory(category: String, limit: Int = 10): List<EventEntry> {
+        val matchingTypes = eventTypeDao.getAll().filter { it.category == category }
+        if (matchingTypes.isEmpty()) return emptyList()
+        val typeIds = matchingTypes.map { it.id }
+        val typeMap = matchingTypes.associateBy { it.id }
+        return eventEntryDao.getRecentByEventTypes(typeIds, limit).map { e ->
+            val type = typeMap[e.eventTypeId]
+            e.toDomain(
+                eventTypeName = type?.name ?: "",
+                eventTypeCategory = type?.category ?: "",
+                eventTypeColor = type?.colorArgb ?: EventType.DEFAULT_COLOR,
+                eventTypeIcon = type?.iconName ?: "star"
+            )
+        }
+    }
+
+    suspend fun getAllCategories(): List<String> =
+        eventTypeDao.getAll()
+            .mapNotNull { it.category.takeIf { c -> c.isNotBlank() } }
+            .distinct()
+            .sorted()
 }

@@ -1,5 +1,6 @@
 package com.lifelog.app.ui.events
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
@@ -9,7 +10,10 @@ import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.notifications.ReminderScheduler
+import androidx.glance.appwidget.GlanceAppWidgetManager
+import com.lifelog.app.widget.TimelineWidget
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +33,7 @@ data class EntryFormState(
 
 @HiltViewModel
 class EntryViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val repository: EventRepository,
     private val reminderRepository: ReminderRepository,
     private val reminderScheduler: ReminderScheduler
@@ -97,6 +102,12 @@ class EntryViewModel @Inject constructor(
                 entryAt = current.createdAt,
                 schedule = { reminder -> reminderScheduler.schedule(reminder) }
             )
+
+            // Push a fresh snapshot to all Timeline widget instances immediately after save
+            val glanceManager = GlanceAppWidgetManager(appContext)
+            glanceManager.getGlanceIds(TimelineWidget::class.java).forEach { glanceId ->
+                TimelineWidget().update(appContext, glanceId)
+            }
 
             _state.update { it.copy(isLoading = false, isSaved = true) }
         }
