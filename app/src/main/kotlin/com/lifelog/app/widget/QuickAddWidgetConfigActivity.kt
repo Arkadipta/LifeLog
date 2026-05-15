@@ -1,6 +1,7 @@
 package com.lifelog.app.widget
 
 import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -18,13 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.glance.appwidget.state.updateAppWidgetState
-import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.domain.model.EventType
@@ -35,7 +32,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
@@ -63,40 +59,34 @@ class QuickAddWidgetConfigActivity : ComponentActivity() {
             return
         }
 
-        // Default: canceled (widget not placed if user backs out)
         setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
 
         setContent {
             LifeLogTheme {
                 ConfigScreen(
                     onEventSelected = { eventType ->
-                        lifecycleScope.launch {
-                            val manager = GlanceAppWidgetManager(this@QuickAddWidgetConfigActivity)
-                            val glanceId = manager.getGlanceIds(QuickAddWidget::class.java)
-                                .firstOrNull { manager.getAppWidgetId(it) == appWidgetId }
+                        // 1. Persist to SharedPreferences — no GlanceId dependency.
+                        WidgetPrefs.saveQuickAdd(
+                            context = this,
+                            appWidgetId = appWidgetId,
+                            eventId = eventType.id,
+                            eventName = eventType.name,
+                            eventColor = eventType.colorArgb,
+                            eventIcon = eventType.iconName,
+                        )
 
-                            if (glanceId != null) {
-                                updateAppWidgetState(
-                                    this@QuickAddWidgetConfigActivity,
-                                    PreferencesGlanceStateDefinition,
-                                    glanceId
-                                ) { prefs ->
-                                    prefs.toMutablePreferences().apply {
-                                        this[QuickAddWidget.PREF_EVENT_ID] = eventType.id
-                                        this[QuickAddWidget.PREF_EVENT_NAME] = eventType.name
-                                        this[QuickAddWidget.PREF_EVENT_COLOR] = eventType.colorArgb
-                                        this[QuickAddWidget.PREF_EVENT_ICON] = eventType.iconName
-                                    }
-                                }
-                                QuickAddWidget().update(this@QuickAddWidgetConfigActivity, glanceId)
-                            }
+                        // 2. Trigger provideGlance via broadcast.
+                        sendBroadcast(Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
+                            component = ComponentName(this@QuickAddWidgetConfigActivity,
+                                QuickAddWidgetReceiver::class.java)
+                            putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, intArrayOf(appWidgetId))
+                        })
 
-                            setResult(
-                                RESULT_OK,
-                                Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                            )
-                            finish()
-                        }
+                        setResult(
+                            RESULT_OK,
+                            Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                        )
+                        finish()
                     },
                     onCancel = {
                         setResult(RESULT_CANCELED)

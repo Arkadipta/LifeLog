@@ -1,6 +1,7 @@
 package com.lifelog.app.widget
 
 import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -18,14 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.glance.appwidget.state.updateAppWidgetState
-import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.ChartRepository
 import com.lifelog.app.data.repository.EventRepository
@@ -85,40 +81,39 @@ class ChartWidgetConfigActivity : ComponentActivity() {
             return
         }
 
+        // Pre-set CANCELED so a back-gesture always cancels widget placement correctly.
         setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
 
         setContent {
             LifeLogTheme {
                 ChartConfigFlow(
                     onComplete = { eventType, chart ->
-                        lifecycleScope.launch {
-                            val manager = GlanceAppWidgetManager(this@ChartWidgetConfigActivity)
-                            val glanceId = manager.getGlanceIds(ChartWidget::class.java)
-                                .firstOrNull { manager.getAppWidgetId(it) == appWidgetId }
+                        // 1. Persist config in SharedPreferences — works for both new and
+                        //    existing widgets without requiring a GlanceId to exist first.
+                        WidgetPrefs.saveChart(
+                            context = this,
+                            appWidgetId = appWidgetId,
+                            eventTypeId = eventType.id,
+                            chartConfigId = chart.id,
+                            eventTypeName = eventType.name,
+                            chartTitle = chart.title.ifBlank { eventType.name },
+                            eventColor = eventType.colorArgb,
+                        )
 
-                            if (glanceId != null) {
-                                updateAppWidgetState(
-                                    this@ChartWidgetConfigActivity,
-                                    PreferencesGlanceStateDefinition,
-                                    glanceId
-                                ) { prefs ->
-                                    prefs.toMutablePreferences().apply {
-                                        this[ChartWidget.PREF_EVENT_TYPE_ID] = eventType.id
-                                        this[ChartWidget.PREF_CHART_CONFIG_ID] = chart.id
-                                        this[ChartWidget.PREF_EVENT_TYPE_NAME] = eventType.name
-                                        this[ChartWidget.PREF_CHART_TITLE] = chart.title.ifBlank { eventType.name }
-                                        this[ChartWidget.PREF_EVENT_COLOR] = eventType.colorArgb
-                                    }
-                                }
-                                ChartWidget().update(this@ChartWidgetConfigActivity, glanceId)
-                            }
-
-                            setResult(
-                                RESULT_OK,
-                                Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                            )
-                            finish()
+                        // 2. Send ACTION_APPWIDGET_UPDATE to the receiver so Glance calls
+                        //    provideGlance() immediately and renders the configured chart.
+                        val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
+                            component = ComponentName(this@ChartWidgetConfigActivity,
+                                ChartWidgetReceiver::class.java)
+                            putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, intArrayOf(appWidgetId))
                         }
+                        sendBroadcast(intent)
+
+                        setResult(
+                            RESULT_OK,
+                            Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                        )
+                        finish()
                     },
                     onCancel = {
                         setResult(RESULT_CANCELED)
