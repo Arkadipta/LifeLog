@@ -1,13 +1,12 @@
 package com.lifelog.app.widget
 
+import android.appwidget.AppWidgetManager
 import android.content.Context
+import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.longPreferencesKey
-import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
@@ -15,17 +14,15 @@ import androidx.glance.LocalSize
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
-import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.background
 import androidx.glance.layout.*
 import androidx.glance.material3.ColorProviders
-import androidx.glance.state.GlanceStateDefinition
-import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
@@ -48,55 +45,60 @@ interface TimelineWidgetEntryPoint {
 
 class TimelineWidget : GlanceAppWidget() {
 
-    override val stateDefinition: GlanceStateDefinition<*> = PreferencesGlanceStateDefinition
-
     override val sizeMode = SizeMode.Responsive(
         setOf(
-            DpSize(120.dp, 100.dp),   // small: compact list
-            DpSize(220.dp, 180.dp),   // medium: name + time + preview
-            DpSize(320.dp, 280.dp),   // large: full layout with header
+            DpSize(120.dp, 100.dp),
+            DpSize(220.dp, 180.dp),
+            DpSize(320.dp, 280.dp),
         )
     )
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val entryPoint = EntryPointAccessors.fromApplication(
+        // Resolve the Android widget ID so we can look up SharedPreferences.
+        // GlanceAppWidgetManager.getAppWidgetId() is a plain (non-suspend) function in
+        // Glance 1.1.0 — it just unwraps the internal int from the GlanceId.
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
+
+        val isConfigured = WidgetPrefs.isTimelineConfigured(context, appWidgetId)
+        val eventId = WidgetPrefs.getTimelineEventId(context, appWidgetId)
+        val eventName = WidgetPrefs.getTimelineEventName(context, appWidgetId)
+
+        val repo = EntryPointAccessors.fromApplication(
             context.applicationContext,
             TimelineWidgetEntryPoint::class.java
-        )
-        val repo = entryPoint.eventRepository()
+        ).eventRepository()
 
-        // Read persisted prefs before entering the Composable scope
-        val prefs = getAppWidgetState(context, PreferencesGlanceStateDefinition, id)
-        val eventId = prefs[PREF_EVENT_ID] ?: 0L
-        val eventName = prefs[PREF_EVENT_NAME] ?: ""
-
-        val entries: List<EventEntry> = try {
-            if (eventId != 0L) repo.getRecentEntriesForEvent(eventId, 5)
-            else repo.getRecentEntries(5)
-        } catch (e: Exception) {
+        val entries: List<EventEntry> = if (!isConfigured) {
+            // Widget placed but config activity not finished yet — show nothing until configured.
             emptyList()
+        } else {
+            try {
+                if (eventId != 0L) repo.getRecentEntriesForEvent(eventId, 5)
+                else repo.getRecentEntries(5)
+            } catch (e: Exception) {
+                emptyList()
+            }
         }
 
         provideContent {
-            GlanceTheme(
-                colors = ColorProviders(light = LightColorScheme, dark = DarkColorScheme)
-            ) {
-                TimelineWidgetContent(entries, eventName)
+            GlanceTheme(colors = ColorProviders(light = LightColorScheme, dark = DarkColorScheme)) {
+                TimelineWidgetContent(entries, eventName, isConfigured)
             }
         }
     }
 
     companion object {
-        val PREF_EVENT_ID = longPreferencesKey("tl_event_id")
-        val PREF_EVENT_NAME = stringPreferencesKey("tl_event_name")
-
         val SMALL_SIZE = DpSize(120.dp, 100.dp)
         val MEDIUM_SIZE = DpSize(220.dp, 180.dp)
     }
 }
 
 @Composable
-private fun TimelineWidgetContent(entries: List<EventEntry>, filterEventName: String) {
+private fun TimelineWidgetContent(
+    entries: List<EventEntry>,
+    filterEventName: String,
+    isConfigured: Boolean,
+) {
     val size = LocalSize.current
     val isCompact = size.width < TimelineWidget.MEDIUM_SIZE.width
 
@@ -125,47 +127,58 @@ private fun TimelineWidgetContent(entries: List<EventEntry>, filterEventName: St
             Spacer(GlanceModifier.height(6.dp))
         }
 
-        if (entries.isEmpty()) {
-            Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    if (isCompact) "No entries" else "No entries yet. Tap to add.",
-                    style = TextStyle(fontSize = 11.sp, color = GlanceTheme.colors.onSurfaceVariant)
-                )
+        when {
+            !isConfigured -> {
+                Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        "Long-press to configure",
+                        style = TextStyle(fontSize = 11.sp, color = GlanceTheme.colors.onSurfaceVariant)
+                    )
+                }
             }
-        } else {
-            LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
-                items(entries) { entry ->
-                    Column(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 3.dp)) {
-                        Row(modifier = GlanceModifier.fillMaxWidth()) {
-                            Text(
-                                entry.eventTypeName,
-                                style = TextStyle(
-                                    fontSize = if (isCompact) 10.sp else 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = GlanceTheme.colors.primary
-                                ),
-                                modifier = GlanceModifier.defaultWeight()
-                            )
-                            Text(
-                                entry.createdAt.relativeTimeLabel(),
-                                style = TextStyle(
-                                    fontSize = 9.sp,
-                                    color = GlanceTheme.colors.onSurfaceVariant
-                                )
-                            )
-                        }
-                        if (!isCompact) {
-                            val preview = entry.note.ifBlank {
-                                entry.fieldValues.values.firstOrNull()?.displayString() ?: ""
-                            }
-                            if (preview.isNotBlank()) {
+            entries.isEmpty() -> {
+                Box(modifier = GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        if (isCompact) "No entries" else "No entries yet. Tap to add.",
+                        style = TextStyle(fontSize = 11.sp, color = GlanceTheme.colors.onSurfaceVariant)
+                    )
+                }
+            }
+            else -> {
+                LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
+                    items(entries) { entry ->
+                        Column(modifier = GlanceModifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                            Row(modifier = GlanceModifier.fillMaxWidth()) {
                                 Text(
-                                    preview,
+                                    entry.eventTypeName,
                                     style = TextStyle(
-                                        fontSize = 10.sp,
-                                        color = GlanceTheme.colors.onSurface
+                                        fontSize = if (isCompact) 10.sp else 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = GlanceTheme.colors.primary
+                                    ),
+                                    modifier = GlanceModifier.defaultWeight()
+                                )
+                                Text(
+                                    entry.createdAt.relativeTimeLabel(),
+                                    style = TextStyle(
+                                        fontSize = 9.sp,
+                                        color = GlanceTheme.colors.onSurfaceVariant
                                     )
                                 )
+                            }
+                            if (!isCompact) {
+                                val preview = entry.note.ifBlank {
+                                    entry.fieldValues.values.firstOrNull()?.displayString() ?: ""
+                                }
+                                if (preview.isNotBlank()) {
+                                    Text(
+                                        preview,
+                                        style = TextStyle(
+                                            fontSize = 10.sp,
+                                            color = GlanceTheme.colors.onSurface
+                                        )
+                                    )
+                                }
                             }
                         }
                     }
@@ -177,4 +190,16 @@ private fun TimelineWidgetContent(entries: List<EventEntry>, filterEventName: St
 
 class TimelineWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = TimelineWidget()
+
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        // Clean up SharedPreferences when the widget is removed from the home screen.
+        if (intent.action == AppWidgetManager.ACTION_APPWIDGET_DELETED) {
+            val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,
+                AppWidgetManager.INVALID_APPWIDGET_ID)
+            if (id != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                WidgetPrefs.removeTimeline(context, id)
+            }
+        }
+    }
 }

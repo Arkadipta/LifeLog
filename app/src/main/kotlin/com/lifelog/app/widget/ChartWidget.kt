@@ -1,5 +1,6 @@
 package com.lifelog.app.widget
 
+import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -7,9 +8,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.longPreferencesKey
-import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
@@ -17,16 +15,14 @@ import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.LocalSize
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.actionStartActivity as actionStartActivityIntent
 import androidx.glance.appwidget.provideContent
-import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.background
 import androidx.glance.layout.*
 import androidx.glance.material3.ColorProviders
-import androidx.glance.state.GlanceStateDefinition
-import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
@@ -54,8 +50,6 @@ interface ChartWidgetEntryPoint {
 
 class ChartWidget : GlanceAppWidget() {
 
-    override val stateDefinition: GlanceStateDefinition<*> = PreferencesGlanceStateDefinition
-
     override val sizeMode = SizeMode.Responsive(
         setOf(
             DpSize(160.dp, 160.dp),
@@ -65,19 +59,20 @@ class ChartWidget : GlanceAppWidget() {
     )
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        // Resolve the Android widget ID to look up SharedPreferences config.
+        val appWidgetId = GlanceAppWidgetManager(context).getAppWidgetId(id)
+
+        val eventTypeId = WidgetPrefs.getChartEventTypeId(context, appWidgetId)
+        val chartConfigId = WidgetPrefs.getChartConfigId(context, appWidgetId)
+        val eventTypeName = WidgetPrefs.getChartEventTypeName(context, appWidgetId)
+        val chartTitle = WidgetPrefs.getChartTitle(context, appWidgetId)
+
         val entryPoint = EntryPointAccessors.fromApplication(
             context.applicationContext,
             ChartWidgetEntryPoint::class.java
         )
         val eventRepo = entryPoint.eventRepository()
         val chartRepo = entryPoint.chartRepository()
-
-        // Read persisted prefs before entering the Composable scope
-        val prefs = getAppWidgetState(context, PreferencesGlanceStateDefinition, id)
-        val eventTypeId = prefs[PREF_EVENT_TYPE_ID] ?: 0L
-        val chartConfigId = prefs[PREF_CHART_CONFIG_ID] ?: ""
-        val eventTypeName = prefs[PREF_EVENT_TYPE_NAME] ?: ""
-        val chartTitle = prefs[PREF_CHART_TITLE] ?: ""
 
         val renderData: ChartRenderData = if (eventTypeId != 0L && chartConfigId.isNotBlank()) {
             try {
@@ -102,20 +97,10 @@ class ChartWidget : GlanceAppWidget() {
         }
 
         provideContent {
-            GlanceTheme(
-                colors = ColorProviders(light = LightColorScheme, dark = DarkColorScheme)
-            ) {
+            GlanceTheme(colors = ColorProviders(light = LightColorScheme, dark = DarkColorScheme)) {
                 ChartWidgetContent(renderData, context, eventTypeId)
             }
         }
-    }
-
-    companion object {
-        val PREF_EVENT_TYPE_ID = longPreferencesKey("cw_event_type_id")
-        val PREF_CHART_CONFIG_ID = stringPreferencesKey("cw_chart_config_id")
-        val PREF_EVENT_TYPE_NAME = stringPreferencesKey("cw_event_type_name")
-        val PREF_CHART_TITLE = stringPreferencesKey("cw_chart_title")
-        val PREF_EVENT_COLOR = intPreferencesKey("cw_event_color")
     }
 }
 
@@ -270,4 +255,16 @@ private fun ChartWidgetContent(
 
 class ChartWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = ChartWidget()
+
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        // Clean up SharedPreferences when the widget is removed from the home screen.
+        if (intent.action == AppWidgetManager.ACTION_APPWIDGET_DELETED) {
+            val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,
+                AppWidgetManager.INVALID_APPWIDGET_ID)
+            if (id != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                WidgetPrefs.removeChart(context, id)
+            }
+        }
+    }
 }

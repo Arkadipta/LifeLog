@@ -1,6 +1,7 @@
 package com.lifelog.app.widget
 
 import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -18,19 +19,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.glance.appwidget.GlanceAppWidgetManager
-import androidx.glance.appwidget.state.updateAppWidgetState
-import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.lifecycleScope
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.theme.LifeLogTheme
 import com.lifelog.app.util.iconForName
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.launch
 
-/** Sentinel value meaning "show all events" (no filtering). */
+/** Sentinel meaning "show all events" — stored as event ID 0. */
 private const val ALL_EVENTS_ID = 0L
 
 @AndroidEntryPoint
@@ -50,37 +46,37 @@ class TimelineWidgetConfigActivity : ComponentActivity() {
             return
         }
 
+        // Pre-set CANCELED so a back-gesture always cancels widget placement correctly.
         setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
 
         setContent {
             LifeLogTheme {
                 TimelineConfigScreen(
                     onSelected = { eventType ->
-                        lifecycleScope.launch {
-                            val manager = GlanceAppWidgetManager(this@TimelineWidgetConfigActivity)
-                            val glanceId = manager.getGlanceIds(TimelineWidget::class.java)
-                                .firstOrNull { manager.getAppWidgetId(it) == appWidgetId }
+                        // 1. Persist config in SharedPreferences — works for both new and
+                        //    existing widgets, no GlanceId lookup required.
+                        WidgetPrefs.saveTimeline(
+                            context = this,
+                            appWidgetId = appWidgetId,
+                            eventId = eventType?.id ?: ALL_EVENTS_ID,
+                            eventName = eventType?.name ?: "",
+                        )
 
-                            if (glanceId != null) {
-                                updateAppWidgetState(
-                                    this@TimelineWidgetConfigActivity,
-                                    PreferencesGlanceStateDefinition,
-                                    glanceId
-                                ) { prefs ->
-                                    prefs.toMutablePreferences().apply {
-                                        this[TimelineWidget.PREF_EVENT_ID] = eventType?.id ?: ALL_EVENTS_ID
-                                        this[TimelineWidget.PREF_EVENT_NAME] = eventType?.name ?: ""
-                                    }
-                                }
-                                TimelineWidget().update(this@TimelineWidgetConfigActivity, glanceId)
-                            }
-
-                            setResult(
-                                RESULT_OK,
-                                Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                            )
-                            finish()
+                        // 2. Tell Android to redraw this specific widget instance.
+                        //    GlanceAppWidgetReceiver.onReceive handles ACTION_APPWIDGET_UPDATE
+                        //    and calls provideGlance(), which now reads the saved SharedPrefs.
+                        val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
+                            component = ComponentName(this@TimelineWidgetConfigActivity,
+                                TimelineWidgetReceiver::class.java)
+                            putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, intArrayOf(appWidgetId))
                         }
+                        sendBroadcast(intent)
+
+                        setResult(
+                            RESULT_OK,
+                            Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                        )
+                        finish()
                     },
                     onCancel = {
                         setResult(RESULT_CANCELED)
@@ -128,7 +124,6 @@ private fun TimelineConfigScreen(
                     modifier = Modifier.padding(vertical = 4.dp)
                 )
             }
-            // "All Events" option
             item {
                 Card(
                     onClick = { onSelected(null) },
