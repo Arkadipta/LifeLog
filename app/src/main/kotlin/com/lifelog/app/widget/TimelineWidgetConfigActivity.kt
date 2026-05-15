@@ -1,7 +1,6 @@
 package com.lifelog.app.widget
 
 import android.appwidget.AppWidgetManager
-import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -18,11 +17,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.theme.LifeLogTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 
 private const val ALL_EVENTS_ID = 0L
 
@@ -49,18 +53,42 @@ class TimelineWidgetConfigActivity : ComponentActivity() {
             LifeLogTheme {
                 TimelineConfigScreen(
                     onSelected = { eventType ->
-                        WidgetPrefs.saveTimeline(
-                            context = this,
-                            appWidgetId = appWidgetId,
-                            eventId = eventType?.id ?: ALL_EVENTS_ID,
-                            eventName = eventType?.name ?: "",
-                        )
-                        sendBroadcast(Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
-                            component = ComponentName(this@TimelineWidgetConfigActivity, TimelineWidgetReceiver::class.java)
-                            putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, intArrayOf(appWidgetId))
-                        })
-                        setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
-                        finish()
+                        lifecycleScope.launch {
+                            val eventId = eventType?.id ?: ALL_EVENTS_ID
+                            val eventName = eventType?.name ?: ""
+
+                            WidgetPrefs.saveTimeline(
+                                context = this@TimelineWidgetConfigActivity,
+                                appWidgetId = appWidgetId,
+                                eventId = eventId,
+                                eventName = eventName,
+                            )
+
+                            // For existing widgets: write DataStore and trigger a direct update
+                            // (prevents double-scheduling from both this and system's post-RESULT_OK broadcast).
+                            // For new widgets (glanceId == null): SP is enough;
+                            // system sends ACTION_APPWIDGET_UPDATE after RESULT_OK.
+                            val manager = GlanceAppWidgetManager(this@TimelineWidgetConfigActivity)
+                            val glanceId = manager.getGlanceIds(TimelineWidget::class.java)
+                                .firstOrNull { manager.getAppWidgetId(it) == appWidgetId }
+
+                            if (glanceId != null) {
+                                updateAppWidgetState(
+                                    this@TimelineWidgetConfigActivity,
+                                    PreferencesGlanceStateDefinition,
+                                    glanceId
+                                ) { prefs ->
+                                    prefs.toMutablePreferences().apply {
+                                        this[TimelineWidget.PREF_EVENT_ID] = eventId
+                                        this[TimelineWidget.PREF_EVENT_NAME] = eventName
+                                    }
+                                }
+                                TimelineWidget().update(this@TimelineWidgetConfigActivity, glanceId)
+                            }
+
+                            setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
+                            finish()
+                        }
                     },
                     onCancel = {
                         setResult(RESULT_CANCELED)
