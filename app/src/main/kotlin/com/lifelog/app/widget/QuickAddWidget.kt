@@ -1,7 +1,9 @@
 package com.lifelog.app.widget
 
+import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.datastore.preferences.core.Preferences
@@ -101,4 +103,26 @@ private fun QuickAddWidgetContent(context: Context, eventId: Long, eventName: St
 
 class QuickAddWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = QuickAddWidget()
+
+    // Same binding-race guard as TimelineWidgetReceiver — see that class for details.
+    override fun onUpdate(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetIds: IntArray
+    ) {
+        val validIds = appWidgetIds.filter { id ->
+            val bound = appWidgetManager.getAppWidgetInfo(id) != null
+            if (!bound) Log.w(TAG, "onUpdate: skipping appWidgetId=$id — not yet bound")
+            bound
+        }.toIntArray()
+
+        Log.d(TAG, "onUpdate: ${appWidgetIds.size} requested, ${validIds.size} ready")
+        if (validIds.isNotEmpty()) {
+            super.onUpdate(context, appWidgetManager, validIds)
+        }
+    }
+
+    companion object {
+        private const val TAG = "QuickAddWidgetReceiver"
+    }
 }

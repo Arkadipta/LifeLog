@@ -7,6 +7,7 @@ import com.lifelog.app.domain.EventFilterUseCase
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventFilterState
+import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -22,7 +23,8 @@ import javax.inject.Inject
 @HiltViewModel
 class TimelineViewModel @Inject constructor(
     private val repository: EventRepository,
-    private val filterUseCase: EventFilterUseCase
+    private val filterUseCase: EventFilterUseCase,
+    private val widgetUpdater: WidgetUpdater
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -54,6 +56,9 @@ class TimelineViewModel @Inject constructor(
     fun updateFilter(state: EventFilterState) { _filterState.value = state }
 
     fun deleteEntry(id: Long) {
-        viewModelScope.launch { repository.deleteEntry(id) }
+        viewModelScope.launch {
+            repository.deleteEntry(id)
+            widgetUpdater.refreshTimeline()
+        }
     }
 }

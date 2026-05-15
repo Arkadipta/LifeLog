@@ -1,6 +1,8 @@
 package com.lifelog.app.widget
 
+import android.appwidget.AppWidgetManager
 import android.content.Context
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -40,6 +42,8 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 
+private const val TAG = "TimelineWidget"
+
 @EntryPoint
 @InstallIn(SingletonComponent::class)
 interface TimelineWidgetEntryPoint {
@@ -60,27 +64,52 @@ class TimelineWidget : GlanceAppWidget() {
     )
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
+        Log.d(TAG, "provideGlance start: glanceId=$id")
+
         val repo = EntryPointAccessors.fromApplication(
             context.applicationContext,
             TimelineWidgetEntryPoint::class.java
         ).eventRepository()
 
-        // Read persisted filter configuration (set by TimelineWidgetConfigActivity)
+        // Read persisted filter configuration written by TimelineWidgetConfigActivity.
         val prefs = getAppWidgetState(context, PreferencesGlanceStateDefinition, id)
-        val filterMode = prefs[PREF_FILTER_MODE] ?: FILTER_ALL
-        val eventId = prefs[PREF_EVENT_ID] ?: 0L
+        val filterMode = prefs[PREF_FILTER_MODE]   // null → widget not yet configured
+        val eventId   = prefs[PREF_EVENT_ID]   ?: 0L
         val eventName = prefs[PREF_EVENT_NAME] ?: ""
-        val tag = prefs[PREF_TAG] ?: ""
+        val tag       = prefs[PREF_TAG]        ?: ""
+
+        Log.d(
+            TAG,
+            "provideGlance prefs: glanceId=$id filterMode=$filterMode " +
+            "eventId=$eventId eventName='$eventName' tag='$tag'"
+        )
+
+        // Widget has not been configured yet (e.g., first render before config
+        // activity completes). Show a placeholder rather than defaulting to
+        // FILTER_ALL, which would mislead the user into thinking the filter
+        // selection didn't take effect.
+        if (filterMode == null) {
+            Log.d(TAG, "provideGlance: not yet configured, showing placeholder glanceId=$id")
+            provideContent {
+                GlanceTheme(colors = ColorProviders(light = LightColorScheme, dark = DarkColorScheme)) {
+                    UnconfiguredPlaceholder()
+                }
+            }
+            return
+        }
 
         val entries = try {
             when (filterMode) {
                 FILTER_EVENT -> repo.getRecentEntriesByEventType(eventId, MAX_ENTRIES)
-                FILTER_TAG -> repo.getRecentEntriesByCategory(tag, MAX_ENTRIES)
-                else -> repo.getRecentEntries(MAX_ENTRIES)
+                FILTER_TAG   -> repo.getRecentEntriesByCategory(tag, MAX_ENTRIES)
+                else         -> repo.getRecentEntries(MAX_ENTRIES)
             }
         } catch (e: Exception) {
+            Log.e(TAG, "provideGlance: data fetch failed for glanceId=$id filterMode=$filterMode", e)
             emptyList()
         }
+
+        Log.d(TAG, "provideGlance end: glanceId=$id entries=${entries.size}")
 
         provideContent {
             GlanceTheme(
@@ -98,16 +127,41 @@ class TimelineWidget : GlanceAppWidget() {
 
     companion object {
         val PREF_FILTER_MODE = stringPreferencesKey("tl_filter_mode")
-        val PREF_EVENT_ID = longPreferencesKey("tl_event_id")
-        val PREF_EVENT_NAME = stringPreferencesKey("tl_event_name")
-        val PREF_TAG = stringPreferencesKey("tl_tag")
+        val PREF_EVENT_ID    = longPreferencesKey("tl_event_id")
+        val PREF_EVENT_NAME  = stringPreferencesKey("tl_event_name")
+        val PREF_TAG         = stringPreferencesKey("tl_tag")
 
-        const val FILTER_ALL = "ALL"
+        const val FILTER_ALL   = "ALL"
         const val FILTER_EVENT = "EVENT"
-        const val FILTER_TAG = "TAG"
+        const val FILTER_TAG   = "TAG"
 
         // Max rows fetched per update; display is limited by widget height via LazyColumn.
         private const val MAX_ENTRIES = 10
+    }
+}
+
+@Composable
+private fun UnconfiguredPlaceholder() {
+    Column(
+        modifier = GlanceModifier
+            .fillMaxSize()
+            .background(GlanceTheme.colors.surface)
+            .padding(12.dp)
+            .clickable(actionStartActivity<MainActivity>())
+    ) {
+        Text(
+            "LifeLog",
+            style = TextStyle(
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                color = GlanceTheme.colors.primary
+            )
+        )
+        Spacer(GlanceModifier.height(8.dp))
+        Text(
+            "Tap to configure widget",
+            style = TextStyle(fontSize = 12.sp, color = GlanceTheme.colors.onSurfaceVariant)
+        )
     }
 }
 
@@ -120,11 +174,11 @@ private fun TimelineWidgetContent(
 ) {
     val size = LocalSize.current
     val isCompact = size.width < 220.dp
-    val isWide = size.width >= 320.dp
+    val isWide    = size.width >= 320.dp
 
     val filterLabel: String? = when (filterMode) {
         TimelineWidget.FILTER_EVENT -> eventName.ifBlank { null }
-        TimelineWidget.FILTER_TAG -> "#$tag".takeIf { tag.isNotBlank() }
+        TimelineWidget.FILTER_TAG   -> "#$tag".takeIf { tag.isNotBlank() }
         else -> null
     }
 
@@ -238,4 +292,42 @@ private fun EntryRow(entry: EventEntry, isCompact: Boolean, showCategory: Boolea
 
 class TimelineWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = TimelineWidget()
+
+    /**
+     * Guard against the race condition where the launcher sends APPWIDGET_UPDATE
+     * before Android finishes binding the widget provider. In that state,
+     * AppWidgetManager.getAppWidgetInfo() returns null, which causes Glance's
+     * internal AppWidgetSession to throw:
+     *   IllegalArgumentException: No app widget info for <id>
+     *
+     * We simply skip IDs that are not yet fully bound; the config activity's
+     * explicit update() call (which runs after prefs are written) will render
+     * the widget correctly once binding is complete.
+     */
+    override fun onUpdate(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetIds: IntArray
+    ) {
+        val validIds = appWidgetIds.filter { id ->
+            val bound = appWidgetManager.getAppWidgetInfo(id) != null
+            if (!bound) {
+                Log.w(
+                    TAG,
+                    "onUpdate: skipping appWidgetId=$id — provider info not yet available " +
+                    "(binding race). The config activity update() will render it correctly."
+                )
+            }
+            bound
+        }.toIntArray()
+
+        Log.d(TAG, "onUpdate: ${appWidgetIds.size} requested, ${validIds.size} bound and ready")
+        if (validIds.isNotEmpty()) {
+            super.onUpdate(context, appWidgetManager, validIds)
+        }
+    }
+
+    companion object {
+        private const val TAG = "TimelineWidgetReceiver"
+    }
 }

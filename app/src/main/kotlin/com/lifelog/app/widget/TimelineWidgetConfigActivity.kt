@@ -3,6 +3,7 @@ package com.lifelog.app.widget
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -62,6 +63,10 @@ class TimelineWidgetConfigViewModel @Inject constructor(
 @AndroidEntryPoint
 class TimelineWidgetConfigActivity : ComponentActivity() {
 
+    companion object {
+        private const val TAG = "TimelineWidgetConfig"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -84,12 +89,19 @@ class TimelineWidgetConfigActivity : ComponentActivity() {
                     onConfigured = { filterMode, eventTypeId, eventName, tag ->
                         lifecycleScope.launch {
                             val manager = GlanceAppWidgetManager(this@TimelineWidgetConfigActivity)
-                            // getGlanceIdBy creates a state entry for this appWidgetId even when
-                            // the widget is being placed for the first time (before provideGlance
-                            // has ever run). getGlanceIds(...).firstOrNull would return null in
-                            // that case, silently skipping the write and leaving the widget on
-                            // the default FILTER_ALL regardless of what the user selected.
+                            // getGlanceIdBy() creates a state entry for this appWidgetId even on
+                            // first placement (before provideGlance has ever run). Using
+                            // getGlanceIds().firstOrNull() would return null for brand-new
+                            // widgets, silently skipping the write and leaving the widget showing
+                            // the unconfigured placeholder forever.
                             val glanceId = manager.getGlanceIdBy(appWidgetId)
+                            Log.d(
+                                TAG,
+                                "onConfigured: appWidgetId=$appWidgetId glanceId=$glanceId " +
+                                "filterMode=$filterMode eventId=$eventTypeId " +
+                                "eventName='$eventName' tag='$tag'"
+                            )
+
                             updateAppWidgetState(
                                 this@TimelineWidgetConfigActivity,
                                 PreferencesGlanceStateDefinition,
@@ -97,11 +109,12 @@ class TimelineWidgetConfigActivity : ComponentActivity() {
                             ) { prefs ->
                                 prefs.toMutablePreferences().apply {
                                     this[TimelineWidget.PREF_FILTER_MODE] = filterMode
-                                    this[TimelineWidget.PREF_EVENT_ID] = eventTypeId
-                                    this[TimelineWidget.PREF_EVENT_NAME] = eventName
-                                    this[TimelineWidget.PREF_TAG] = tag
+                                    this[TimelineWidget.PREF_EVENT_ID]    = eventTypeId
+                                    this[TimelineWidget.PREF_EVENT_NAME]  = eventName
+                                    this[TimelineWidget.PREF_TAG]         = tag
                                 }
                             }
+                            Log.d(TAG, "onConfigured: state written, triggering update")
                             TimelineWidget().update(this@TimelineWidgetConfigActivity, glanceId)
 
                             setResult(

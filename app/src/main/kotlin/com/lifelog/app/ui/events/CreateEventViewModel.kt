@@ -7,6 +7,7 @@ import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.ui.theme.EventColors
+import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,7 +30,8 @@ data class CreateEventUiState(
 
 @HiltViewModel
 class CreateEventViewModel @Inject constructor(
-    private val repository: EventRepository
+    private val repository: EventRepository,
+    private val widgetUpdater: WidgetUpdater
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(CreateEventUiState())
@@ -116,6 +118,9 @@ class CreateEventViewModel @Inject constructor(
                 fields = _state.value.fields
             )
             repository.saveEventType(eventType)
+            // Event type name/category may be displayed in widget headers and
+            // the QuickAddWidget label — refresh all widget types.
+            widgetUpdater.refreshAll()
             _state.update { it.copy(isLoading = false, isSaved = true) }
         }
     }

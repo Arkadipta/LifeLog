@@ -1,19 +1,15 @@
 package com.lifelog.app.ui.events
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.data.repository.ReminderRepository
 import com.lifelog.app.domain.model.EventEntry
-import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.notifications.ReminderScheduler
-import androidx.glance.appwidget.GlanceAppWidgetManager
-import com.lifelog.app.widget.TimelineWidget
+import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,10 +29,10 @@ data class EntryFormState(
 
 @HiltViewModel
 class EntryViewModel @Inject constructor(
-    @ApplicationContext private val appContext: Context,
     private val repository: EventRepository,
     private val reminderRepository: ReminderRepository,
-    private val reminderScheduler: ReminderScheduler
+    private val reminderScheduler: ReminderScheduler,
+    private val widgetUpdater: WidgetUpdater
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(EntryFormState())
@@ -103,11 +99,9 @@ class EntryViewModel @Inject constructor(
                 schedule = { reminder -> reminderScheduler.schedule(reminder) }
             )
 
-            // Push a fresh snapshot to all Timeline widget instances immediately after save
-            val glanceManager = GlanceAppWidgetManager(appContext)
-            glanceManager.getGlanceIds(TimelineWidget::class.java).forEach { glanceId ->
-                TimelineWidget().update(appContext, glanceId)
-            }
+            // Entry data changed — refresh Timeline widgets so they show the new entry.
+            // Only timeline needs refreshing; QuickAddWidget shows static event metadata.
+            widgetUpdater.refreshTimeline()
 
             _state.update { it.copy(isLoading = false, isSaved = true) }
         }

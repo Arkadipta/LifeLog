@@ -11,6 +11,7 @@ import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.ChartData
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -21,7 +22,8 @@ import javax.inject.Inject
 class EventDetailViewModel @Inject constructor(
     private val repository: EventRepository,
     private val chartRepository: ChartRepository,
-    private val csvManager: CsvManager
+    private val csvManager: CsvManager,
+    private val widgetUpdater: WidgetUpdater
 ) : ViewModel() {
 
     private val eventIdFlow = MutableStateFlow<Long>(0)
@@ -69,7 +71,10 @@ class EventDetailViewModel @Inject constructor(
     fun setSearchQuery(q: String) { _searchQuery.value = q }
 
     fun deleteEntry(id: Long) {
-        viewModelScope.launch { repository.deleteEntry(id) }
+        viewModelScope.launch {
+            repository.deleteEntry(id)
+            widgetUpdater.refreshTimeline()
+        }
     }
 
     fun saveChart(config: ChartConfig) {
