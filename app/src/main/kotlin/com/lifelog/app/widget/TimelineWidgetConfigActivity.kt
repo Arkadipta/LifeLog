@@ -95,9 +95,17 @@ class TimelineWidgetConfigActivity : ComponentActivity() {
                             // widgets, silently skipping the write and leaving the widget showing
                             // the unconfigured placeholder forever.
                             val glanceId = manager.getGlanceIdBy(appWidgetId)
+                            // Diagnostic: knownIds is the set of widgets already registered
+                            // in the AppWidget host. If it is EMPTY here, the widget has not
+                            // yet been committed to the home screen (initial placement). In
+                            // that case the update() call below may be silently dropped by
+                            // AppWidgetManager; onAppWidgetOptionsChanged in the receiver will
+                            // fire the correct render once the launcher adds the widget.
+                            val knownIds = manager.getGlanceIds(TimelineWidget::class.java)
                             Log.d(
                                 TAG,
                                 "onConfigured: appWidgetId=$appWidgetId glanceId=$glanceId " +
+                                "knownIds=$knownIds widgetAlreadyInHost=${knownIds.isNotEmpty()} " +
                                 "filterMode=$filterMode eventId=$eventTypeId " +
                                 "eventName='$eventName' tag='$tag'"
                             )
@@ -114,8 +122,9 @@ class TimelineWidgetConfigActivity : ComponentActivity() {
                                     this[TimelineWidget.PREF_TAG]         = tag
                                 }
                             }
-                            Log.d(TAG, "onConfigured: state written, triggering update")
+                            Log.d(TAG, "onConfigured: state written, triggering update ts=${System.currentTimeMillis()}")
                             TimelineWidget().update(this@TimelineWidgetConfigActivity, glanceId)
+                            Log.d(TAG, "onConfigured: update() returned ts=${System.currentTimeMillis()}")
 
                             setResult(
                                 RESULT_OK,

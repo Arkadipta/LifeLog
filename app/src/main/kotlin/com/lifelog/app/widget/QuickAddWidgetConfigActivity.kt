@@ -83,9 +83,15 @@ class QuickAddWidgetConfigActivity : ComponentActivity() {
                             // widget, silently skipping the write and leaving the widget without
                             // any configured event.
                             val glanceId = manager.getGlanceIdBy(appWidgetId)
+                            // Diagnostic: knownIds empty = widget not yet in host (initial
+                            // placement). update() below may be silently dropped; the
+                            // onAppWidgetOptionsChanged callback in the receiver will fire
+                            // the correct render once the launcher adds the widget.
+                            val knownIds = manager.getGlanceIds(QuickAddWidget::class.java)
                             Log.d(
                                 TAG,
                                 "onEventSelected: appWidgetId=$appWidgetId glanceId=$glanceId " +
+                                "knownIds=$knownIds widgetAlreadyInHost=${knownIds.isNotEmpty()} " +
                                 "eventId=${eventType.id} eventName='${eventType.name}'"
                             )
 
@@ -101,8 +107,9 @@ class QuickAddWidgetConfigActivity : ComponentActivity() {
                                     this[QuickAddWidget.PREF_EVENT_ICON]  = eventType.iconName
                                 }
                             }
-                            Log.d(TAG, "onEventSelected: state written, triggering update")
+                            Log.d(TAG, "onEventSelected: state written, triggering update ts=${System.currentTimeMillis()}")
                             QuickAddWidget().update(this@QuickAddWidgetConfigActivity, glanceId)
+                            Log.d(TAG, "onEventSelected: update() returned ts=${System.currentTimeMillis()}")
 
                             setResult(
                                 RESULT_OK,

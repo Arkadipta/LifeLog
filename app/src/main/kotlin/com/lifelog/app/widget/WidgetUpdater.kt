@@ -3,6 +3,8 @@ package com.lifelog.app.widget
 import android.content.Context
 import android.util.Log
 import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.state.updateAppWidgetState
+import androidx.glance.state.PreferencesGlanceStateDefinition
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,45 +15,81 @@ import javax.inject.Singleton
  * Centralized widget refresh utility. Call [refreshAll] after any data mutation that
  * should be reflected on homescreen widgets (entry saves, deletes, event type changes).
  *
- * Widgets are snapshot-based; they do not observe Room flows. Every write path that
- * changes visible data MUST call this to keep widgets in sync.
+ * TimelineWidget uses LaunchedEffect inside provideContent to fetch entries reactively.
+ * Bumping PREF_REFRESH_TS via updateAppWidgetState() forces that LaunchedEffect to
+ * re-fire and re-fetch fresh data, regardless of whether the filter config changed.
+ *
+ * update() MUST run on Dispatchers.Main — it interacts with the Glance session
+ * machinery which holds a main-thread lock. After withContext(IO) for getGlanceIds(),
+ * the coroutine may be on the IO pool regardless of the caller's original dispatcher,
+ * so we always switch back to Main explicitly.
  */
 @Singleton
 class WidgetUpdater @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
 
-    /**
-     * Refreshes all registered widget instances of every widget type.
-     * Safe to call from any coroutine context; switches to [Dispatchers.IO] internally.
-     * Errors are caught and logged — never throws.
-     */
-    suspend fun refreshAll() = withContext(Dispatchers.IO) {
+    suspend fun refreshAll() {
         try {
             val manager = GlanceAppWidgetManager(context)
 
-            val timelineIds = manager.getGlanceIds(TimelineWidget::class.java)
-            Log.d(TAG, "refreshAll: updating ${timelineIds.size} TimelineWidget instance(s)")
-            timelineIds.forEach { id -> TimelineWidget().update(context, id) }
+            val timelineIds = withContext(Dispatchers.IO) {
+                manager.getGlanceIds(TimelineWidget::class.java)
+            }
+            Log.d(TAG, "refreshAll: ${timelineIds.size} TimelineWidget instance(s) ts=${System.currentTimeMillis()}")
+            val refreshTs = System.currentTimeMillis()
+            timelineIds.forEach { id ->
+                updateAppWidgetState(context, PreferencesGlanceStateDefinition, id) { prefs ->
+                    prefs.toMutablePreferences().apply {
+                        this[TimelineWidget.PREF_REFRESH_TS] = refreshTs
+                    }
+                }
+                Log.d(TAG, "refreshAll: PREF_REFRESH_TS written id=$id ts=$refreshTs")
+            }
+            withContext(Dispatchers.Main) {
+                timelineIds.forEach { id ->
+                    TimelineWidget().update(context, id)
+                    Log.d(TAG, "refreshAll: TimelineWidget update() returned id=$id ts=${System.currentTimeMillis()}")
+                }
+            }
 
-            val quickAddIds = manager.getGlanceIds(QuickAddWidget::class.java)
-            Log.d(TAG, "refreshAll: updating ${quickAddIds.size} QuickAddWidget instance(s)")
-            quickAddIds.forEach { id -> QuickAddWidget().update(context, id) }
+            val quickAddIds = withContext(Dispatchers.IO) {
+                manager.getGlanceIds(QuickAddWidget::class.java)
+            }
+            Log.d(TAG, "refreshAll: ${quickAddIds.size} QuickAddWidget instance(s) ts=${System.currentTimeMillis()}")
+            withContext(Dispatchers.Main) {
+                quickAddIds.forEach { id ->
+                    QuickAddWidget().update(context, id)
+                    Log.d(TAG, "refreshAll: QuickAddWidget update() returned id=$id ts=${System.currentTimeMillis()}")
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "refreshAll: widget refresh failed", e)
         }
     }
 
-    /**
-     * Refreshes only TimelineWidget instances. Use when entry data changes but
-     * event type metadata (shown in QuickAddWidget) is unchanged.
-     */
-    suspend fun refreshTimeline() = withContext(Dispatchers.IO) {
+    suspend fun refreshTimeline() {
         try {
             val manager = GlanceAppWidgetManager(context)
-            val ids = manager.getGlanceIds(TimelineWidget::class.java)
-            Log.d(TAG, "refreshTimeline: updating ${ids.size} TimelineWidget instance(s)")
-            ids.forEach { id -> TimelineWidget().update(context, id) }
+            val ids = withContext(Dispatchers.IO) {
+                manager.getGlanceIds(TimelineWidget::class.java)
+            }
+            Log.d(TAG, "refreshTimeline: ${ids.size} TimelineWidget instance(s) ts=${System.currentTimeMillis()}")
+            val refreshTs = System.currentTimeMillis()
+            ids.forEach { id ->
+                updateAppWidgetState(context, PreferencesGlanceStateDefinition, id) { prefs ->
+                    prefs.toMutablePreferences().apply {
+                        this[TimelineWidget.PREF_REFRESH_TS] = refreshTs
+                    }
+                }
+                Log.d(TAG, "refreshTimeline: PREF_REFRESH_TS written id=$id ts=$refreshTs")
+            }
+            withContext(Dispatchers.Main) {
+                ids.forEach { id ->
+                    TimelineWidget().update(context, id)
+                    Log.d(TAG, "refreshTimeline: update() returned id=$id ts=${System.currentTimeMillis()}")
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "refreshTimeline: failed", e)
         }
