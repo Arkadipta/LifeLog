@@ -3,6 +3,7 @@ package com.lifelog.app.widget
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -49,6 +50,10 @@ class QuickAddWidgetConfigViewModel @Inject constructor(
 @AndroidEntryPoint
 class QuickAddWidgetConfigActivity : ComponentActivity() {
 
+    companion object {
+        private const val TAG = "QuickAddWidgetConfig"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -72,24 +77,39 @@ class QuickAddWidgetConfigActivity : ComponentActivity() {
                     onEventSelected = { eventType ->
                         lifecycleScope.launch {
                             val manager = GlanceAppWidgetManager(this@QuickAddWidgetConfigActivity)
-                            val glanceId = manager.getGlanceIds(QuickAddWidget::class.java)
-                                .firstOrNull { manager.getAppWidgetId(it) == appWidgetId }
+                            // getGlanceIdBy() creates the state entry for this appWidgetId even
+                            // on first placement (before Glance has initialised a session).
+                            // getGlanceIds().firstOrNull() would return null for a brand-new
+                            // widget, silently skipping the write and leaving the widget without
+                            // any configured event.
+                            val glanceId = manager.getGlanceIdBy(appWidgetId)
+                            // Diagnostic: knownIds empty = widget not yet in host (initial
+                            // placement). update() below may be silently dropped; the
+                            // onAppWidgetOptionsChanged callback in the receiver will fire
+                            // the correct render once the launcher adds the widget.
+                            val knownIds = manager.getGlanceIds(QuickAddWidget::class.java)
+                            Log.d(
+                                TAG,
+                                "onEventSelected: appWidgetId=$appWidgetId glanceId=$glanceId " +
+                                "knownIds=$knownIds widgetAlreadyInHost=${knownIds.isNotEmpty()} " +
+                                "eventId=${eventType.id} eventName='${eventType.name}'"
+                            )
 
-                            if (glanceId != null) {
-                                updateAppWidgetState(
-                                    this@QuickAddWidgetConfigActivity,
-                                    PreferencesGlanceStateDefinition,
-                                    glanceId
-                                ) { prefs ->
-                                    prefs.toMutablePreferences().apply {
-                                        this[QuickAddWidget.PREF_EVENT_ID] = eventType.id
-                                        this[QuickAddWidget.PREF_EVENT_NAME] = eventType.name
-                                        this[QuickAddWidget.PREF_EVENT_COLOR] = eventType.colorArgb
-                                        this[QuickAddWidget.PREF_EVENT_ICON] = eventType.iconName
-                                    }
+                            updateAppWidgetState(
+                                this@QuickAddWidgetConfigActivity,
+                                PreferencesGlanceStateDefinition,
+                                glanceId
+                            ) { prefs ->
+                                prefs.toMutablePreferences().apply {
+                                    this[QuickAddWidget.PREF_EVENT_ID]    = eventType.id
+                                    this[QuickAddWidget.PREF_EVENT_NAME]  = eventType.name
+                                    this[QuickAddWidget.PREF_EVENT_COLOR] = eventType.colorArgb
+                                    this[QuickAddWidget.PREF_EVENT_ICON]  = eventType.iconName
                                 }
-                                QuickAddWidget().update(this@QuickAddWidgetConfigActivity, glanceId)
                             }
+                            Log.d(TAG, "onEventSelected: state written, triggering update ts=${System.currentTimeMillis()}")
+                            QuickAddWidget().update(this@QuickAddWidgetConfigActivity, glanceId)
+                            Log.d(TAG, "onEventSelected: update() returned ts=${System.currentTimeMillis()}")
 
                             setResult(
                                 RESULT_OK,

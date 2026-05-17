@@ -5,10 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.data.repository.ReminderRepository
 import com.lifelog.app.domain.model.EventEntry
-import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.notifications.ReminderScheduler
+import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,7 +31,8 @@ data class EntryFormState(
 class EntryViewModel @Inject constructor(
     private val repository: EventRepository,
     private val reminderRepository: ReminderRepository,
-    private val reminderScheduler: ReminderScheduler
+    private val reminderScheduler: ReminderScheduler,
+    private val widgetUpdater: WidgetUpdater
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(EntryFormState())
@@ -97,6 +98,10 @@ class EntryViewModel @Inject constructor(
                 entryAt = current.createdAt,
                 schedule = { reminder -> reminderScheduler.schedule(reminder) }
             )
+
+            // Entry data changed — refresh Timeline widgets so they show the new entry.
+            // Only timeline needs refreshing; QuickAddWidget shows static event metadata.
+            widgetUpdater.refreshTimeline()
 
             _state.update { it.copy(isLoading = false, isSaved = true) }
         }

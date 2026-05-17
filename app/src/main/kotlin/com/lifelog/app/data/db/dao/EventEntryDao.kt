@@ -40,4 +40,10 @@ interface EventEntryDao {
 
     @Query("SELECT * FROM event_entries WHERE eventTypeId = :eventTypeId ORDER BY createdAt DESC LIMIT 1")
     suspend fun getLatestForEventType(eventTypeId: Long): EventEntryEntity?
+
+    @Query("SELECT * FROM event_entries WHERE eventTypeId = :eventTypeId ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun getRecentByEventType(eventTypeId: Long, limit: Int): List<EventEntryEntity>
+
+    @Query("SELECT * FROM event_entries WHERE eventTypeId IN (:eventTypeIds) ORDER BY createdAt DESC LIMIT :limit")
+    suspend fun getRecentByEventTypes(eventTypeIds: List<Long>, limit: Int): List<EventEntryEntity>
 }
