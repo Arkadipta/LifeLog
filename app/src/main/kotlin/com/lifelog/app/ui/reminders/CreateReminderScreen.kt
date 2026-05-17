@@ -5,8 +5,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -19,12 +17,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.DeliveryType
 import com.lifelog.app.domain.model.RecurrenceType
+import com.lifelog.app.ui.components.LifeLogTimePickerDialog
 import com.lifelog.app.util.minutesFromMidnightToLabel
 import java.util.Calendar
 
@@ -302,54 +299,14 @@ fun CreateReminderScreen(
             initialHour = cal.get(Calendar.HOUR_OF_DAY),
             initialMinute = cal.get(Calendar.MINUTE)
         )
-        val haptic = LocalHapticFeedback.current
-        var lastHour by remember { mutableIntStateOf(timeState.hour) }
-        var lastMinute by remember { mutableIntStateOf(timeState.minute) }
-        LaunchedEffect(timeState.hour, timeState.minute) {
-            if (timeState.hour != lastHour || timeState.minute != lastMinute) {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                lastHour = timeState.hour
-                lastMinute = timeState.minute
+        LifeLogTimePickerDialog(
+            state = timeState,
+            onDismiss = { showTimePicker = false },
+            onConfirm = {
+                viewModel.setTimeOfDay(timeState.hour * 60 + timeState.minute)
+                showTimePicker = false
             }
-        }
-        Dialog(
-            onDismissRequest = { showTimePicker = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                shape = MaterialTheme.shapes.extraLarge
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        "Select Time",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier
-                            .align(Alignment.Start)
-                            .padding(bottom = 20.dp)
-                    )
-                    TimePicker(state = timeState)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
-                        Spacer(Modifier.width(8.dp))
-                        TextButton(onClick = {
-                            viewModel.setTimeOfDay(timeState.hour * 60 + timeState.minute)
-                            showTimePicker = false
-                        }) { Text("Set") }
-                    }
-                }
-            }
-        }
+        )
     }
 
     // ── Event picker dialog ────────────────────────────────────────────────────

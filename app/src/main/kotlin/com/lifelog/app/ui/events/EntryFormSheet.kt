@@ -11,14 +11,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lifelog.app.ui.components.LifeLogTimePickerDialog
 import com.lifelog.app.ui.events.components.FieldInput
 import com.lifelog.app.util.toDisplayDate
 import com.lifelog.app.util.toDisplayTime
@@ -217,61 +214,21 @@ fun EntryFormSheet(
             initialHour = cal.get(Calendar.HOUR_OF_DAY),
             initialMinute = cal.get(Calendar.MINUTE)
         )
-        val haptic = LocalHapticFeedback.current
-        var lastHour by remember { mutableIntStateOf(timePickerState.hour) }
-        var lastMinute by remember { mutableIntStateOf(timePickerState.minute) }
-        LaunchedEffect(timePickerState.hour, timePickerState.minute) {
-            if (timePickerState.hour != lastHour || timePickerState.minute != lastMinute) {
-                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                lastHour = timePickerState.hour
-                lastMinute = timePickerState.minute
-            }
-        }
-        Dialog(
-            onDismissRequest = { showTimePicker = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                shape = MaterialTheme.shapes.extraLarge
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        "Select Time",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier
-                            .align(Alignment.Start)
-                            .padding(bottom = 20.dp)
-                    )
-                    TimePicker(state = timePickerState)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
-                        Spacer(Modifier.width(8.dp))
-                        TextButton(onClick = {
-                            val resultCal = Calendar.getInstance().apply {
-                                timeInMillis = state.createdAt
-                                set(Calendar.HOUR_OF_DAY, timePickerState.hour)
-                                set(Calendar.MINUTE, timePickerState.minute)
-                                set(Calendar.SECOND, 0)
-                                set(Calendar.MILLISECOND, 0)
-                            }
-                            viewModel.setCreatedAt(resultCal.timeInMillis)
-                            showTimePicker = false
-                        }) { Text("Set") }
-                    }
+        LifeLogTimePickerDialog(
+            state = timePickerState,
+            onDismiss = { showTimePicker = false },
+            onConfirm = {
+                val resultCal = Calendar.getInstance().apply {
+                    timeInMillis = state.createdAt
+                    set(Calendar.HOUR_OF_DAY, timePickerState.hour)
+                    set(Calendar.MINUTE, timePickerState.minute)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
                 }
+                viewModel.setCreatedAt(resultCal.timeInMillis)
+                showTimePicker = false
             }
-        }
+        )
     }
 }
 
