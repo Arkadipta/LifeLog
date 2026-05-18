@@ -77,6 +77,13 @@ class EventDetailViewModel @Inject constructor(
         }
     }
 
+    fun deleteEventType(id: Long) {
+        viewModelScope.launch {
+            repository.deleteEventType(id)
+            widgetUpdater.refreshTimeline()
+        }
+    }
+
     fun saveChart(config: ChartConfig) {
         viewModelScope.launch { chartRepository.saveChart(config) }
     }
