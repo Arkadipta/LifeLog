@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material3.*
@@ -80,6 +81,8 @@ fun EventDetailScreen(
     var searchActive by remember { mutableStateOf(false) }
     var showChartConfigSheet by remember { mutableStateOf(false) }
     var editingChart by remember { mutableStateOf<ChartConfig?>(null) }
+    var overflowMenuExpanded by remember { mutableStateOf(false) }
+    var showDeleteEventDialog by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -182,24 +185,53 @@ fun EventDetailScreen(
                             if (searchActive) "Close search" else "Search entries"
                         )
                     }
-                    // Show "Add Chart" in the app bar only when the event has numeric fields
-                    // but no charts have been created yet
-                    if (hasNumericFields && charts.isEmpty()) {
-                        IconButton(onClick = {
-                            editingChart = null
-                            showChartConfigSheet = true
-                        }) {
-                            Icon(Icons.Rounded.AddChart, "Add Chart")
+                    Box {
+                        IconButton(onClick = { overflowMenuExpanded = true }) {
+                            Icon(Icons.Rounded.MoreVert, "More options")
                         }
-                    }
-                    IconButton(onClick = {
-                        val name = eventType?.name?.replace(" ", "_") ?: "event"
-                        exportLauncher.launch("${name}_export.csv")
-                    }) {
-                        Icon(Icons.Rounded.Upload, "Export CSV")
-                    }
-                    IconButton(onClick = { onNavigateToEdit(eventId) }) {
-                        Icon(Icons.Rounded.Edit, "Edit Event")
+                        DropdownMenu(
+                            expanded = overflowMenuExpanded,
+                            onDismissRequest = { overflowMenuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Edit") },
+                                leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                                onClick = {
+                                    overflowMenuExpanded = false
+                                    onNavigateToEdit(eventId)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                leadingIcon = {
+                                    Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error)
+                                },
+                                onClick = {
+                                    overflowMenuExpanded = false
+                                    showDeleteEventDialog = true
+                                }
+                            )
+                            if (hasNumericFields) {
+                                DropdownMenuItem(
+                                    text = { Text("Add Chart") },
+                                    leadingIcon = { Icon(Icons.Rounded.AddChart, null) },
+                                    onClick = {
+                                        overflowMenuExpanded = false
+                                        editingChart = null
+                                        showChartConfigSheet = true
+                                    }
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Export to CSV") },
+                                leadingIcon = { Icon(Icons.Rounded.Upload, null) },
+                                onClick = {
+                                    overflowMenuExpanded = false
+                                    val name = eventType?.name?.replace(" ", "_") ?: "event"
+                                    exportLauncher.launch("${name}_export.csv")
+                                }
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -434,6 +466,33 @@ fun EventDetailScreen(
                 TextButton(onClick = { deleteTarget = null }) { Text("Cancel") }
             }
         )
+    }
+
+    if (showDeleteEventDialog) {
+        eventType?.let { target ->
+            AlertDialog(
+                onDismissRequest = { showDeleteEventDialog = false },
+                icon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                title = { Text("Delete \"${target.name}\"?") },
+                text = { Text("This will permanently delete this event and all its entries.") },
+                confirmButton = {
+                    FilledTonalButton(
+                        onClick = {
+                            viewModel.deleteEventType(target.id)
+                            showDeleteEventDialog = false
+                            onNavigateBack()
+                        },
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    ) { Text("Delete") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteEventDialog = false }) { Text("Cancel") }
+                }
+            )
+        }
     }
 }
 

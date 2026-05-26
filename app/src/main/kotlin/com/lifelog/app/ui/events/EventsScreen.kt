@@ -16,9 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.*
@@ -34,7 +31,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
-import com.lifelog.app.ui.components.SwipeDeleteBackground
 import com.lifelog.app.ui.components.TagFilterRow
 import com.lifelog.app.ui.theme.LocalAmoledColors
 import com.lifelog.app.util.iconForName
@@ -52,8 +48,6 @@ fun EventsScreen(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val filterState by viewModel.filterState.collectAsStateWithLifecycle()
     val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
-    var deleteTarget by remember { mutableStateOf<EventType?>(null) }
-
     val context = LocalContext.current
     val animationsEnabled = remember {
         AndroidSettings.Global.getFloat(
@@ -179,27 +173,11 @@ fun EventsScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(eventTypes, key = { it.id }) { eventType ->
-                        val dismissState = rememberSwipeToDismissBoxState(
-                            confirmValueChange = { value ->
-                                if (value == SwipeToDismissBoxValue.EndToStart) {
-                                    deleteTarget = eventType
-                                }
-                                false // always snap back; dialog handles actual deletion
-                            }
-                        )
-                        SwipeToDismissBox(
-                            state = dismissState,
-                            backgroundContent = { SwipeDeleteBackground(dismissState) },
-                            enableDismissFromEndToStart = true,
-                            enableDismissFromStartToEnd = false,
+                        EventTypeCard(
+                            eventType = eventType,
+                            onClick = { onNavigateToEvent(eventType.id) },
                             modifier = Modifier.animateItem()
-                        ) {
-                            EventTypeCard(
-                                eventType = eventType,
-                                onClick = { onNavigateToEvent(eventType.id) },
-                                onDelete = { deleteTarget = eventType }
-                            )
-                        }
+                        )
                     }
                     item { Spacer(Modifier.height(80.dp)) }
                 }
@@ -207,29 +185,6 @@ fun EventsScreen(
         }
     }
 
-    deleteTarget?.let { target ->
-        AlertDialog(
-            onDismissRequest = { deleteTarget = null },
-            icon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text("Delete \"${target.name}\"?") },
-            text = { Text("This will permanently delete this event and all its entries.") },
-            confirmButton = {
-                FilledTonalButton(
-                    onClick = {
-                        viewModel.deleteEventType(target.id)
-                        deleteTarget = null
-                    },
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                ) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text("Cancel") }
-            }
-        )
-    }
 }
 
 
@@ -237,11 +192,9 @@ fun EventsScreen(
 private fun EventTypeCard(
     eventType: EventType,
     onClick: () -> Unit,
-    onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isAmoled = LocalAmoledColors.current.isAmoled
-    var menuExpanded by remember { mutableStateOf(false) }
     val color = Color(eventType.colorArgb)
 
     Card(
@@ -313,34 +266,6 @@ private fun EventTypeCard(
                 }
             }
 
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(Icons.Rounded.MoreVert, "Options")
-                }
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    onDismissRequest = { menuExpanded = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Edit") },
-                        leadingIcon = { Icon(Icons.Rounded.Edit, null) },
-                        onClick = {
-                            menuExpanded = false
-                            onClick()
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                        leadingIcon = {
-                            Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error)
-                        },
-                        onClick = {
-                            menuExpanded = false
-                            onDelete()
-                        }
-                    )
-                }
-            }
         }
     }
 }
