@@ -9,8 +9,10 @@ import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.domain.ChartDataProcessor
 import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.ChartData
+import com.lifelog.app.domain.EntryQueryEngine
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.domain.query.EntryQuery
 import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -30,6 +32,9 @@ class EventDetailViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
+    private val _entryQuery = MutableStateFlow(EntryQuery.Empty)
+    val entryQuery: StateFlow<EntryQuery> = _entryQuery.asStateFlow()
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val eventType: StateFlow<EventType?> = eventIdFlow
         .filter { it != 0L }
@@ -41,12 +46,15 @@ class EventDetailViewModel @Inject constructor(
         .filter { it != 0L }
         .flatMapLatest { repository.observeEntriesForEventType(it) }
 
-    val entries: StateFlow<List<EventEntry>> = combine(_allEntries, _searchQuery) { all, q ->
-        if (q.isBlank()) all
+    val entries: StateFlow<List<EventEntry>> = combine(
+        _allEntries, _searchQuery, _entryQuery
+    ) { all, q, query ->
+        val searched = if (q.isBlank()) all
         else all.filter { entry ->
             entry.note.contains(q, ignoreCase = true) ||
             entry.fieldValues.values.any { it.displayString().contains(q, ignoreCase = true) }
         }
+        EntryQueryEngine.apply(searched, query)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -69,6 +77,10 @@ class EventDetailViewModel @Inject constructor(
     }
 
     fun setSearchQuery(q: String) { _searchQuery.value = q }
+
+    fun setEntryQuery(query: EntryQuery) { _entryQuery.value = query }
+
+    fun clearEntryQuery() { _entryQuery.value = EntryQuery.Empty }
 
     fun deleteEntry(id: Long) {
         viewModelScope.launch {
