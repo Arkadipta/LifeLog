@@ -1,16 +1,12 @@
 package com.lifelog.app.ui.events
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FilterList
@@ -293,70 +289,63 @@ private fun SortSection(
     current: SortSpecification?,
     onChange: (SortSpecification?) -> Unit
 ) {
-    // Sort field selector
     val sortFieldOptions: List<SortField> = remember(sortableFields) {
         listOf(SortField.Timestamp) + sortableFields.map { SortField.NumericField(it.id, it.name) }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        // Sort field
+        // ── Sort field — horizontal scrollable row ────────────────────────────
         Text("Sort by", style = MaterialTheme.typography.labelLarge)
-        SortFieldSelector(
-            options = sortFieldOptions,
-            selected = current?.field,
-            onSelect = { field ->
-                val dir = current?.direction ?: SortDirection.DESCENDING
-                onChange(SortSpecification(field, dir))
-            },
-            onClear = { onChange(null) }
-        )
-
-        // Direction (only shown if a field is selected)
-        AnimatedVisibility(
-            visible = current != null,
-            enter = expandVertically(),
-            exit = shrinkVertically()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Text("Direction", style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SortDirection.entries.forEach { dir ->
-                        FilterChip(
-                            selected = current?.direction == dir,
-                            onClick = {
-                                val field = current?.field ?: SortField.Timestamp
-                                onChange(SortSpecification(field, dir))
-                            },
-                            label = { Text(dir.label) }
+            // "Clear" chip — only shown when a field is selected
+            if (current != null) {
+                InputChip(
+                    selected = false,
+                    onClick = { onChange(null) },
+                    label = { Text("Clear") },
+                    trailingIcon = {
+                        Icon(
+                            Icons.Rounded.Close,
+                            contentDescription = "Clear sort",
+                            modifier = Modifier.size(16.dp)
                         )
                     }
-                }
+                )
+            }
+            sortFieldOptions.forEach { field ->
+                FilterChip(
+                    selected = current?.field?.let { fieldEquals(it, field) } == true,
+                    onClick = {
+                        val dir = current?.direction ?: SortDirection.DESCENDING
+                        onChange(SortSpecification(field, dir))
+                    },
+                    label = { Text(field.displayName) }
+                )
             }
         }
-    }
-}
 
-@Composable
-private fun SortFieldSelector(
-    options: List<SortField>,
-    selected: SortField?,
-    onSelect: (SortField) -> Unit,
-    onClear: () -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        // "None" option
-        FilterChip(
-            selected = selected == null,
-            onClick = onClear,
-            label = { Text("None") }
-        )
-        options.forEach { field ->
-            FilterChip(
-                selected = selected?.let { fieldEquals(it, field) } == true,
-                onClick = { onSelect(field) },
-                label = { Text(field.displayName) }
-            )
+        // ── Direction — always visible; disabled when no field is selected ───
+        Text("Direction", style = MaterialTheme.typography.labelLarge)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SortDirection.entries.forEach { dir ->
+                FilterChip(
+                    selected = current?.direction == dir,
+                    onClick = {
+                        val field = current?.field ?: return@FilterChip
+                        onChange(SortSpecification(field, dir))
+                    },
+                    enabled = current != null,
+                    label = { Text(dir.label) }
+                )
+            }
         }
     }
 }
@@ -398,14 +387,21 @@ private fun FilterBuilderDialog(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Field picker
+                // Field picker — horizontal scrollable row
                 Text("Field", style = MaterialTheme.typography.labelLarge)
-                fields.forEach { field ->
-                    FilterChip(
-                        selected = selectedField?.id == field.id,
-                        onClick = { selectedField = field },
-                        label = { Text(field.name) }
-                    )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    fields.forEach { field ->
+                        FilterChip(
+                            selected = selectedField?.id == field.id,
+                            onClick = { selectedField = field },
+                            label = { Text(field.name) }
+                        )
+                    }
                 }
 
                 // Operator + value editor
@@ -456,12 +452,17 @@ private fun NumericFilterEditor(
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Operator", style = MaterialTheme.typography.labelLarge)
-        NumericOperator.entries.forEach { op ->
-            FilterChip(
-                selected = operator == op,
-                onClick = { operator = op },
-                label = { Text("${op.symbol} ${op.label}") }
-            )
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            NumericOperator.entries.forEach { op ->
+                FilterChip(
+                    selected = operator == op,
+                    onClick = { operator = op },
+                    label = { Text("${op.symbol} ${op.label}") }
+                )
+            }
         }
         Spacer(Modifier.height(4.dp))
         OutlinedTextField(
@@ -496,8 +497,13 @@ private fun BooleanFilterEditor(
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Operator", style = MaterialTheme.typography.labelLarge)
-        BooleanOperator.entries.forEach { op ->
-            FilterChip(selected = operator == op, onClick = { operator = op }, label = { Text(op.label) })
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            BooleanOperator.entries.forEach { op ->
+                FilterChip(selected = operator == op, onClick = { operator = op }, label = { Text(op.label) })
+            }
         }
         Text("Value", style = MaterialTheme.typography.labelLarge)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -522,16 +528,26 @@ private fun ChoiceFilterEditor(
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Operator", style = MaterialTheme.typography.labelLarge)
-        ChoiceOperator.entries.forEach { op ->
-            FilterChip(selected = operator == op, onClick = { operator = op }, label = { Text(op.label) })
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ChoiceOperator.entries.forEach { op ->
+                FilterChip(selected = operator == op, onClick = { operator = op }, label = { Text(op.label) })
+            }
         }
         Text("Value", style = MaterialTheme.typography.labelLarge)
-        field.options.forEach { option ->
-            FilterChip(
-                selected = selectedValue == option,
-                onClick = { selectedValue = option },
-                label = { Text(option) }
-            )
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            field.options.forEach { option ->
+                FilterChip(
+                    selected = selectedValue == option,
+                    onClick = { selectedValue = option },
+                    label = { Text(option) }
+                )
+            }
         }
         Button(
             onClick = {
@@ -556,16 +572,26 @@ private fun MultiSelectFilterEditor(
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Operator", style = MaterialTheme.typography.labelLarge)
-        MultiSelectOperator.entries.forEach { op ->
-            FilterChip(selected = operator == op, onClick = { operator = op }, label = { Text(op.label) })
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MultiSelectOperator.entries.forEach { op ->
+                FilterChip(selected = operator == op, onClick = { operator = op }, label = { Text(op.label) })
+            }
         }
         Text("Tag", style = MaterialTheme.typography.labelLarge)
-        field.options.forEach { option ->
-            FilterChip(
-                selected = selectedValue == option,
-                onClick = { selectedValue = option },
-                label = { Text(option) }
-            )
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            field.options.forEach { option ->
+                FilterChip(
+                    selected = selectedValue == option,
+                    onClick = { selectedValue = option },
+                    label = { Text(option) }
+                )
+            }
         }
         Button(
             onClick = {
