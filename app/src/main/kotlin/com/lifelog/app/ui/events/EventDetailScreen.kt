@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.AddChart
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.MoreVert
@@ -83,6 +84,9 @@ fun EventDetailScreen(
     var editingChart by remember { mutableStateOf<ChartConfig?>(null) }
     var overflowMenuExpanded by remember { mutableStateOf(false) }
     var showDeleteEventDialog by remember { mutableStateOf(false) }
+    var showFilterSortSheet by remember { mutableStateOf(false) }
+
+    val entryQuery by viewModel.entryQuery.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -176,6 +180,15 @@ fun EventDetailScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showFilterSortSheet = true }) {
+                        BadgedBox(
+                            badge = {
+                                if (entryQuery.isActive) Badge()
+                            }
+                        ) {
+                            Icon(Icons.Rounded.FilterList, "Filter and sort entries")
+                        }
+                    }
                     IconButton(onClick = {
                         searchActive = !searchActive
                         if (!searchActive) viewModel.setSearchQuery("")
@@ -424,6 +437,15 @@ fun EventDetailScreen(
                 }
             }
         }
+    }
+
+    if (showFilterSortSheet) {
+        FilterSortSheet(
+            fields = eventType?.fields ?: emptyList(),
+            currentQuery = entryQuery,
+            onApply = viewModel::setEntryQuery,
+            onDismiss = { showFilterSortSheet = false }
+        )
     }
 
     if (showEntrySheet) {
