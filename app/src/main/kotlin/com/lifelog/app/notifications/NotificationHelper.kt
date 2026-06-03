@@ -5,8 +5,6 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
-import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.lifelog.app.MainActivity
@@ -30,7 +28,8 @@ object NotificationHelper {
             enableVibration(true)
         }
 
-        val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+        // Alarm channel has no sound: AlarmDismissActivity plays the alarm ringtone directly
+        // via MediaPlayer so it can be stopped on dismiss/snooze without cancelling the notification.
         val alarmChannel = NotificationChannel(
             ALARM_CHANNEL_ID,
             "Alarms",
@@ -39,13 +38,6 @@ object NotificationHelper {
             description = "Alarm-style reminders for LifeLog events"
             enableVibration(true)
             lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
-            setSound(
-                alarmUri,
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-            )
         }
 
         nm.createNotificationChannel(reminderChannel)
@@ -86,6 +78,8 @@ object NotificationHelper {
                 putExtra(AlarmDismissActivity.EXTRA_TITLE, title)
                 putExtra(AlarmDismissActivity.EXTRA_MESSAGE, message)
                 putExtra(AlarmDismissActivity.EXTRA_NOTIFICATION_ID, notificationId)
+                // Pass eventTypeId so the alarm screen can offer "Add Entry" for the linked event
+                putExtra(AlarmDismissActivity.EXTRA_EVENT_TYPE_ID, eventTypeId ?: -1L)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
