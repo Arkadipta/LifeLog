@@ -39,8 +39,8 @@ fun EntryFormSheet(
         }
     }
 
-    LaunchedEffect(state.isSaved) {
-        if (state.isSaved) onDismiss()
+    LaunchedEffect(Unit) {
+        viewModel.dismiss.collect { onDismiss() }
     }
 
     var showDatePicker by remember { mutableStateOf(false) }

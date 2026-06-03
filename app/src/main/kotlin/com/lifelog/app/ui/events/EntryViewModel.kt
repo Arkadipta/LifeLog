@@ -10,9 +10,12 @@ import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.notifications.ReminderScheduler
 import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -23,7 +26,6 @@ data class EntryFormState(
     val note: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     val isLoading: Boolean = false,
-    val isSaved: Boolean = false,
     val existingEntryId: Long = 0L
 )
 
@@ -37,6 +39,9 @@ class EntryViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(EntryFormState())
     val state: StateFlow<EntryFormState> = _state.asStateFlow()
+
+    private val _dismiss = Channel<Unit>(Channel.BUFFERED)
+    val dismiss: Flow<Unit> = _dismiss.receiveAsFlow()
 
     fun loadEventType(eventTypeId: Long) {
         _state.value = EntryFormState()
@@ -103,7 +108,8 @@ class EntryViewModel @Inject constructor(
             // Only timeline needs refreshing; QuickAddWidget shows static event metadata.
             widgetUpdater.refreshTimeline()
 
-            _state.update { it.copy(isLoading = false, isSaved = true) }
+            _state.update { it.copy(isLoading = false) }
+            _dismiss.trySend(Unit)
         }
     }
 }
