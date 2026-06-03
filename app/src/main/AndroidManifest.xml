@@ -76,12 +76,17 @@
             android:excludeFromRecents="true"
             android:launchMode="singleTask" />
 
-        <!-- Full-screen alarm dismiss activity -->
+        <!-- Full-screen alarm dismiss activity.
+             configChanges: prevents Activity recreation on orientation/screen changes so that
+             MediaPlayer playback is not interrupted mid-alarm.
+             showOnLockScreen + turnScreenOn: legacy equivalents of setShowWhenLocked /
+             setTurnScreenOn for API < 27 (handled in code for 27+). -->
         <activity
             android:name=".notifications.AlarmDismissActivity"
             android:exported="false"
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
             android:theme="@style/Theme.LifeLog" />
 
         <!-- Reminder broadcast receiver -->
