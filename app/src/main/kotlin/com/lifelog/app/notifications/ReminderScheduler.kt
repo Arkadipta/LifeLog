@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.lifelog.app.MainActivity
 import com.lifelog.app.domain.model.DeliveryType
 import com.lifelog.app.domain.model.Reminder
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -37,8 +38,15 @@ class ReminderScheduler @Inject constructor(
     }
 
     private fun scheduleAlarmClock(triggerAt: Long, intent: PendingIntent) {
-        // setAlarmClock shows an alarm icon in the status bar and fires reliably in Doze
-        alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, intent), intent)
+        // showIntent: opened when user taps the alarm clock icon in the status bar.
+        // Must be a distinct PendingIntent from the operation — reusing the same one would
+        // fire ReminderReceiver (and trigger the alarm early) on status-bar tap.
+        val showIntent = PendingIntent.getActivity(
+            context, 0,
+            Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, showIntent), intent)
     }
 
     private fun scheduleExact(triggerAt: Long, intent: PendingIntent) {

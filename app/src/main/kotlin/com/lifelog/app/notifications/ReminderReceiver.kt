@@ -3,6 +3,7 @@ package com.lifelog.app.notifications
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import com.lifelog.app.data.repository.ReminderRepository
 import com.lifelog.app.domain.RecurrenceCalculator
 import com.lifelog.app.domain.model.DeliveryType
@@ -38,7 +39,21 @@ class ReminderReceiver : BroadcastReceiver() {
         val notifId     = reminderId.toInt()
 
         if (isAlarm) {
-            NotificationHelper.showAlarmNotification(context, notifId, title, message, reminderId, eventTypeId)
+            // setAlarmClock() grants background-activity-start privilege to this BroadcastReceiver,
+            // so startActivity() works on both locked and unlocked screens (Android 10+).
+            // We intentionally skip posting a notification: the activity IS the alarm UI, and
+            // posting CATEGORY_ALARM causes SystemUI to play a duplicate alarm ringtone.
+            Log.d("LIFELOG", "handleReminder: starting AlarmDismissActivity directly")
+            context.startActivity(
+                Intent(context, AlarmDismissActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION
+                    putExtra(AlarmDismissActivity.EXTRA_REMINDER_ID, reminderId)
+                    putExtra(AlarmDismissActivity.EXTRA_TITLE, title)
+                    putExtra(AlarmDismissActivity.EXTRA_MESSAGE, message)
+                    putExtra(AlarmDismissActivity.EXTRA_NOTIFICATION_ID, notifId)
+                    putExtra(AlarmDismissActivity.EXTRA_EVENT_TYPE_ID, eventTypeId ?: -1L)
+                }
+            )
         } else {
             NotificationHelper.showReminderNotification(context, notifId, title, message, reminderId, eventTypeId)
         }

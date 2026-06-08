@@ -14,7 +14,8 @@ import com.lifelog.app.widget.QuickAddActivity
 object NotificationHelper {
 
     const val REMINDER_CHANNEL_ID = "lifelog_reminders"
-    const val ALARM_CHANNEL_ID = "lifelog_alarms"
+    // v2: forces channel recreation on existing installs — old channel had no setSound(null,null)
+    const val ALARM_CHANNEL_ID = "lifelog_alarms_v2"
 
     fun createChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -28,20 +29,23 @@ object NotificationHelper {
             enableVibration(true)
         }
 
-        // Alarm channel has no sound: AlarmDismissActivity plays the alarm ringtone directly
-        // via MediaPlayer so it can be stopped on dismiss/snooze without cancelling the notification.
+        // Alarm channel: explicitly silent. AlarmDismissActivity owns all audio via MediaPlayer.
+        // CATEGORY_ALARM on a non-silent channel causes SystemUI to play a duplicate ringtone.
         val alarmChannel = NotificationChannel(
             ALARM_CHANNEL_ID,
             "Alarms",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "Alarm-style reminders for LifeLog events"
+            setSound(null, null)
             enableVibration(true)
             lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
         }
 
         nm.createNotificationChannel(reminderChannel)
         nm.createNotificationChannel(alarmChannel)
+        // Remove the old channel that lacked setSound(null,null)
+        nm.deleteNotificationChannel("lifelog_alarms")
     }
 
     fun showReminderNotification(
