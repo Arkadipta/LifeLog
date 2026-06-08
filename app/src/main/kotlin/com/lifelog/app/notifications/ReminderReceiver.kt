@@ -38,7 +38,22 @@ class ReminderReceiver : BroadcastReceiver() {
         val notifId     = reminderId.toInt()
 
         if (isAlarm) {
-            NotificationHelper.showAlarmNotification(context, notifId, title, message, reminderId, eventTypeId)
+            // The foreground service owns the single audio source and posts the ongoing full-screen-
+            // intent notification. Exact alarms (setAlarmClock) are exempt from the background
+            // foreground-service-start restriction, so starting it from here is allowed.
+            AlarmService.start(context, reminderId, title, message, notifId, eventTypeId)
+            // setFullScreenIntent only auto-launches the activity when the screen is locked/off; while
+            // the device is unlocked the system shows a heads-up notification instead and waits for a
+            // tap. Launch the activity directly so the full-screen alarm appears in BOTH states.
+            // AlarmDismissActivity is singleInstance, so this and any full-screen-intent launch
+            // collapse into one instance.
+            try {
+                context.startActivity(
+                    AlarmDismissActivity.createIntent(context, reminderId, title, message, notifId, eventTypeId)
+                )
+            } catch (_: Exception) {
+                // Background-activity-launch blocked (rare): the full-screen-intent notification is the fallback.
+            }
         } else {
             NotificationHelper.showReminderNotification(context, notifId, title, message, reminderId, eventTypeId)
         }
@@ -70,6 +85,7 @@ class ReminderReceiver : BroadcastReceiver() {
 
     private fun handleSnooze(context: Context, intent: Intent) {
         val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L).takeIf { it != -1L } ?: return
+        AlarmService.stop(context)   // stop alarm audio + remove the foreground-service notification (no-op for non-alarm)
         NotificationHelper.cancelNotification(context, reminderId.toInt())
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
@@ -85,6 +101,7 @@ class ReminderReceiver : BroadcastReceiver() {
 
     private fun handleDismiss(context: Context, intent: Intent) {
         val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L).takeIf { it != -1L } ?: return
+        AlarmService.stop(context)   // stop alarm audio + remove the foreground-service notification (no-op for non-alarm)
         NotificationHelper.cancelNotification(context, reminderId.toInt())
     }
 

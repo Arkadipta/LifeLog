@@ -8,6 +8,11 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- AlarmService runs as a foreground service while an alarm rings; WAKE_LOCK keeps audio
+         playing if the screen turns off. FOREGROUND_SERVICE_SPECIAL_USE backs the specialUse type. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
@@ -77,6 +82,12 @@
             android:launchMode="singleTask" />
 
         <!-- Full-screen alarm dismiss activity.
+             launchMode=singleInstance: the alarm is launched from TWO paths — the notification's
+             full-screen intent (lock screen) and ReminderReceiver's direct startActivity (unlocked).
+             singleInstance guarantees a single instance (the second launch arrives via onNewIntent),
+             so there is never a duplicate MediaPlayer, and it isolates the alarm in its own task so
+             it does not drag the main app UI onto the lock screen.
+             excludeFromRecents: a dismissed alarm shouldn't linger in the recents list.
              configChanges: prevents Activity recreation on orientation/screen changes so that
              MediaPlayer playback is not interrupted mid-alarm.
              showOnLockScreen + turnScreenOn: legacy equivalents of setShowWhenLocked /
@@ -86,8 +97,23 @@
             android:exported="false"
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
             android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
             android:theme="@style/Theme.LifeLog" />
+
+        <!-- Foreground service that owns the alarm's single audio source and ongoing notification.
+             specialUse is the catch-all foreground-service type for use cases without a dedicated
+             type (an alarm). Started by ReminderReceiver while it handles the exact-alarm broadcast,
+             which is exempt from the background foreground-service-start restriction on Android 12+. -->
+        <service
+            android:name=".notifications.AlarmService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="alarm" />
+        </service>
 
         <!-- Reminder broadcast receiver -->
         <receiver

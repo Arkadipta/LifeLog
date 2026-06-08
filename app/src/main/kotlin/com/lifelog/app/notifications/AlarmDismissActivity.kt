@@ -1,10 +1,8 @@
 package com.lifelog.app.notifications
 
 import android.app.KeyguardManager
+import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
-import android.media.MediaPlayer
-import android.media.RingtoneManager
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -72,10 +70,9 @@ class AlarmDismissActivity : ComponentActivity() {
 
     private val viewModel: AlarmDismissViewModel by viewModels()
 
-    // MediaPlayer is held in the Activity (not ViewModel) because it wraps a Context-bound resource.
-    // android:configChanges in the manifest prevents recreation on orientation/screen-size changes,
-    // so onDestroy (and thus release()) is only called when the user explicitly leaves the screen.
-    private var mediaPlayer: MediaPlayer? = null
+    // This Activity is pure UI. The alarm audio + ongoing notification are owned by AlarmService, so
+    // the alarm keeps ringing even if this screen is backgrounded; the buttons just tell the service
+    // to stop. Nothing audio-related lives here anymore.
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,14 +84,15 @@ class AlarmDismissActivity : ComponentActivity() {
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, reminderId.toInt())
         val eventTypeId   = intent.getLongExtra(EXTRA_EVENT_TYPE_ID, -1L).takeIf { it != -1L }
 
+        // The notification stays in the shade (owned by AlarmService) as the recovery path while the
+        // alarm rings; it sits behind this full-screen UI and is removed when the service stops.
+
         viewModel.loadNextTrigger(reminderId)
 
         // Prevent the back gesture from bypassing the alarm screen; the user must tap an action.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() = Unit
         })
-
-        startAlarmAudio()
 
         setContent {
             val prefs      by userPreferencesRepository.userPreferences.collectAsState(UserPreferences())
@@ -106,14 +104,13 @@ class AlarmDismissActivity : ComponentActivity() {
                     message      = message,
                     nextTriggerAt = nextTrigger,
                     onDismiss = {
-                        stopAlarmAudio()
-                        NotificationHelper.cancelNotification(this@AlarmDismissActivity, notificationId)
+                        AlarmService.stop(this@AlarmDismissActivity)
                         finish()
                     },
                     onSnooze = {
-                        stopAlarmAudio()
-                        NotificationHelper.cancelNotification(this@AlarmDismissActivity, notificationId)
-                        // Delegate rescheduling to ReminderReceiver, which owns the snooze logic
+                        // Stop now for an instant audio cut; ReminderReceiver (which owns the snooze
+                        // logic) also stops the service and reschedules — stop() is idempotent.
+                        AlarmService.stop(this@AlarmDismissActivity)
                         sendBroadcast(Intent(this@AlarmDismissActivity, ReminderReceiver::class.java).apply {
                             action = ReminderReceiver.ACTION_SNOOZE
                             putExtra(ReminderReceiver.EXTRA_REMINDER_ID, reminderId)
@@ -122,8 +119,7 @@ class AlarmDismissActivity : ComponentActivity() {
                     },
                     onAddEntry = eventTypeId?.let { etId ->
                         {
-                            stopAlarmAudio()
-                            NotificationHelper.cancelNotification(this@AlarmDismissActivity, notificationId)
+                            AlarmService.stop(this@AlarmDismissActivity)
                             startActivity(Intent(this@AlarmDismissActivity, QuickAddActivity::class.java).apply {
                                 putExtra(QuickAddActivity.EXTRA_EVENT_ID, etId)
                                 putExtra(QuickAddActivity.EXTRA_NOTIFICATION_ID, notificationId)
@@ -135,11 +131,6 @@ class AlarmDismissActivity : ComponentActivity() {
                 )
             }
         }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        stopAlarmAudio()
     }
 
     // ── Wake / lock-screen helpers ─────────────────────────────────────────────
@@ -165,48 +156,35 @@ class AlarmDismissActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
-    // ── Audio helpers ──────────────────────────────────────────────────────────
-
-    private fun startAlarmAudio() {
-        if (mediaPlayer != null) return
-        try {
-            // Fall back to ringtone if no alarm sound is configured
-            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                ?: return
-
-            mediaPlayer = MediaPlayer().apply {
-                // USAGE_ALARM bypasses the ringer/silent mode switch, matching system alarm behavior
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                setDataSource(this@AlarmDismissActivity, uri)
-                isLooping = true
-                setOnPreparedListener { it.start() }
-                prepareAsync()
-            }
-        } catch (_: Exception) {
-            // Silent failure: unavailable in restricted environments (e.g. tests, no alarm sound set)
-        }
-    }
-
-    private fun stopAlarmAudio() {
-        mediaPlayer?.let { mp ->
-            try { mp.stop() } catch (_: Exception) {}
-            mp.release()
-        }
-        mediaPlayer = null
-    }
-
     companion object {
         const val EXTRA_REMINDER_ID    = "reminder_id"
         const val EXTRA_TITLE          = "title"
         const val EXTRA_MESSAGE        = "message"
         const val EXTRA_NOTIFICATION_ID = "notification_id"
         const val EXTRA_EVENT_TYPE_ID  = "event_type_id"
+
+        /**
+         * Single source of truth for the launch Intent, shared by the full-screen-intent
+         * PendingIntent (NotificationHelper, lock-screen path) and ReminderReceiver's direct
+         * startActivity (unlocked path). FLAG_ACTIVITY_NEW_TASK is mandatory when launching an
+         * Activity from a non-Activity context; FLAG_ACTIVITY_NO_USER_ACTION suppresses
+         * onUserLeaveHint so the alarm isn't treated as a user-initiated app switch.
+         */
+        fun createIntent(
+            context: Context,
+            reminderId: Long,
+            title: String,
+            message: String,
+            notificationId: Int,
+            eventTypeId: Long?
+        ): Intent = Intent(context, AlarmDismissActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION
+            putExtra(EXTRA_REMINDER_ID, reminderId)
+            putExtra(EXTRA_TITLE, title)
+            putExtra(EXTRA_MESSAGE, message)
+            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+            putExtra(EXTRA_EVENT_TYPE_ID, eventTypeId ?: -1L)
+        }
     }
 }
 
