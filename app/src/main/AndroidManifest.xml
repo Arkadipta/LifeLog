@@ -8,7 +8,6 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
 
@@ -82,11 +81,16 @@
              MediaPlayer playback is not interrupted mid-alarm.
              showOnLockScreen + turnScreenOn: legacy equivalents of setShowWhenLocked /
              setTurnScreenOn for API < 27 (handled in code for 27+). -->
+        <!-- singleTop: prevents a second AlarmDismissActivity instance when both the
+             setFullScreenIntent path (locked screen) and the direct startActivity() path
+             (unlocked screen) fire at the same time. The second start delivers onNewIntent()
+             to the already-running instance instead of creating a duplicate. -->
         <activity
             android:name=".notifications.AlarmDismissActivity"
             android:exported="false"
             android:showOnLockScreen="true"
             android:turnScreenOn="true"
+            android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
             android:theme="@style/Theme.LifeLog" />
 

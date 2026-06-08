@@ -3,7 +3,6 @@ package com.lifelog.app.notifications
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.PowerManager
 import android.util.Log
 import com.lifelog.app.data.repository.ReminderRepository
 import com.lifelog.app.domain.RecurrenceCalculator
@@ -40,23 +39,25 @@ class ReminderReceiver : BroadcastReceiver() {
         val notifId     = reminderId.toInt()
 
         if (isAlarm) {
-            // setAlarmClock() wakes the CPU but NOT the screen. Without a PowerManager wake lock,
-            // startActivity() completes but the display never powers on — setTurnScreenOn(true) in
-            // the Activity requires the window to be visible first, and the window can't become
-            // visible on an off screen. Acquiring FULL_WAKE_LOCK|ACQUIRE_CAUSES_WAKEUP here powers
-            // the display synchronously inside onReceive(), before the activity window is submitted.
-            // The 10s timeout is a safety net; FLAG_KEEP_SCREEN_ON on the Activity window takes over
-            // within milliseconds of the first frame being drawn.
-            // FULL_WAKE_LOCK is deprecated (API 17) in favour of Activity.setTurnScreenOn(), but
-            // that API requires a live window — it cannot power on a screen from a Receiver.
-            @Suppress("DEPRECATION")
-            context.getSystemService(PowerManager::class.java)
-                .newWakeLock(
-                    PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                    "LifeLog:AlarmWakeLock"
-                )
-                .acquire(10_000L)
-
+            // Two-path hybrid launch — both paths are needed:
+            //
+            // PATH 1 — showAlarmNotification (handles locked / screen-off):
+            //   NotificationManagerService is a privileged system process. When it processes a
+            //   setFullScreenIntent notification it acquires a system-level wake lock, forces the
+            //   display on, and starts the activity immediately — bypassing the ActivityTaskManager
+            //   rule that defers startActivity() calls until the screen is active.
+            //   Third-party apps cannot replicate this; ACQUIRE_CAUSES_WAKEUP is suppressed for
+            //   app-side wake locks when the display is off on Android 10+.
+            //   The lifelog_alarms_v2 channel has setSound(null,null) so no SystemUI audio plays.
+            //   AlarmDismissActivity.onCreate() cancels this notification immediately so it never
+            //   appears in the notification panel.
+            //
+            // PATH 2 — context.startActivity() (handles screen-on / unlocked):
+            //   setFullScreenIntent is demoted to a heads-up notification on an unlocked screen
+            //   (the system assumes the user is active and does not launch the activity).
+            //   The direct startActivity() call is allowed because setAlarmClock() places this
+            //   BroadcastReceiver on Android's background-activity-start whitelist.
+            NotificationHelper.showAlarmNotification(context, notifId, title, message, reminderId, eventTypeId)
             Log.d("LIFELOG", "handleReminder: starting AlarmDismissActivity directly")
             context.startActivity(
                 Intent(context, AlarmDismissActivity::class.java).apply {

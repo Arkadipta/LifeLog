@@ -87,6 +87,12 @@ class AlarmDismissActivity : ComponentActivity() {
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, reminderId.toInt())
         val eventTypeId   = intent.getLongExtra(EXTRA_EVENT_TYPE_ID, -1L).takeIf { it != -1L }
 
+        // Cancel the backing notification immediately. It was posted solely to give
+        // NotificationManagerService the trigger it needs to wake the display and launch this
+        // activity on a locked/off screen. Now that we are running, the notification has served
+        // its purpose and must not linger in the notification panel.
+        NotificationHelper.cancelNotification(this, notificationId)
+
         viewModel.loadNextTrigger(reminderId)
 
         // Prevent the back gesture from bypassing the alarm screen; the user must tap an action.
