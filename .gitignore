@@ -38,3 +38,5 @@ Thumbs.db
 # APKs & bundles — don't commit build output
 *.apk
 *.aab
+# Release variant output dir (APK, mapping.txt, output-metadata.json, …)
+**/release/

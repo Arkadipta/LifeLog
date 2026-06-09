@@ -1,5 +1,6 @@
 package com.lifelog.app.notifications
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -14,7 +15,15 @@ import com.lifelog.app.widget.QuickAddActivity
 object NotificationHelper {
 
     const val REMINDER_CHANNEL_ID = "lifelog_reminders"
-    const val ALARM_CHANNEL_ID = "lifelog_alarms"
+
+    // Bumped to _v2 deliberately. The original "lifelog_alarms" channel was created (commit 45aeb51)
+    // with an alarm sound via setSound(). NotificationChannels are IMMUTABLE once created, so when
+    // the setSound() call was later removed (commit 3f335dd) the channel kept its sound on every
+    // device that already had it — SystemUI's RingtonePlayer kept playing it as a second audio
+    // source alongside AlarmDismissActivity's MediaPlayer (the "reverb"). A new ID forces a fresh,
+    // silent channel; the old one is deleted in createChannels().
+    const val ALARM_CHANNEL_ID = "lifelog_alarms_v2"
+    private const val LEGACY_ALARM_CHANNEL_ID = "lifelog_alarms"
 
     fun createChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -28,8 +37,15 @@ object NotificationHelper {
             enableVibration(true)
         }
 
-        // Alarm channel has no sound: AlarmDismissActivity plays the alarm ringtone directly
-        // via MediaPlayer so it can be stopped on dismiss/snooze without cancelling the notification.
+        // Delete the legacy alarm channel, which was created with an alarm sound baked in. Channels
+        // are immutable, so delete-and-recreate (under a new ID) is the only way to guarantee a
+        // silent channel on devices that already had the old one.
+        nm.deleteNotificationChannel(LEGACY_ALARM_CHANNEL_ID)
+
+        // Alarm channel is intentionally SILENT. AlarmDismissActivity owns the single audio source
+        // (a looping MediaPlayer) so it can be stopped on dismiss/snooze without cancelling the
+        // notification. setSound(null, null) is REQUIRED: a channel created without it defaults to
+        // the notification sound, which SystemUI would then play as a duplicate source.
         val alarmChannel = NotificationChannel(
             ALARM_CHANNEL_ID,
             "Alarms",
@@ -38,6 +54,7 @@ object NotificationHelper {
             description = "Alarm-style reminders for LifeLog events"
             enableVibration(true)
             lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
+            setSound(null, null)
         }
 
         nm.createNotificationChannel(reminderChannel)
@@ -61,6 +78,49 @@ object NotificationHelper {
         tryNotify(context, notificationId, builder)
     }
 
+    /**
+     * Builds the alarm notification (silent channel + full-screen intent). Returned rather than
+     * posted because [AlarmService] passes it to startForeground() — the foreground service owns the
+     * ongoing notification and the single audio source. The full-screen intent handles the lock
+     * screen; the content intent returns the user to the alarm screen if they leave it.
+     */
+    fun buildAlarmNotification(
+        context: Context,
+        notificationId: Int,
+        title: String,
+        message: String,
+        reminderId: Long,
+        eventTypeId: Long? = null
+    ): Notification {
+        // Same Intent that ReminderReceiver launches directly — see AlarmDismissActivity.createIntent.
+        // Used for both the full-screen intent (lock screen) and the content tap (recovery).
+        val alarmPendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId * 10 + 4,
+            AlarmDismissActivity.createIntent(context, reminderId, title, message, notificationId, eventTypeId),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = buildBaseNotification(context, notificationId, title, message, reminderId, ALARM_CHANNEL_ID)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setFullScreenIntent(alarmPendingIntent, true)
+            .setContentIntent(alarmPendingIntent)   // tap the (recovery) notification → back to alarm
+            .setAutoCancel(false)                    // user must interact with the alarm screen
+            .setOngoing(true)
+
+        if (eventTypeId != null) {
+            builder.addAction(0, "Add Entry", buildAddEntryIntent(context, notificationId, eventTypeId))
+        }
+
+        return builder.build()
+    }
+
+    /**
+     * Fallback only, used if [AlarmService] cannot start (e.g. a background FGS start is ever
+     * disallowed): posts the alarm notification directly. There is no looping audio in this path —
+     * the full-screen UI still appears via the receiver's startActivity / the full-screen intent.
+     */
     fun showAlarmNotification(
         context: Context,
         notificationId: Int,
@@ -69,33 +129,14 @@ object NotificationHelper {
         reminderId: Long,
         eventTypeId: Long? = null
     ) {
-        val fullScreenIntent = PendingIntent.getActivity(
-            context,
-            notificationId * 10 + 4,
-            Intent(context, AlarmDismissActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION
-                putExtra(AlarmDismissActivity.EXTRA_REMINDER_ID, reminderId)
-                putExtra(AlarmDismissActivity.EXTRA_TITLE, title)
-                putExtra(AlarmDismissActivity.EXTRA_MESSAGE, message)
-                putExtra(AlarmDismissActivity.EXTRA_NOTIFICATION_ID, notificationId)
-                // Pass eventTypeId so the alarm screen can offer "Add Entry" for the linked event
-                putExtra(AlarmDismissActivity.EXTRA_EVENT_TYPE_ID, eventTypeId ?: -1L)
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val builder = buildBaseNotification(context, notificationId, title, message, reminderId, ALARM_CHANNEL_ID)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setFullScreenIntent(fullScreenIntent, true)
-            .setAutoCancel(false)   // user must interact with alarm screen
-            .setOngoing(true)
-
-        if (eventTypeId != null) {
-            builder.addAction(0, "Add Entry", buildAddEntryIntent(context, notificationId, eventTypeId))
+        try {
+            NotificationManagerCompat.from(context).notify(
+                notificationId,
+                buildAlarmNotification(context, notificationId, title, message, reminderId, eventTypeId)
+            )
+        } catch (_: SecurityException) {
+            // POST_NOTIFICATIONS not granted
         }
-
-        tryNotify(context, notificationId, builder)
     }
 
     private fun buildBaseNotification(
