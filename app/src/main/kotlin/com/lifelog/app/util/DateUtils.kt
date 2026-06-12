@@ -30,16 +30,64 @@ fun Long.isToday(): Boolean {
             now.get(Calendar.DAY_OF_YEAR) == target.get(Calendar.DAY_OF_YEAR)
 }
 
+//fun Long.relativeTimeLabel(): String {
+//    val now = System.currentTimeMillis()
+//    val diff = now - this
+//    return when {
+//        diff < 60_000 -> "Just now"
+//        diff < 3_600_000 -> "${diff / 60_000}m ago"
+//        diff < 86_400_000 -> "${diff / 3_600_000}h ago"
+//        isToday() -> "Today"
+//        diff < 2 * 86_400_000 -> "Yesterday"
+//        else -> toDisplayDate()
+//    }
+//}
+
 fun Long.relativeTimeLabel(): String {
     val now = System.currentTimeMillis()
     val diff = now - this
+
+    val minute = 60_000L
+    val hour = 60 * minute
+    val day = 24 * hour
+    val week = 7 * day
+    val month = 30 * day
+    val year = 365 * day
+
     return when {
-        diff < 60_000 -> "Just now"
-        diff < 3_600_000 -> "${diff / 60_000}m ago"
-        diff < 86_400_000 -> "${diff / 3_600_000}h ago"
-        isToday() -> "Today"
-        diff < 2 * 86_400_000 -> "Yesterday"
-        else -> toDisplayDate()
+        diff < minute -> "Just now"
+
+        diff < hour -> {
+            val mins = diff / minute
+            "${mins}m ago"
+        }
+
+        diff < day -> {
+            val hours = diff / hour
+            "${hours}h ago"
+        }
+
+        diff < 2 * day -> "Yesterday"
+
+        diff < week -> {
+            val days = diff / day
+            "${days}d ago"
+        }
+
+        diff < month -> {
+            val weeks = diff / week
+            "${weeks}w ago"
+        }
+
+        diff < year -> {
+            val months = diff / month
+            "${months}mo ago"
+        }
+
+        else -> {
+            val years = diff / year
+            "${years}y ago"
+        }
     }
 }
 

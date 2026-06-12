@@ -29,6 +29,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -87,6 +88,7 @@ fun ChartConfigSheet(
     var selectedAggregation by remember {
         mutableStateOf(editing?.aggregation ?: AggregationStrategy.MEAN)
     }
+    var showUnits by remember { mutableStateOf(editing?.showUnits ?: true) }
 
     // fieldId whose color picker dialog is open; null = closed
     var colorPickerFieldId by remember { mutableStateOf<Long?>(null) }
@@ -225,6 +227,24 @@ fun ChartConfigSheet(
                     }
                 }
 
+                // Unit visibility — only offered when a numeric field has one
+                if (numericFields.any { it.unit.isNotBlank() }) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Show units", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Include units like (${numericFields.first { it.unit.isNotBlank() }.unit}) in labels",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(checked = showUnits, onCheckedChange = { showUnits = it })
+                    }
+                }
+
                 // Group-by (pie only)
                 if (selectedType == ChartType.PIE) {
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
@@ -277,7 +297,8 @@ fun ChartConfigSheet(
                                 sortOrder = editing?.sortOrder ?: 0,
                                 createdAt = editing?.createdAt ?: System.currentTimeMillis(),
                                 aggregation = if (selectedType == ChartType.PIE) AggregationStrategy.SUM
-                                              else selectedAggregation
+                                              else selectedAggregation,
+                                showUnits = showUnits
                             )
                         )
                         onDismiss()

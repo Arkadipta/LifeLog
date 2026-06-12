@@ -2,8 +2,67 @@ package com.lifelog.app.ui.events.components
 
 import com.patrykandpatrick.vico.core.cartesian.CartesianDrawingContext
 import com.patrykandpatrick.vico.core.cartesian.CartesianMeasuringContext
+import com.patrykandpatrick.vico.core.cartesian.HorizontalDimensions
 import com.patrykandpatrick.vico.core.cartesian.axis.Axis
+import com.patrykandpatrick.vico.core.cartesian.axis.HorizontalAxis
 import com.patrykandpatrick.vico.core.cartesian.axis.VerticalAxis
+
+/**
+ * X-axis item placer that draws a label and tick exactly at the given x values
+ * (bucket indices chosen by ChartTickGenerator), instead of deriving positions
+ * from the data, so sparse series still get a fully labeled axis.
+ */
+internal class ExplicitTickItemPlacer(private val xValues: List<Double>) :
+    HorizontalAxis.ItemPlacer {
+
+    override fun getShiftExtremeLines(context: CartesianDrawingContext): Boolean = false
+
+    override fun getFirstLabelValue(
+        context: CartesianMeasuringContext,
+        maxLabelWidth: Float,
+    ): Double? = xValues.firstOrNull()
+
+    override fun getLastLabelValue(
+        context: CartesianMeasuringContext,
+        maxLabelWidth: Float,
+    ): Double? = xValues.lastOrNull()
+
+    override fun getLabelValues(
+        context: CartesianDrawingContext,
+        visibleXRange: ClosedFloatingPointRange<Double>,
+        fullXRange: ClosedFloatingPointRange<Double>,
+        maxLabelWidth: Float,
+    ): List<Double> = xValues.filter { it in visibleXRange }
+
+    override fun getWidthMeasurementLabelValues(
+        context: CartesianMeasuringContext,
+        horizontalDimensions: HorizontalDimensions,
+        fullXRange: ClosedFloatingPointRange<Double>,
+    ): List<Double> = xValues
+
+    override fun getHeightMeasurementLabelValues(
+        context: CartesianMeasuringContext,
+        horizontalDimensions: HorizontalDimensions,
+        fullXRange: ClosedFloatingPointRange<Double>,
+        maxLabelWidth: Float,
+    ): List<Double> = xValues
+
+    override fun getStartHorizontalAxisInset(
+        context: CartesianMeasuringContext,
+        horizontalDimensions: HorizontalDimensions,
+        tickThickness: Float,
+        maxLabelWidth: Float,
+    ): Float = (tickThickness / 2 - horizontalDimensions.unscalableStartPadding)
+        .coerceAtLeast(0f)
+
+    override fun getEndHorizontalAxisInset(
+        context: CartesianMeasuringContext,
+        horizontalDimensions: HorizontalDimensions,
+        tickThickness: Float,
+        maxLabelWidth: Float,
+    ): Float = (tickThickness / 2 - horizontalDimensions.unscalableEndPadding)
+        .coerceAtLeast(0f)
+}
 
 /**
  * Y-axis item placer that caps labels at 4 for normal data, but falls back to a single

@@ -1,5 +1,6 @@
 package com.lifelog.app.ui.events.components
 
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -7,10 +8,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.lifelog.app.domain.ChartTickGenerator
 import com.lifelog.app.domain.model.ChartData
 import com.lifelog.app.domain.model.ChartType
-import com.lifelog.app.domain.model.TimeRange
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.axis.rememberBottom
 import com.patrykandpatrick.vico.compose.cartesian.axis.rememberStart
@@ -20,6 +22,8 @@ import com.patrykandpatrick.vico.compose.cartesian.layer.rememberColumnCartesian
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLineCartesianLayer
 import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
 import com.patrykandpatrick.vico.compose.cartesian.rememberVicoScrollState
+import com.patrykandpatrick.vico.compose.cartesian.rememberVicoZoomState
+import com.patrykandpatrick.vico.core.cartesian.Zoom
 import com.patrykandpatrick.vico.compose.common.component.rememberLineComponent
 import com.patrykandpatrick.vico.compose.common.component.rememberShapeComponent
 import com.patrykandpatrick.vico.compose.common.component.rememberTextComponent
@@ -27,39 +31,30 @@ import com.patrykandpatrick.vico.compose.common.fill
 import com.patrykandpatrick.vico.core.cartesian.axis.HorizontalAxis
 import com.patrykandpatrick.vico.core.cartesian.axis.VerticalAxis
 import com.patrykandpatrick.vico.core.cartesian.data.CartesianChartModelProducer
+import com.patrykandpatrick.vico.core.cartesian.data.CartesianLayerRangeProvider
 import com.patrykandpatrick.vico.core.cartesian.data.columnSeries
 import com.patrykandpatrick.vico.core.cartesian.data.lineSeries
 import com.patrykandpatrick.vico.core.cartesian.layer.ColumnCartesianLayer
 import com.patrykandpatrick.vico.core.cartesian.layer.LineCartesianLayer
+import com.patrykandpatrick.vico.core.common.data.ExtraStore
 import com.patrykandpatrick.vico.core.common.shape.CorneredShape
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import kotlin.math.roundToInt
 
 @Composable
 fun CartesianChartContent(data: ChartData.Cartesian, eventAccentColor: Color, modifier: Modifier = Modifier) {
-    when (data.type) {
-        ChartType.BAR -> BarChartContent(data, eventAccentColor, modifier)
-        else -> LineChartContent(data, eventAccentColor, modifier)
-    }
-}
-
-@Composable
-private fun BarChartContent(data: ChartData.Cartesian, eventAccentColor: Color, modifier: Modifier) {
-    val tickStep = (data.bucketTimestamps.size / 4).coerceAtLeast(1)
     val modelProducer = remember { CartesianChartModelProducer() }
 
     LaunchedEffect(data) {
         modelProducer.runTransaction {
-            columnSeries {
-                data.series.forEach { series ->
-                    val pts = series.points
-                    if (pts.size == 1) {
-                        val p = pts.first()
-                        val synthIdx = if (p.bucketIndex > 0) p.bucketIndex - 1 else p.bucketIndex + 1
-                        series(listOf(synthIdx.toFloat(), p.bucketIndex.toFloat()), listOf(0f, p.value.toFloat()))
-                    } else {
-                        series(pts.map { it.bucketIndex.toFloat() }, pts.map { it.value.toFloat() })
+            when (data.type) {
+                ChartType.BAR -> columnSeries {
+                    data.series.forEach { s ->
+                        series(s.points.map { it.bucketIndex }, s.points.map { it.value })
+                    }
+                }
+                else -> lineSeries {
+                    data.series.forEach { s ->
+                        series(s.points.map { it.bucketIndex }, s.points.map { it.value })
                     }
                 }
             }
@@ -74,74 +69,34 @@ private fun BarChartContent(data: ChartData.Cartesian, eventAccentColor: Color, 
     val axisTick = rememberLineComponent(color = outlineColor, thickness = 1.dp)
     val guideline = rememberLineComponent(color = guidelineColor, thickness = 0.5.dp)
 
-    val columnColors = data.series.map { series ->
-        series.colorArgb?.let { Color(it) } ?: eventAccentColor
-    }
-    val xValueFormatter = rememberXFormatter(data.timeRange, data.bucketTimestamps)
+    val seriesColors = resolveSeriesColors(data.series, eventAccentColor)
+    val bucketCount = data.bucketTimestamps.size
+    // The x-range always spans every bucket in the selected window, so the
+    // axis stays meaningful even when only a few buckets contain data.
+    val rangeProvider = remember(bucketCount) { fullSpanRangeProvider(bucketCount) }
 
-    CartesianChartHost(
-        chart = rememberCartesianChart(
-            rememberColumnCartesianLayer(
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val maxTicks = (maxWidth / 56.dp).toInt().coerceIn(3, 6)
+        val ticks = remember(data.bucketTimestamps, maxTicks) {
+            ChartTickGenerator.generate(data.bucketTimestamps, maxTicks)
+        }
+        val tickValues = remember(ticks) { ticks.map { it.bucketIndex.toDouble() } }
+        val tickLabels = remember(ticks) { ticks.associate { it.bucketIndex to it.label } }
+
+        val layer = when (data.type) {
+            ChartType.BAR -> rememberColumnCartesianLayer(
                 columnProvider = ColumnCartesianLayer.ColumnProvider.series(
-                    columnColors.map { color ->
-                        rememberLineComponent(color = color, thickness = 24.dp, shape = CorneredShape.rounded(25))
+                    seriesColors.map { color ->
+                        rememberLineComponent(
+                            color = color,
+                            thickness = columnThickness(bucketCount, data.series.size),
+                            shape = CorneredShape.rounded(25)
+                        )
                     }
-                )
-            ),
-            startAxis = VerticalAxis.rememberStart(
-                label = axisLabel, line = axisLine, tick = axisTick, guideline = guideline,
-                itemPlacer = RobustCountItemPlacer
-            ),
-            bottomAxis = HorizontalAxis.rememberBottom(
-                label = axisLabel, line = axisLine, tick = axisTick, guideline = null,
-                itemPlacer = HorizontalAxis.ItemPlacer.aligned(spacing = tickStep),
-                valueFormatter = { _, value, _ -> xValueFormatter(value.toInt()) }
+                ),
+                rangeProvider = rangeProvider
             )
-        ),
-        modelProducer = modelProducer,
-        scrollState = rememberVicoScrollState(scrollEnabled = false),
-        modifier = modifier.fillMaxSize()
-    )
-}
-
-@Composable
-private fun LineChartContent(data: ChartData.Cartesian, eventAccentColor: Color, modifier: Modifier) {
-    val tickStep = (data.bucketTimestamps.size / 4).coerceAtLeast(1)
-    val modelProducer = remember { CartesianChartModelProducer() }
-
-    LaunchedEffect(data) {
-        modelProducer.runTransaction {
-            lineSeries {
-                data.series.forEach { series ->
-                    val pts = series.points
-                    if (pts.size == 1) {
-                        val p = pts.first()
-                        val synthIdx = if (p.bucketIndex > 0) p.bucketIndex - 1 else p.bucketIndex + 1
-                        series(listOf(synthIdx.toFloat(), p.bucketIndex.toFloat()), listOf(p.value.toFloat(), p.value.toFloat()))
-                    } else {
-                        series(pts.map { it.bucketIndex.toFloat() }, pts.map { it.value.toFloat() })
-                    }
-                }
-            }
-        }
-    }
-
-    val onSurface = MaterialTheme.colorScheme.onSurface
-    val outlineColor = MaterialTheme.colorScheme.outline
-    val guidelineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-    val axisLabel = rememberTextComponent(color = onSurface)
-    val axisLine = rememberLineComponent(color = outlineColor, thickness = 1.dp)
-    val axisTick = rememberLineComponent(color = outlineColor, thickness = 1.dp)
-    val guideline = rememberLineComponent(color = guidelineColor, thickness = 0.5.dp)
-
-    val seriesColors = data.series.map { series ->
-        series.colorArgb?.let { Color(it) } ?: eventAccentColor
-    }
-    val xValueFormatter = rememberXFormatter(data.timeRange, data.bucketTimestamps)
-
-    CartesianChartHost(
-        chart = rememberCartesianChart(
-            rememberLineCartesianLayer(
+            else -> rememberLineCartesianLayer(
                 lineProvider = LineCartesianLayer.LineProvider.series(
                     seriesColors.map { color ->
                         LineCartesianLayer.rememberLine(
@@ -154,39 +109,67 @@ private fun LineChartContent(data: ChartData.Cartesian, eventAccentColor: Color,
                             )
                         )
                     }
-                )
-            ),
-            startAxis = VerticalAxis.rememberStart(
-                label = axisLabel, line = axisLine, tick = axisTick, guideline = guideline,
-                itemPlacer = RobustCountItemPlacer
-            ),
-            bottomAxis = HorizontalAxis.rememberBottom(
-                label = axisLabel, line = axisLine, tick = axisTick, guideline = null,
-                itemPlacer = HorizontalAxis.ItemPlacer.aligned(spacing = tickStep),
-                valueFormatter = { _, value, _ -> xValueFormatter(value.toInt()) }
+                ),
+                rangeProvider = rangeProvider
             )
-        ),
-        modelProducer = modelProducer,
-        scrollState = rememberVicoScrollState(scrollEnabled = false),
-        modifier = modifier.fillMaxSize()
-    )
-}
-
-@Composable
-private fun rememberXFormatter(timeRange: TimeRange, bucketTimestamps: List<Long>): (Int) -> String {
-    return remember(timeRange, bucketTimestamps) {
-        val fmt = xDateFormatter(timeRange)
-        val timestamps = bucketTimestamps
-        { idx: Int ->
-            if (idx in timestamps.indices) fmt.format(Date(timestamps[idx])) else " "
         }
+
+        CartesianChartHost(
+            chart = rememberCartesianChart(
+                layer,
+                startAxis = VerticalAxis.rememberStart(
+                    label = axisLabel, line = axisLine, tick = axisTick, guideline = guideline,
+                    itemPlacer = RobustCountItemPlacer
+                ),
+                bottomAxis = HorizontalAxis.rememberBottom(
+                    label = axisLabel, line = axisLine, tick = axisTick, guideline = null,
+                    itemPlacer = remember(tickValues) { ExplicitTickItemPlacer(tickValues) },
+                    valueFormatter = { _, value, _ -> tickLabels[value.roundToInt()] ?: "" }
+                ),
+                marker = rememberChartMarker(data, seriesColors)
+            ),
+            modelProducer = modelProducer,
+            // Scroll stays enabled with zoom pinned to Content: the chart then
+            // has zero scrollable extent, so horizontal drags bubble up to the
+            // carousel instead of being claimed by Vico's marker scrubber,
+            // while tap-and-hold still shows the marker.
+            scrollState = rememberVicoScrollState(scrollEnabled = true),
+            zoomState = rememberVicoZoomState(
+                zoomEnabled = false,
+                initialZoom = Zoom.Content,
+                minZoom = Zoom.Content,
+                maxZoom = Zoom.Content
+            ),
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
 
-private fun xDateFormatter(timeRange: TimeRange): SimpleDateFormat = when (timeRange) {
-    TimeRange.DAY -> SimpleDateFormat("HH:mm", Locale.getDefault())
-    TimeRange.WEEK -> SimpleDateFormat("EEE", Locale.getDefault())
-    TimeRange.MONTH -> SimpleDateFormat("MMM d", Locale.getDefault())
-    TimeRange.YEAR -> SimpleDateFormat("MMM", Locale.getDefault())
-    TimeRange.ALL -> SimpleDateFormat("MMM yy", Locale.getDefault())
+/** Bars thin out as buckets multiply so dense windows never overlap. */
+private fun columnThickness(bucketCount: Int, seriesCount: Int): Dp {
+    val perBucket = when {
+        bucketCount <= 8 -> 20.dp
+        bucketCount <= 16 -> 12.dp
+        else -> 6.dp
+    }
+    return (perBucket / seriesCount.coerceAtLeast(1)).coerceAtLeast(3.dp)
 }
+
+/** Fixed x-range covering all buckets; y stays on Vico's auto scaling. */
+private fun fullSpanRangeProvider(bucketCount: Int): CartesianLayerRangeProvider =
+    object : CartesianLayerRangeProvider {
+        private val autoY = CartesianLayerRangeProvider.auto()
+        private val padHalf = bucketCount <= 1
+
+        override fun getMinX(minX: Double, maxX: Double, extraStore: ExtraStore) =
+            if (padHalf) -0.5 else 0.0
+
+        override fun getMaxX(minX: Double, maxX: Double, extraStore: ExtraStore) =
+            if (padHalf) 0.5 else (bucketCount - 1).toDouble()
+
+        override fun getMinY(minY: Double, maxY: Double, extraStore: ExtraStore) =
+            autoY.getMinY(minY, maxY, extraStore)
+
+        override fun getMaxY(minY: Double, maxY: Double, extraStore: ExtraStore) =
+            autoY.getMaxY(minY, maxY, extraStore)
+    }
