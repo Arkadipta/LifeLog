@@ -188,7 +188,10 @@ object ChartDataProcessor {
                 else ChartData.Cartesian.Point(idx, aggregate(values, config.aggregation))
             }
             if (points.isEmpty()) null
-            else ChartData.Cartesian.Series(field.name, seriesColor, points, field.unit)
+            else ChartData.Cartesian.Series(
+                field.name, seriesColor, points,
+                if (config.showUnits) field.unit else ""
+            )
         }
 
         return if (series.isEmpty()) ChartData.Empty
@@ -228,7 +231,9 @@ object ChartDataProcessor {
         val slices = sorted.mapIndexed { i, (label, value) ->
             ChartData.Pie.Slice(label, value, PALETTE[i % PALETTE.size])
         }
-        val unit = fields.firstOrNull { it.id == numericFieldId }?.unit.orEmpty()
+        val unit = if (config.showUnits) {
+            fields.firstOrNull { it.id == numericFieldId }?.unit.orEmpty()
+        } else ""
         return ChartData.Pie(slices, anchoredEndMs, unit)
     }
 

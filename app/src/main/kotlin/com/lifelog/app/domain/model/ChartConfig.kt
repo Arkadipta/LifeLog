@@ -18,5 +18,7 @@ data class ChartConfig(
     val fieldColors: Map<Long, Int> = emptyMap(),
     val sortOrder: Int = 0,
     val createdAt: Long = System.currentTimeMillis(),
-    val aggregation: AggregationStrategy = AggregationStrategy.MEAN
+    val aggregation: AggregationStrategy = AggregationStrategy.MEAN,
+    /** When false, field units are omitted from legends, markers, and totals. */
+    val showUnits: Boolean = true
 )

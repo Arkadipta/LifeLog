@@ -21,6 +21,7 @@ import com.patrykandpatrick.vico.compose.common.dimensions
 import com.patrykandpatrick.vico.core.cartesian.CartesianDrawingContext
 import com.patrykandpatrick.vico.core.cartesian.marker.CartesianMarker
 import com.patrykandpatrick.vico.core.cartesian.marker.CartesianMarkerValueFormatter
+import com.patrykandpatrick.vico.core.cartesian.marker.DefaultCartesianMarker
 import com.patrykandpatrick.vico.core.common.shape.CorneredShape
 import com.patrykandpatrick.vico.core.common.shape.MarkerCorneredShape
 import java.text.DecimalFormat
@@ -60,6 +61,9 @@ internal fun rememberChartMarker(
     return rememberDefaultCartesianMarker(
         label = label,
         valueFormatter = formatter,
+        // AroundPoint keeps the bubble inside the plot, so no vertical space
+        // is permanently reserved above the chart for it.
+        labelPosition = DefaultCartesianMarker.LabelPosition.AroundPoint,
         guideline = guideline
     )
 }

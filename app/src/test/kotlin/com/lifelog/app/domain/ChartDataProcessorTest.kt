@@ -220,6 +220,26 @@ class ChartDataProcessorTest {
     }
 
     @Test
+    fun `show units off blanks series and pie units`() {
+        val unitFields = listOf(
+            EventField(id = WEIGHT, name = "Weight", type = FieldType.NUMERIC, unit = "kg"),
+            EventField(id = MEAL, name = "Meal", type = FieldType.CHOICE)
+        )
+        val entries = listOf(entry(NOW - DAY, 70.0, meal = "Lunch"))
+
+        val line = cartesian(
+            ChartDataProcessor.process(config().copy(showUnits = false), entries, unitFields, NOW)
+        )
+        assertEquals("", line.series.single().unit)
+
+        val pie = ChartDataProcessor.process(
+            config(type = ChartType.PIE, groupBy = MEAL).copy(showUnits = false),
+            entries, unitFields, NOW
+        ) as ChartData.Pie
+        assertEquals("", pie.unit)
+    }
+
+    @Test
     fun `empty entry list gives insufficient data`() {
         val data = ChartDataProcessor.process(config(), emptyList(), fields, NOW)
         assertEquals(ChartData.InsufficientData, data)
