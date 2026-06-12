@@ -15,6 +15,7 @@ import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.query.EntryQuery
 import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -70,7 +71,8 @@ class EventDetailViewModel @Inject constructor(
         configs.associate { config ->
             config.id to ChartDataProcessor.process(config, entries, fields)
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     fun loadEvent(id: Long) {
         eventIdFlow.value = id
