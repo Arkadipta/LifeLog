@@ -2,29 +2,19 @@ package com.lifelog.app.ui.events
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
@@ -33,8 +23,6 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FilterList
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Upload
@@ -51,12 +39,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,24 +51,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.FieldType
+import com.lifelog.app.domain.query.SortField
 import com.lifelog.app.ui.components.DeleteConfirmDialog
-import com.lifelog.app.ui.components.LifeLogCard
 import com.lifelog.app.ui.components.LifeLogFab
-import com.lifelog.app.ui.components.SwipeDeleteBackground
 import com.lifelog.app.ui.events.components.ChartCarousel
 import com.lifelog.app.ui.events.components.ChartConfigSheet
 import com.lifelog.app.ui.theme.Motion
 import com.lifelog.app.ui.theme.Spacing
 import com.lifelog.app.ui.theme.bestContentColor
 import com.lifelog.app.util.iconForName
-import com.lifelog.app.util.relativeTimeLabel
 import com.lifelog.app.util.toDisplayDateTime
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -113,6 +95,13 @@ fun EventDetailScreen(
     var showFilterSortSheet by remember { mutableStateOf(false) }
 
     val entryQuery by viewModel.entryQuery.collectAsStateWithLifecycle()
+
+    // Sticky day headers only make sense while the list is chronological;
+    // a field-value sort interleaves dates, so cards carry their own date.
+    val groupByDate = remember(entryQuery) {
+        val sortField = entryQuery.sort?.field
+        sortField == null || sortField is SortField.Timestamp
+    }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -371,35 +360,16 @@ fun EventDetailScreen(
                         }
                     }
 
-                    items(entries, key = { it.id }) { entry ->
-                        val dismissState = rememberSwipeToDismissBoxState(
-                            confirmValueChange = { value ->
-                                if (value == SwipeToDismissBoxValue.EndToStart) {
-                                    deleteTarget = entry
-                                }
-                                false
-                            }
-                        )
-                        SwipeToDismissBox(
-                            state = dismissState,
-                            backgroundContent = { SwipeDeleteBackground(dismissState) },
-                            enableDismissFromEndToStart = true,
-                            enableDismissFromStartToEnd = false,
-                            modifier = Modifier
-                                .animateItem()
-                                .padding(horizontal = Spacing.screenEdge, vertical = Spacing.cardGap / 2)
-                        ) {
-                            EntryCard(
-                                entry = entry,
-                                fields = eventType?.fields ?: emptyList(),
-                                onEdit = {
-                                    editingEntryId = entry.id
-                                    showEntrySheet = true
-                                },
-                                onDelete = { deleteTarget = entry }
-                            )
-                        }
-                    }
+                    entryCardItems(
+                        entries = entries,
+                        fieldsFor = { eventType?.fields ?: emptyList() },
+                        onEdit = {
+                            editingEntryId = it.id
+                            showEntrySheet = true
+                        },
+                        onDeleteRequest = { deleteTarget = it },
+                        groupByDate = groupByDate
+                    )
                 }
             }
         }
@@ -457,153 +427,5 @@ fun EventDetailScreen(
                 onDismiss = { showDeleteEventDialog = false }
             )
         }
-    }
-}
-
-/**
- * One logged entry. Shows up to two field values; taps expand the rest with
- * a spring. Used on the event detail screen and (with [showEventName]) the
- * timeline.
- */
-@Composable
-fun EntryCard(
-    entry: EventEntry,
-    fields: List<com.lifelog.app.domain.model.EventField>,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-    showEventName: Boolean = false,
-    modifier: Modifier = Modifier
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    val orderedFields = fields.filter { entry.fieldValues.containsKey(it.id) }
-    val preview = orderedFields.take(2)
-    val rest = orderedFields.drop(2)
-    val hasHiddenContent = rest.isNotEmpty()
-
-    LifeLogCard(
-        onClick = if (hasHiddenContent) ({ expanded = !expanded }) else null,
-        modifier = modifier
-            .fillMaxWidth()
-            .animateContentSize(animationSpec = Motion.spatial())
-    ) {
-        Column(modifier = Modifier.padding(Spacing.lg)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    if (showEventName) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                iconForName(entry.eventTypeIcon),
-                                null,
-                                tint = Color(entry.eventTypeColor),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                entry.eventTypeName,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color(entry.eventTypeColor),
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                        Spacer(Modifier.height(Spacing.xs))
-                    }
-                    Text(
-                        entry.createdAt.toDisplayDateTime(),
-                        style = MaterialTheme.typography.titleSmall
-                    )
-                    Text(
-                        entry.createdAt.relativeTimeLabel(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (hasHiddenContent) {
-                        AnimatedContent(
-                            targetState = expanded,
-                            transitionSpec = {
-                                fadeIn(tween(Motion.SHORT)) togetherWith fadeOut(tween(Motion.SHORT))
-                            },
-                            label = "expand_icon"
-                        ) { isExpanded ->
-                            Icon(
-                                imageVector = if (isExpanded) Icons.Rounded.KeyboardArrowUp
-                                              else Icons.Rounded.KeyboardArrowDown,
-                                contentDescription = if (isExpanded) "Collapse" else "Expand",
-                                modifier = Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                            )
-                        }
-                    }
-                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Rounded.Edit, "Edit", modifier = Modifier.size(16.dp))
-                    }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            Icons.Rounded.Delete,
-                            "Delete",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-            }
-
-            if (preview.isNotEmpty() || entry.note.isNotBlank()) {
-                Spacer(Modifier.height(Spacing.sm))
-            }
-
-            preview.forEach { field ->
-                entry.fieldValues[field.id]?.let { fv ->
-                    FieldValueRow(fieldName = field.name, value = fv.displayString())
-                }
-            }
-
-            if (entry.note.isNotBlank()) {
-                Spacer(Modifier.height(Spacing.xs))
-                Text(
-                    "Note: ${entry.note}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            if (hasHiddenContent && expanded) {
-                rest.forEach { field ->
-                    entry.fieldValues[field.id]?.let { fv ->
-                        FieldValueRow(fieldName = field.name, value = fv.displayString())
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun FieldValueRow(fieldName: String, value: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 1.dp),
-        horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
-    ) {
-        Text(
-            fieldName,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.widthIn(min = 80.dp)
-        )
-        Text(
-            value,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.SemiBold
-        )
     }
 }
