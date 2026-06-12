@@ -1,22 +1,52 @@
 package com.lifelog.app.ui.events
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.ui.components.LifeLogTimePickerDialog
+import com.lifelog.app.ui.components.SectionHeader
+import com.lifelog.app.ui.components.SheetHeader
 import com.lifelog.app.ui.events.components.FieldInput
+import com.lifelog.app.ui.theme.Sizing
+import com.lifelog.app.ui.theme.Spacing
 import com.lifelog.app.util.toDisplayDate
 import com.lifelog.app.util.toDisplayTime
 import java.util.Calendar
@@ -55,87 +85,35 @@ fun EntryFormSheet(
                 .fillMaxWidth()
                 .navigationBarsPadding()
         ) {
-            // Header — no divider; ModalBottomSheet drag handle provides visual separation
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (editingEntryId != null) "Edit Entry" else "New Entry",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Rounded.Close, "Close")
-                }
-            }
+            SheetHeader(
+                title = if (editingEntryId != null) "Edit Entry" else "New Entry",
+                onClose = onDismiss
+            )
 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .padding(horizontal = Spacing.sheetEdge)
+                    .padding(top = Spacing.sm, bottom = Spacing.lg),
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg)
             ) {
                 // Timestamp row — date and time are independently tappable
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        "Timestamp",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedCard(
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    SectionHeader("Timestamp")
+                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        TimestampChip(
+                            icon = Icons.Rounded.CalendarMonth,
+                            label = state.createdAt.toDisplayDate(),
                             onClick = { showDatePicker = true },
                             modifier = Modifier.weight(1f)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
-                            ) {
-                                Icon(
-                                    Icons.Rounded.CalendarMonth,
-                                    null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Text(
-                                    state.createdAt.toDisplayDate(),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                        OutlinedCard(
+                        )
+                        TimestampChip(
+                            icon = Icons.Rounded.AccessTime,
+                            label = state.createdAt.toDisplayTime(),
                             onClick = { showTimePicker = true },
                             modifier = Modifier.weight(1f)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
-                            ) {
-                                Icon(
-                                    Icons.Rounded.AccessTime,
-                                    null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Text(
-                                    state.createdAt.toDisplayTime(),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
+                        )
                     }
                 }
 
@@ -161,7 +139,9 @@ fun EntryFormSheet(
                 // Save button
                 Button(
                     onClick = { viewModel.save(eventTypeId) },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(Sizing.cta),
                     enabled = !state.isLoading
                 ) {
                     if (state.isLoading) {
@@ -170,11 +150,11 @@ fun EntryFormSheet(
                             strokeWidth = 2.dp
                         )
                     } else {
-                        Text("Save Entry", fontWeight = FontWeight.SemiBold)
+                        Text("Save Entry")
                     }
                 }
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Spacing.sm))
             }
         }
     }
@@ -232,3 +212,38 @@ fun EntryFormSheet(
     }
 }
 
+/** Tonal tappable date/time selector used in the entry form. */
+@Composable
+private fun TimestampChip(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm, Alignment.CenterHorizontally)
+        ) {
+            Icon(
+                icon,
+                null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                label,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1
+            )
+        }
+    }
+}

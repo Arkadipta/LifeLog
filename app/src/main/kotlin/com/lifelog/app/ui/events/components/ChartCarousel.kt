@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -17,6 +16,8 @@ import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.ChartData
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.ui.components.SectionHeader
+import com.lifelog.app.ui.theme.Spacing
 
 @Composable
 fun ChartCarousel(
@@ -31,15 +32,13 @@ fun ChartCarousel(
     val eventAccentColor = eventType?.let { Color(it.colorArgb) } ?: MaterialTheme.colorScheme.primary
 
     Column(modifier = modifier.fillMaxWidth()) {
-        Text(
-            text = "Analytics",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 16.dp, bottom = 6.dp)
+        SectionHeader(
+            title = "Analytics",
+            modifier = Modifier.padding(start = Spacing.screenEdge, bottom = Spacing.sm)
         )
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(horizontal = 16.dp)
+            horizontalArrangement = Arrangement.spacedBy(Spacing.cardGap),
+            contentPadding = PaddingValues(horizontal = Spacing.screenEdge)
         ) {
             items(charts, key = { it.id }) { config ->
                 ChartCard(

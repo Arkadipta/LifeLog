@@ -1,17 +1,25 @@
 package com.lifelog.app.ui.events
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Label
@@ -21,24 +29,45 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.FieldType
+import com.lifelog.app.ui.components.ColorDot
+import com.lifelog.app.ui.components.LabelChip
+import com.lifelog.app.ui.components.LifeLogCard
+import com.lifelog.app.ui.components.SectionHeader
+import com.lifelog.app.ui.components.SheetHeader
 import com.lifelog.app.ui.theme.EventColors
+import com.lifelog.app.ui.theme.Sizing
+import com.lifelog.app.ui.theme.Spacing
 import com.lifelog.app.util.eventIconMap
 import com.lifelog.app.util.iconForName
 
@@ -66,10 +95,7 @@ fun CreateEventScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        if (eventId == 0L) "New Event" else "Edit Event",
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text(if (eventId == 0L) "New Event" else "Edit Event")
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
@@ -99,8 +125,8 @@ fun CreateEventScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            contentPadding = PaddingValues(Spacing.screenEdge),
+            verticalArrangement = Arrangement.spacedBy(Spacing.lg)
         ) {
             item {
                 OutlinedTextField(
@@ -145,10 +171,10 @@ fun CreateEventScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Fields", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    SectionHeader("Fields")
                     FilledTonalButton(onClick = { showAddFieldSheet = true }) {
                         Icon(Icons.Rounded.Add, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
+                        Spacer(Modifier.width(Spacing.xs))
                         Text("Add Field")
                     }
                 }
@@ -166,7 +192,7 @@ fun CreateEventScreen(
                 )
             }
 
-            item { Spacer(Modifier.height(80.dp)) }
+            item { Spacer(Modifier.height(Spacing.fabClearance - Spacing.screenEdge)) }
         }
     }
 
@@ -196,39 +222,17 @@ fun CreateEventScreen(
 
 @Composable
 private fun ColorPicker(selected: Int, onSelect: (Int) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Color", style = MaterialTheme.typography.labelLarge)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        SectionHeader("Color")
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             items(EventColors) { color ->
                 val argb = color.toArgb()
-                val isSelected = argb == selected
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)  // 40dp meets minimum 44dp guideline with spacedBy(10dp)
-                        .clip(CircleShape)
-                        .background(color)
-                        .then(
-                            if (isSelected) Modifier.border(3.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                            else Modifier
-                        )
-                        .semantics {
-                            role = Role.RadioButton
-                            stateDescription = if (isSelected) "Selected" else "Not selected"
-                        }
-                        .clickable { onSelect(argb) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isSelected) {
-                        // Checkmark gives clear selected state on all colors
-                        val lum = 0.2126f * color.red + 0.7152f * color.green + 0.0722f * color.blue
-                        Icon(
-                            Icons.Rounded.Check,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                            tint = if (lum > 0.4f) Color.Black else Color.White
-                        )
-                    }
-                }
+                ColorDot(
+                    color = color,
+                    selected = argb == selected,
+                    onClick = { onSelect(argb) },
+                    size = 44.dp
+                )
             }
         }
     }
@@ -236,18 +240,17 @@ private fun ColorPicker(selected: Int, onSelect: (Int) -> Unit) {
 
 @Composable
 private fun IconPicker(selected: String, onSelect: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Icon", style = MaterialTheme.typography.labelLarge)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        SectionHeader("Icon")
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             items(eventIconMap.keys.toList()) { iconName ->
                 val isSelected = iconName == selected
                 Surface(
-                    shape = MaterialTheme.shapes.large,
+                    onClick = { onSelect(iconName) },
+                    shape = MaterialTheme.shapes.medium,
                     color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clickable { onSelect(iconName) }
+                    else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.size(44.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
@@ -274,60 +277,37 @@ private fun FieldConfigCard(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-    ) {
+    LifeLogCard(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(Spacing.md),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(Spacing.md)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(field.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+            ) {
+                Text(field.name, style = MaterialTheme.typography.titleSmall)
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Surface badges replace AssistChip (which semantically implies an action)
-                    Surface(
-                        shape = MaterialTheme.shapes.small,
-                        color = MaterialTheme.colorScheme.secondaryContainer
-                    ) {
-                        Text(
-                            field.type.displayName,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    LabelChip(field.type.displayName)
+                    if (field.isRequired) {
+                        LabelChip(
+                            "Required",
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
                         )
                     }
-                    if (field.isRequired) {
-                        Surface(
-                            shape = MaterialTheme.shapes.small,
-                            color = MaterialTheme.colorScheme.tertiaryContainer
-                        ) {
-                            Text(
-                                "Required",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
                     if (field.unit.isNotBlank()) {
-                        Surface(
-                            shape = MaterialTheme.shapes.small,
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh
-                        ) {
-                            Text(
-                                field.unit,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                            )
-                        }
+                        LabelChip(
+                            field.unit,
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             }
@@ -369,98 +349,98 @@ private fun AddFieldSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text(
-                if (existingField == null) "Add Field" else "Edit Field",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold
+        Column(modifier = Modifier.fillMaxWidth()) {
+            SheetHeader(
+                title = if (existingField == null) "Add Field" else "Edit Field",
+                onClose = onDismiss
             )
 
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it; nameError = null },
-                label = { Text("Field Name *") },
-                isError = nameError != null,
-                supportingText = nameError?.let { { Text(it) } },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Field Type", style = MaterialTheme.typography.labelLarge)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(FieldType.entries) { type ->
-                        FilterChip(
-                            selected = fieldType == type,
-                            onClick = { fieldType = type },
-                            label = { Text(type.displayName, style = MaterialTheme.typography.labelSmall) }
-                        )
-                    }
-                }
-            }
-
-            if (fieldType == FieldType.NUMERIC) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = Spacing.sheetEdge)
+                    .padding(bottom = Spacing.xxl),
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+            ) {
                 OutlinedTextField(
-                    value = unit,
-                    onValueChange = { unit = it },
-                    label = { Text("Unit (e.g. kg, ml)") },
+                    value = name,
+                    onValueChange = { name = it; nameError = null },
+                    label = { Text("Field Name *") },
+                    isError = nameError != null,
+                    supportingText = nameError?.let { { Text(it) } },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-            }
 
-            if (fieldType == FieldType.CHOICE || fieldType == FieldType.MULTI_SELECT) {
-                OutlinedTextField(
-                    value = options,
-                    onValueChange = { options = it },
-                    label = { Text("Options (one per line)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 3,
-                    maxLines = 6
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Required field")
-                Switch(checked = isRequired, onCheckedChange = { isRequired = it })
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = {
-                    if (name.isBlank()) {
-                        nameError = "Name is required"
-                        return@Button
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    SectionHeader("Field Type")
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(FieldType.entries) { type ->
+                            FilterChip(
+                                selected = fieldType == type,
+                                onClick = { fieldType = type },
+                                label = { Text(type.displayName, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
                     }
-                    onAdd(
-                        EventField(
-                            id = existingField?.id ?: 0L,
-                            name = name.trim(),
-                            type = fieldType,
-                            unit = unit.trim(),
-                            isRequired = isRequired,
-                            options = if (fieldType == FieldType.CHOICE || fieldType == FieldType.MULTI_SELECT) {
-                                options.lines().map { it.trim() }.filter { it.isNotBlank() }
-                            } else emptyList()
-                        )
+                }
+
+                if (fieldType == FieldType.NUMERIC) {
+                    OutlinedTextField(
+                        value = unit,
+                        onValueChange = { unit = it },
+                        label = { Text("Unit (e.g. kg, ml)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
                     )
-                }) { Text("Save") }
+                }
+
+                if (fieldType == FieldType.CHOICE || fieldType == FieldType.MULTI_SELECT) {
+                    OutlinedTextField(
+                        value = options,
+                        onValueChange = { options = it },
+                        label = { Text("Options (one per line)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3,
+                        maxLines = 6
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Required field", style = MaterialTheme.typography.bodyLarge)
+                    Switch(checked = isRequired, onCheckedChange = { isRequired = it })
+                }
+
+                Button(
+                    onClick = {
+                        if (name.isBlank()) {
+                            nameError = "Name is required"
+                            return@Button
+                        }
+                        onAdd(
+                            EventField(
+                                id = existingField?.id ?: 0L,
+                                name = name.trim(),
+                                type = fieldType,
+                                unit = unit.trim(),
+                                isRequired = isRequired,
+                                options = if (fieldType == FieldType.CHOICE || fieldType == FieldType.MULTI_SELECT) {
+                                    options.lines().map { it.trim() }.filter { it.isNotBlank() }
+                                } else emptyList()
+                            )
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(Sizing.cta)
+                ) {
+                    Text(if (existingField == null) "Add Field" else "Save Field")
+                }
             }
         }
     }

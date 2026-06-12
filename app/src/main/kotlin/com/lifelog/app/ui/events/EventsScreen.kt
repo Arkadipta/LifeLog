@@ -1,41 +1,52 @@
 package com.lifelog.app.ui.events
 
-import android.provider.Settings as AndroidSettings
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.DockedSearchBar
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
+import com.lifelog.app.ui.components.IconTile
+import com.lifelog.app.ui.components.LabelChip
+import com.lifelog.app.ui.components.LifeLogCard
+import com.lifelog.app.ui.components.LifeLogFab
 import com.lifelog.app.ui.components.TagFilterRow
-import com.lifelog.app.ui.theme.LocalAmoledColors
+import com.lifelog.app.ui.theme.Sizing
+import com.lifelog.app.ui.theme.Spacing
 import com.lifelog.app.util.iconForName
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,19 +60,6 @@ fun EventsScreen(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val filterState by viewModel.filterState.collectAsStateWithLifecycle()
     val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-    val animationsEnabled = remember {
-        AndroidSettings.Global.getFloat(
-            context.contentResolver, AndroidSettings.Global.ANIMATOR_DURATION_SCALE, 1f
-        ) != 0f
-    }
-    var fabVisible by remember { mutableStateOf(!animationsEnabled) }
-    LaunchedEffect(Unit) {
-        if (animationsEnabled) {
-            delay(200)
-            fabVisible = true
-        }
-    }
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -82,29 +80,11 @@ fun EventsScreen(
             )
         },
         floatingActionButton = {
-            AnimatedVisibility(
-                visible = fabVisible,
-                enter = scaleIn(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    ),
-                    initialScale = 0.85f
-                ) + fadeIn(tween(150)),
-                exit = scaleOut(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    ),
-                    targetScale = 0.85f
-                ) + fadeOut(tween(100))
-            ) {
-                ExtendedFloatingActionButton(
-                    onClick = onNavigateToCreate,
-                    icon = { Icon(Icons.Rounded.Add, null) },
-                    text = { Text("New Event") }
-                )
-            }
+            LifeLogFab(
+                onClick = onNavigateToCreate,
+                icon = Icons.Rounded.Add,
+                text = "New Event"
+            )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
     ) { padding ->
@@ -136,19 +116,19 @@ fun EventsScreen(
                 onExpandedChange = {},
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = Spacing.screenEdge, vertical = Spacing.sm)
             ) {}
 
             TagFilterRow(
                 tags = availableTags,
                 filterState = filterState,
                 onFilterChange = viewModel::updateFilter,
-                modifier = Modifier.padding(bottom = 4.dp)
+                modifier = Modifier.padding(bottom = Spacing.xs)
             )
 
             if (eventTypes.isEmpty() && searchQuery.isBlank() && !filterState.hasActiveFilters) {
                 EmptyStatePlaceholder(
-                    icon = Icons.Rounded.Add,
+                    icon = Icons.AutoMirrored.Rounded.List,
                     title = "No events yet",
                     subtitle = "Tap + to create your first event to track",
                     modifier = Modifier.fillMaxSize()
@@ -170,8 +150,13 @@ fun EventsScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    contentPadding = PaddingValues(
+                        start = Spacing.screenEdge,
+                        end = Spacing.screenEdge,
+                        top = Spacing.sm,
+                        bottom = Spacing.fabClearance
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.cardGap)
                 ) {
                     items(eventTypes, key = { it.id }) { eventType ->
                         EventTypeCard(
@@ -180,14 +165,11 @@ fun EventsScreen(
                             modifier = Modifier.animateItem()
                         )
                     }
-                    item { Spacer(Modifier.height(80.dp)) }
                 }
             }
         }
     }
-
 }
-
 
 @Composable
 private fun EventTypeCard(
@@ -195,44 +177,34 @@ private fun EventTypeCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isAmoled = LocalAmoledColors.current.isAmoled
     val color = Color(eventType.colorArgb)
 
-    Card(
+    LifeLogCard(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isAmoled) Color.Black else MaterialTheme.colorScheme.surfaceContainer
-        ),
-        border = if (isAmoled) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null
+        modifier = modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .defaultMinSize(minHeight = Sizing.listCardMin)
+                .padding(Spacing.lg),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+            horizontalArrangement = Arrangement.spacedBy(Spacing.lg)
         ) {
-            Surface(
-                shape = MaterialTheme.shapes.large,
-                color = color.copy(alpha = 0.15f),
-                modifier = Modifier.size(48.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = iconForName(eventType.iconName),
-                        contentDescription = null,
-                        tint = color,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-            }
+            IconTile(
+                icon = iconForName(eventType.iconName),
+                tint = color
+            )
 
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
                 Text(
                     text = eventType.name,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = eventType.description,
@@ -243,21 +215,11 @@ private fun EventTypeCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (eventType.category.isNotBlank()) {
-                        Surface(
-                            shape = MaterialTheme.shapes.small,
-                            color = MaterialTheme.colorScheme.secondaryContainer
-                        ) {
-                            Text(
-                                eventType.category,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                            )
-                        }
+                        LabelChip(eventType.category)
                     }
                     Text(
                         text = "${eventType.entryCount} entries",
@@ -266,7 +228,6 @@ private fun EventTypeCard(
                     )
                 }
             }
-
         }
     }
 }

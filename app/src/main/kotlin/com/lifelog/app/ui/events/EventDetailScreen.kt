@@ -1,26 +1,28 @@
 package com.lifelog.app.ui.events
 
-import android.app.Activity
-import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -36,29 +38,53 @@ import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Upload
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.DockedSearchBar
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.view.WindowCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.FieldType
+import com.lifelog.app.ui.components.DeleteConfirmDialog
+import com.lifelog.app.ui.components.LifeLogCard
+import com.lifelog.app.ui.components.LifeLogFab
 import com.lifelog.app.ui.components.SwipeDeleteBackground
 import com.lifelog.app.ui.events.components.ChartCarousel
 import com.lifelog.app.ui.events.components.ChartConfigSheet
-import com.lifelog.app.ui.theme.LocalAmoledColors
+import com.lifelog.app.ui.theme.Motion
+import com.lifelog.app.ui.theme.Spacing
+import com.lifelog.app.ui.theme.bestContentColor
 import com.lifelog.app.util.iconForName
 import com.lifelog.app.util.relativeTimeLabel
 import com.lifelog.app.util.toDisplayDateTime
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,20 +116,6 @@ fun EventDetailScreen(
 
     val snackbarHostState = remember { SnackbarHostState() }
 
-    val context = LocalContext.current
-    val animationsEnabled = remember {
-        AndroidSettings.Global.getFloat(
-            context.contentResolver, AndroidSettings.Global.ANIMATOR_DURATION_SCALE, 1f
-        ) != 0f
-    }
-    var fabVisible by remember { mutableStateOf(!animationsEnabled) }
-    LaunchedEffect(Unit) {
-        if (animationsEnabled) {
-            delay(200)
-            fabVisible = true
-        }
-    }
-
     var exportResult by remember { mutableStateOf<String?>(null) }
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
@@ -123,37 +135,7 @@ fun EventDetailScreen(
     }
 
     val fabColor = eventType?.let { Color(it.colorArgb) } ?: MaterialTheme.colorScheme.primary
-    val fabContentColor = remember(fabColor) {
-        val lum = 0.2126f * fabColor.red + 0.7152f * fabColor.green + 0.0722f * fabColor.blue
-        if (lum > 0.4f) Color.Black else Color.White
-    }
-
-    // Pre-multiply the 10% event tint over the surface color to get a fully opaque color.
-    // This avoids compositing ambiguity in the status bar area and lets us derive the
-    // correct icon appearance (light vs dark) for any event color / theme combination.
-//    val surfaceColor = MaterialTheme.colorScheme.surface
-//    val appBarColorTarget = eventType?.let {
-//        val ec = Color(it.colorArgb)
-//        Color(
-//            red   = surfaceColor.red   + (ec.red   - surfaceColor.red)   * 0.1f,
-//            green = surfaceColor.green + (ec.green - surfaceColor.green) * 0.1f,
-//            blue  = surfaceColor.blue  + (ec.blue  - surfaceColor.blue)  * 0.1f,
-//        )
-//    } ?: surfaceColor
-//    val appBarColor by animateColorAsState(appBarColorTarget, label = "appbar_color")
-    val appBarColor = MaterialTheme.colorScheme.surface
-    val view = LocalView.current
-    val darkTheme = isSystemInDarkTheme()
-    val insetsController = remember(view) {
-        WindowCompat.getInsetsController((view.context as Activity).window, view)
-    }
-    SideEffect {
-        val lum = 0.2126f * appBarColor.red + 0.7152f * appBarColor.green + 0.0722f * appBarColor.blue
-        insetsController.isAppearanceLightStatusBars = lum > 0.4f
-    }
-    DisposableEffect(Unit) {
-        onDispose { insetsController.isAppearanceLightStatusBars = !darkTheme }
-    }
+    val fabContentColor = remember(fabColor) { fabColor.bestContentColor() }
 
     val hasNumericFields = remember(eventType) {
         eventType?.fields?.any { it.type == FieldType.NUMERIC } == true
@@ -164,7 +146,7 @@ fun EventDetailScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text(eventType?.name ?: "", fontWeight = FontWeight.Bold)
+                        Text(eventType?.name ?: "")
                         if (eventType?.category?.isNotBlank() == true) {
                             Text(
                                 eventType!!.category,
@@ -248,39 +230,21 @@ fun EventDetailScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = appBarColor
+                    containerColor = MaterialTheme.colorScheme.surface
                 )
             )
         },
         floatingActionButton = {
-            AnimatedVisibility(
-                visible = fabVisible,
-                enter = scaleIn(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    ),
-                    initialScale = 0.85f
-                ) + fadeIn(tween(150)),
-                exit = scaleOut(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    ),
-                    targetScale = 0.85f
-                ) + fadeOut(tween(100))
-            ) {
-                FloatingActionButton(
-                    onClick = {
-                        editingEntryId = null
-                        showEntrySheet = true
-                    },
-                    containerColor = fabColor,
-                    contentColor = fabContentColor
-                ) {
-                    Icon(Icons.Rounded.Add, "Add Entry")
-                }
-            }
+            LifeLogFab(
+                onClick = {
+                    editingEntryId = null
+                    showEntrySheet = true
+                },
+                icon = Icons.Rounded.Add,
+                containerColor = fabColor,
+                contentColor = fabContentColor,
+                contentDescription = "Add Entry"
+            )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
@@ -291,27 +255,34 @@ fun EventDetailScreen(
         ) {
             AnimatedVisibility(
                 visible = searchActive,
-                enter = expandVertically(),
-                exit = shrinkVertically()
+                enter = expandVertically(animationSpec = Motion.spatial()),
+                exit = shrinkVertically(animationSpec = Motion.snappy())
             ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = viewModel::setSearchQuery,
-                    placeholder = { Text("Search entries…") },
-                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                                Icon(Icons.Rounded.Close, "Clear search")
+                DockedSearchBar(
+                    inputField = {
+                        SearchBarDefaults.InputField(
+                            query = searchQuery,
+                            onQueryChange = viewModel::setSearchQuery,
+                            onSearch = {},
+                            expanded = false,
+                            onExpandedChange = {},
+                            placeholder = { Text("Search entries…") },
+                            leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                        Icon(Icons.Rounded.Close, "Clear search")
+                                    }
+                                }
                             }
-                        }
+                        )
                     },
+                    expanded = false,
+                    onExpandedChange = {},
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    shape = MaterialTheme.shapes.extraLarge,
-                    singleLine = true
-                )
+                        .padding(horizontal = Spacing.screenEdge, vertical = Spacing.sm)
+                ) {}
             }
 
             if (entries.isEmpty() && searchQuery.isBlank() && !hasNumericFields) {
@@ -328,8 +299,9 @@ fun EventDetailScreen(
                             tint = Color(it.colorArgb).copy(alpha = 0.4f)
                         )
                     }
-                    Spacer(Modifier.height(16.dp))
-                    Text("No entries yet", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(Spacing.lg))
+                    Text("No entries yet", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.height(Spacing.sm))
                     Text(
                         "Tap + to log your first entry",
                         style = MaterialTheme.typography.bodyMedium,
@@ -348,7 +320,7 @@ fun EventDetailScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 80.dp)
+                    contentPadding = PaddingValues(bottom = Spacing.fabClearance)
                 ) {
                     // Chart carousel — only when at least one chart has been created
                     if (hasNumericFields && charts.isNotEmpty()) {
@@ -366,13 +338,7 @@ fun EventDetailScreen(
                                     showChartConfigSheet = true
                                 },
                                 onDeleteChart = viewModel::deleteChart,
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-                        }
-                        item(key = "carousel_divider") {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                modifier = Modifier.padding(top = Spacing.sm, bottom = Spacing.md)
                             )
                         }
                     }
@@ -394,7 +360,7 @@ fun EventDetailScreen(
                                         tint = Color(it.colorArgb).copy(alpha = 0.4f)
                                     )
                                 }
-                                Spacer(Modifier.height(12.dp))
+                                Spacer(Modifier.height(Spacing.md))
                                 Text("No entries yet", style = MaterialTheme.typography.titleMedium)
                                 Text(
                                     "Tap + to log your first entry",
@@ -421,7 +387,7 @@ fun EventDetailScreen(
                             enableDismissFromStartToEnd = false,
                             modifier = Modifier
                                 .animateItem()
-                                .padding(horizontal = 16.dp, vertical = 4.dp)
+                                .padding(horizontal = Spacing.screenEdge, vertical = Spacing.cardGap / 2)
                         ) {
                             EntryCard(
                                 entry = entry,
@@ -467,57 +433,38 @@ fun EventDetailScreen(
     }
 
     deleteTarget?.let { target ->
-        AlertDialog(
-            onDismissRequest = { deleteTarget = null },
-            icon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text("Delete entry?") },
-            text = { Text("This entry logged at ${target.createdAt.toDisplayDateTime()} will be deleted.") },
-            confirmButton = {
-                FilledTonalButton(
-                    onClick = {
-                        viewModel.deleteEntry(target.id)
-                        deleteTarget = null
-                    },
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                ) { Text("Delete") }
+        DeleteConfirmDialog(
+            title = "Delete entry?",
+            text = "This entry logged at ${target.createdAt.toDisplayDateTime()} will be deleted.",
+            onConfirm = {
+                viewModel.deleteEntry(target.id)
+                deleteTarget = null
             },
-            dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text("Cancel") }
-            }
+            onDismiss = { deleteTarget = null }
         )
     }
 
     if (showDeleteEventDialog) {
         eventType?.let { target ->
-            AlertDialog(
-                onDismissRequest = { showDeleteEventDialog = false },
-                icon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
-                title = { Text("Delete \"${target.name}\"?") },
-                text = { Text("This will permanently delete this event and all its entries.") },
-                confirmButton = {
-                    FilledTonalButton(
-                        onClick = {
-                            viewModel.deleteEventType(target.id)
-                            showDeleteEventDialog = false
-                            onNavigateBack()
-                        },
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer,
-                            contentColor = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                    ) { Text("Delete") }
+            DeleteConfirmDialog(
+                title = "Delete \"${target.name}\"?",
+                text = "This will permanently delete this event and all its entries.",
+                onConfirm = {
+                    viewModel.deleteEventType(target.id)
+                    showDeleteEventDialog = false
+                    onNavigateBack()
                 },
-                dismissButton = {
-                    TextButton(onClick = { showDeleteEventDialog = false }) { Text("Cancel") }
-                }
+                onDismiss = { showDeleteEventDialog = false }
             )
         }
     }
 }
 
+/**
+ * One logged entry. Shows up to two field values; taps expand the rest with
+ * a spring. Used on the event detail screen and (with [showEventName]) the
+ * timeline.
+ */
 @Composable
 fun EntryCard(
     entry: EventEntry,
@@ -525,10 +472,8 @@ fun EntryCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     showEventName: Boolean = false,
-    showDivider: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    val isAmoled = LocalAmoledColors.current.isAmoled
     var expanded by remember { mutableStateOf(false) }
 
     val orderedFields = fields.filter { entry.fieldValues.containsKey(it.id) }
@@ -536,22 +481,13 @@ fun EntryCard(
     val rest = orderedFields.drop(2)
     val hasHiddenContent = rest.isNotEmpty()
 
-    Card(
-        onClick = { if (hasHiddenContent) expanded = !expanded },
+    LifeLogCard(
+        onClick = if (hasHiddenContent) ({ expanded = !expanded }) else null,
         modifier = modifier
             .fillMaxWidth()
-            .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMedium
-                )
-            ),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isAmoled) Color.Black else MaterialTheme.colorScheme.surfaceContainer
-        ),
-        border = if (isAmoled) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null
+            .animateContentSize(animationSpec = Motion.spatial())
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(Spacing.lg)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -576,24 +512,25 @@ fun EntryCard(
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(Spacing.xs))
                     }
                     Text(
                         entry.createdAt.toDisplayDateTime(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = MaterialTheme.typography.titleSmall
                     )
                     Text(
                         entry.createdAt.relativeTimeLabel(),
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (hasHiddenContent) {
                         AnimatedContent(
                             targetState = expanded,
-                            transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(100)) },
+                            transitionSpec = {
+                                fadeIn(tween(Motion.SHORT)) togetherWith fadeOut(tween(Motion.SHORT))
+                            },
                             label = "expand_icon"
                         ) { isExpanded ->
                             Icon(
@@ -619,12 +556,8 @@ fun EntryCard(
                 }
             }
 
-            if (entry.fieldValues.isNotEmpty() || entry.note.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                if (showDivider) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    Spacer(Modifier.height(8.dp))
-                }
+            if (preview.isNotEmpty() || entry.note.isNotBlank()) {
+                Spacer(Modifier.height(Spacing.sm))
             }
 
             preview.forEach { field ->
@@ -634,7 +567,7 @@ fun EntryCard(
             }
 
             if (entry.note.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(Spacing.xs))
                 Text(
                     "Note: ${entry.note}",
                     style = MaterialTheme.typography.bodySmall,
@@ -656,15 +589,21 @@ fun EntryCard(
 @Composable
 private fun FieldValueRow(fieldName: String, value: String) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 1.dp),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
     ) {
         Text(
-            "$fieldName:",
+            fieldName,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.widthIn(min = 80.dp)
         )
-        Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }

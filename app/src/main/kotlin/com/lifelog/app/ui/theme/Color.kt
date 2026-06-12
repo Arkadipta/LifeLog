@@ -1,6 +1,7 @@
 package com.lifelog.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 
 // Material 3 seed color palette
 val Purple10 = Color(0xFF21005D)
@@ -29,13 +30,14 @@ val DarkSurfaceContainerLow = Color(0xFF141220)
 val DarkSurfaceContainerHigh = Color(0xFF1F1D28)
 val DarkSurfaceContainerHighest = Color(0xFF282532)
 
-// Surface colors for AMOLED
+// AMOLED: pure black background with subtly raised, brand-tinted containers.
+// Depth comes from these surface steps — never from borders.
 val AmoledBlack = Color(0xFF000000)
-val AmoledSurface = Color(0xFF0D0D0D)
-val AmoledSurfaceVariant = Color(0xFF1A1A1A)
-val AmoledSurfaceContainer = Color(0xFF1C1C1C)
-val AmoledSurfaceContainerHigh = Color(0xFF242424)
-val AmoledSurfaceContainerHighest = Color(0xFF2C2C2C)
+val AmoledSurfaceContainerLowest = Color(0xFF0C0A11)
+val AmoledSurfaceContainerLow = Color(0xFF14121A)
+val AmoledSurfaceContainer = Color(0xFF1A1721)
+val AmoledSurfaceContainerHigh = Color(0xFF211E29)
+val AmoledSurfaceContainerHighest = Color(0xFF2A2733)
 
 // Accent colors for event categories
 val EventColors = listOf(
@@ -50,3 +52,6 @@ val EventColors = listOf(
     Color(0xFF006A60), // Cyan
     Color(0xFF904D00), // Brown
 )
+
+/** Black or white — whichever stays readable on top of this color. */
+fun Color.bestContentColor(): Color = if (luminance() > 0.5f) Color.Black else Color.White

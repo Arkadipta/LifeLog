@@ -31,7 +31,7 @@ fun RowScope.SwipeDeleteBackground(state: SwipeToDismissBoxState) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(color, MaterialTheme.shapes.medium)
+            .background(color, MaterialTheme.shapes.large)
             .padding(end = 20.dp),
         contentAlignment = Alignment.CenterEnd
     ) {

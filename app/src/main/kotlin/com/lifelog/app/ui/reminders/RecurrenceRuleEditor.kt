@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.DayOfMonthMode
 import com.lifelog.app.domain.model.RecurrenceRule
 import com.lifelog.app.domain.model.RecurrenceType
+import com.lifelog.app.ui.components.SectionHeader
 
 private val DAYS = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 private val MONTHS = listOf("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
@@ -100,7 +101,7 @@ private fun MonthSelectorRow(
     onSelectOdd: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Months", style = MaterialTheme.typography.labelLarge)
+        SectionHeader("Months")
 
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             item {
@@ -170,7 +171,7 @@ private fun DomEditor(
     onToggle: (Int) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Days of month", style = MaterialTheme.typography.labelLarge)
+        SectionHeader("Days of month")
 
         // 7-column grid for 1-31
         FlowRow(
@@ -205,7 +206,7 @@ private fun DowPositionEditor(
     onTogglePosition: (Int) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Days of week", style = MaterialTheme.typography.labelLarge)
+        SectionHeader("Days of week")
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             items(DAYS.indices.toList()) { idx ->
                 FilterChip(
@@ -216,7 +217,7 @@ private fun DowPositionEditor(
             }
         }
 
-        Text("Week of month", style = MaterialTheme.typography.labelLarge)
+        SectionHeader("Week of month")
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             items(WEEK_POSITIONS) { (pos, label) ->
                 FilterChip(
@@ -244,7 +245,7 @@ private fun DayOfWeekRow(
     onToggle: (Int) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Days of week", style = MaterialTheme.typography.labelLarge)
+        SectionHeader("Days of week")
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(DAYS.indices.toList()) { idx ->
                 FilterChip(

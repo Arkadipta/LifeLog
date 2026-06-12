@@ -1,14 +1,11 @@
 package com.lifelog.app.ui.events.components
 
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -18,12 +15,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,7 +30,6 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -46,7 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.AggregationStrategy
 import com.lifelog.app.domain.model.ChartConfig
@@ -54,14 +48,12 @@ import com.lifelog.app.domain.model.ChartType
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.domain.model.TimeRange
+import com.lifelog.app.ui.components.ColorDot
+import com.lifelog.app.ui.components.SectionHeader
+import com.lifelog.app.ui.components.SheetHeader
+import com.lifelog.app.ui.theme.Sizing
+import com.lifelog.app.ui.theme.Spacing
 import java.util.UUID
-import androidx.compose.ui.graphics.toArgb
-
-private val PRESET_COLORS = listOf(
-    0xFF6750A4, 0xFF409CFF, 0xFF4CAF50, 0xFFFF9800, 0xFFF44336,
-    0xFF9C27B0, 0xFF00BCD4, 0xFFE91E63, 0xFF009688, 0xFF795548,
-    0xFFFFEB3B, 0xFF607D8B
-).map { it.toInt() }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,219 +94,208 @@ fun ChartConfigSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text(
-                text = if (editing == null) "Add Chart" else "Edit Chart",
-                style = MaterialTheme.typography.titleLarge
+        Column(modifier = Modifier.fillMaxWidth()) {
+            SheetHeader(
+                title = if (editing == null) "Add Chart" else "Edit Chart",
+                onClose = onDismiss
             )
 
-            // Chart type
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                ChartType.entries.forEachIndexed { i, type ->
-                    SegmentedButton(
-                        selected = selectedType == type,
-                        onClick = {
-                            selectedType = type
-                            if (type == ChartType.PIE && selectedNumericIds.size > 1) {
-                                selectedNumericIds = setOf(selectedNumericIds.first())
-                            }
-                        },
-                        shape = SegmentedButtonDefaults.itemShape(i, ChartType.entries.size),
-                        label = { Text(type.displayName) }
-                    )
-                }
-            }
-
-            // Title
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                label = { Text("Chart title (optional)") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium
-            )
-
-            HorizontalDivider()
-
-            // Time range
-            Text(
-                text = "Time range",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = Spacing.sheetEdge)
+                    .padding(top = Spacing.sm, bottom = Spacing.xxl),
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg)
             ) {
-                TimeRange.entries.forEach { range ->
-                    FilterChip(
-                        selected = selectedTimeRange == range,
-                        onClick = { selectedTimeRange = range },
-                        label = { Text(range.displayName, maxLines = 1) }
-                    )
-                }
-            }
-
-            // Aggregation (line + bar only)
-            if (selectedType != ChartType.PIE) {
-                HorizontalDivider()
-                Text(
-                    text = "Aggregation",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    AggregationStrategy.entries.forEach { agg ->
-                        FilterChip(
-                            selected = selectedAggregation == agg,
-                            onClick = { selectedAggregation = agg },
-                            label = { Text(agg.displayName, maxLines = 1) }
+                // Chart type
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    ChartType.entries.forEachIndexed { i, type ->
+                        SegmentedButton(
+                            selected = selectedType == type,
+                            onClick = {
+                                selectedType = type
+                                if (type == ChartType.PIE && selectedNumericIds.size > 1) {
+                                    selectedNumericIds = setOf(selectedNumericIds.first())
+                                }
+                            },
+                            shape = SegmentedButtonDefaults.itemShape(i, ChartType.entries.size),
+                            label = { Text(type.displayName) }
                         )
                     }
                 }
-            }
 
-            HorizontalDivider()
-
-            // Numeric field selection
-            Text(
-                text = if (selectedType == ChartType.PIE) "Numeric field" else "Numeric fields",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            if (numericFields.isEmpty()) {
-                Text(
-                    "No numeric fields in this event.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                // Title
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Chart title (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
                 )
-            } else {
-                numericFields.forEach { field ->
-                    val isSelected = field.id in selectedNumericIds
+
+                // Time range
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    SectionHeader("Time range")
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
                     ) {
-                        if (selectedType == ChartType.PIE) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = { selectedNumericIds = setOf(field.id) }
+                        TimeRange.entries.forEach { range ->
+                            FilterChip(
+                                selected = selectedTimeRange == range,
+                                onClick = { selectedTimeRange = range },
+                                label = { Text(range.displayName, maxLines = 1) }
+                            )
+                        }
+                    }
+                }
+
+                // Aggregation (line + bar only)
+                if (selectedType != ChartType.PIE) {
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        SectionHeader("Aggregation")
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+                        ) {
+                            AggregationStrategy.entries.forEach { agg ->
+                                FilterChip(
+                                    selected = selectedAggregation == agg,
+                                    onClick = { selectedAggregation = agg },
+                                    label = { Text(agg.displayName, maxLines = 1) }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Numeric field selection
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    SectionHeader(
+                        if (selectedType == ChartType.PIE) "Numeric field" else "Numeric fields"
+                    )
+                    if (numericFields.isEmpty()) {
+                        Text(
+                            "No numeric fields in this event.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        numericFields.forEach { field ->
+                            val isSelected = field.id in selectedNumericIds
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                if (selectedType == ChartType.PIE) {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { selectedNumericIds = setOf(field.id) }
+                                    )
+                                } else {
+                                    Checkbox(
+                                        checked = isSelected,
+                                        onCheckedChange = { checked ->
+                                            selectedNumericIds = if (checked) selectedNumericIds + field.id
+                                            else selectedNumericIds - field.id
+                                        }
+                                    )
+                                }
+                                val label = if (field.unit.isNotBlank()) "${field.name} (${field.unit})"
+                                            else field.name
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                // Color swatch — shown for selected line/bar fields; fixed size, no layout shift
+                                if (selectedType != ChartType.PIE && isSelected) {
+                                    ColorSwatchButton(
+                                        color = selectedFieldColors[field.id]?.let { Color(it) },
+                                        onClick = { colorPickerFieldId = field.id }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Group-by (pie only)
+                if (selectedType == ChartType.PIE) {
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                        SectionHeader("Group by")
+                        if (categoricalFields.isEmpty()) {
+                            Text(
+                                "No choice or multi-select fields found. Add one to use pie charts.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         } else {
-                            Checkbox(
-                                checked = isSelected,
-                                onCheckedChange = { checked ->
-                                    selectedNumericIds = if (checked) selectedNumericIds + field.id
-                                    else selectedNumericIds - field.id
+                            categoricalFields.forEach { field ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    RadioButton(
+                                        selected = selectedGroupId == field.id,
+                                        onClick = { selectedGroupId = field.id }
+                                    )
+                                    Text(
+                                        text = "${field.name} (${field.type.displayName})",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
                                 }
-                            )
-                        }
-                        val label = if (field.unit.isNotBlank()) "${field.name} (${field.unit})"
-                                    else field.name
-                        Text(
-                            label,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f)
-                        )
-                        // Color swatch — shown for selected line/bar fields; fixed size, no layout shift
-                        if (selectedType != ChartType.PIE && isSelected) {
-                            ColorSwatchButton(
-                                color = selectedFieldColors[field.id]?.let { Color(it) },
-                                onClick = { colorPickerFieldId = field.id }
-                            )
+                            }
                         }
                     }
                 }
-            }
 
-            // Group-by (pie only)
-            if (selectedType == ChartType.PIE) {
-                HorizontalDivider()
-                Text(
-                    text = "Group by",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                if (categoricalFields.isEmpty()) {
-                    Text(
-                        "No choice or multi-select fields found. Add one to use pie charts.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    categoricalFields.forEach { field ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            RadioButton(
-                                selected = selectedGroupId == field.id,
-                                onClick = { selectedGroupId = field.id }
+                val isValid = selectedNumericIds.isNotEmpty() &&
+                    (selectedType != ChartType.PIE || selectedGroupId != null)
+
+                Button(
+                    onClick = {
+                        val fieldColors = selectedFieldColors
+                            .filterValues { it != null }
+                            .mapValues { (_, v) -> v!! }
+                        onSave(
+                            ChartConfig(
+                                id = editing?.id ?: UUID.randomUUID().toString(),
+                                eventTypeId = eventTypeId,
+                                title = title.trim(),
+                                type = selectedType,
+                                numericFieldIds = selectedNumericIds.toList(),
+                                groupByFieldId = if (selectedType == ChartType.PIE) selectedGroupId else null,
+                                timeRangeDays = selectedTimeRange.days,
+                                colorArgb = null,
+                                fieldColors = fieldColors,
+                                sortOrder = editing?.sortOrder ?: 0,
+                                createdAt = editing?.createdAt ?: System.currentTimeMillis(),
+                                aggregation = if (selectedType == ChartType.PIE) AggregationStrategy.SUM
+                                              else selectedAggregation
                             )
-                            Text(
-                                text = "${field.name} (${field.type.displayName})",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(4.dp))
-
-            val isValid = selectedNumericIds.isNotEmpty() &&
-                (selectedType != ChartType.PIE || selectedGroupId != null)
-
-            Button(
-                onClick = {
-                    val fieldColors = selectedFieldColors
-                        .filterValues { it != null }
-                        .mapValues { (_, v) -> v!! }
-                    onSave(
-                        ChartConfig(
-                            id = editing?.id ?: UUID.randomUUID().toString(),
-                            eventTypeId = eventTypeId,
-                            title = title.trim(),
-                            type = selectedType,
-                            numericFieldIds = selectedNumericIds.toList(),
-                            groupByFieldId = if (selectedType == ChartType.PIE) selectedGroupId else null,
-                            timeRangeDays = selectedTimeRange.days,
-                            colorArgb = null,
-                            fieldColors = fieldColors,
-                            sortOrder = editing?.sortOrder ?: 0,
-                            createdAt = editing?.createdAt ?: System.currentTimeMillis(),
-                            aggregation = if (selectedType == ChartType.PIE) AggregationStrategy.SUM
-                                          else selectedAggregation
                         )
-                    )
-                    onDismiss()
-                },
-                enabled = isValid,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(if (editing == null) "Add Chart" else "Save Changes")
+                        onDismiss()
+                    },
+                    enabled = isValid,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(Sizing.cta)
+                ) {
+                    Text(if (editing == null) "Add Chart" else "Save Changes")
+                }
             }
         }
     }
 
-    // Color picker dialog — rendered as a sibling to the bottom sheet so it floats above it
+    // Color picker — rendered as a sibling to the bottom sheet so it floats above it
     colorPickerFieldId?.let { fieldId ->
-        SeriesColorPickerDialog(
+        SeriesColorPickerSheet(
             currentColor = selectedFieldColors[fieldId],
             onColorSelected = { color ->
                 selectedFieldColors = if (color == null)
@@ -329,8 +310,8 @@ fun ChartConfigSheet(
 }
 
 /**
- * A fixed-size 40×40 dp tappable button showing a 22 dp color swatch.
- * Null color = Auto; renders as a neutral outlined circle.
+ * A fixed-size tappable button showing a 22 dp color swatch.
+ * Null color = Auto; renders as a neutral ring with an "A".
  */
 @Composable
 private fun ColorSwatchButton(
@@ -338,8 +319,8 @@ private fun ColorSwatchButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val swatchColor = color ?: MaterialTheme.colorScheme.surfaceVariant
-    val borderColor = if (color == null)
+    val swatchColor = color ?: MaterialTheme.colorScheme.surfaceContainerHighest
+    val ringColor = if (color == null)
         MaterialTheme.colorScheme.outline
     else
         MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
@@ -349,7 +330,7 @@ private fun ColorSwatchButton(
             modifier = Modifier
                 .size(22.dp)
                 .clip(CircleShape)
-                .border(1.5.dp, borderColor, CircleShape),
+                .border(1.5.dp, ringColor, CircleShape),
             contentAlignment = Alignment.Center
         ) {
             Surface(
@@ -357,7 +338,7 @@ private fun ColorSwatchButton(
                 shape = CircleShape,
                 color = swatchColor
             ) {}
-            // "A" overlay when Auto so the empty/neutral circle is not ambiguous
+            // "A" overlay when Auto so the neutral circle is not ambiguous
             if (color == null) {
                 Text(
                     text = "A",
@@ -370,21 +351,19 @@ private fun ColorSwatchButton(
 }
 
 /**
- * Modal dialog with an "Auto" chip and a 4-column grid of preset color dots.
+ * Sheet with an "Automatic" option and a grid of preset colors.
  * Selecting any option immediately confirms and closes.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SeriesColorPickerDialog(
+private fun SeriesColorPickerSheet(
     currentColor: Int?,
     onColorSelected: (Int?) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true
-    )
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    // Theme-aware palette instead of hardcoded Material 2-style colors
+    // Theme-aware palette plus a few fixed accents
     val palette = listOf(
         MaterialTheme.colorScheme.primary,
         MaterialTheme.colorScheme.secondary,
@@ -404,227 +383,97 @@ private fun SeriesColorPickerDialog(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        dragHandle = null,
-        tonalElevation = 2.dp,
-        shape = MaterialTheme.shapes.extraLarge
+        sheetState = sheetState
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(top = 8.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
-            Text(
-                text = "Series color",
-                style = MaterialTheme.typography.headlineSmall
-            )
-
-            // Auto option
-            Surface(
-                onClick = { onColorSelected(null) },
-                shape = MaterialTheme.shapes.large,
-                color = if (currentColor == null)
-                    MaterialTheme.colorScheme.secondaryContainer
-                else
-                    MaterialTheme.colorScheme.surfaceContainerHighest,
-                tonalElevation = if (currentColor == null) 2.dp else 0.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .border(
-                                1.dp,
-                                MaterialTheme.colorScheme.outlineVariant,
-                                CircleShape
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "A",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Automatic",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Text(
-                            text = "Inherit event color",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    if (currentColor == null) {
-                        Icon(
-                            Icons.Rounded.Check,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            }
+        Column(modifier = Modifier.fillMaxWidth()) {
+            SheetHeader(title = "Series color")
 
             Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.sheetEdge)
+                    .padding(top = Spacing.sm, bottom = Spacing.xxl),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xl)
             ) {
-                Text(
-                    text = "Preset colors",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                palette.chunked(4).forEach { rowColors ->
+                // Auto option
+                Surface(
+                    onClick = { onColorSelected(null) },
+                    shape = MaterialTheme.shapes.large,
+                    color = if (currentColor == null)
+                        MaterialTheme.colorScheme.secondaryContainer
+                    else
+                        MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(
-                            16.dp,
-                            Alignment.CenterHorizontally
-                        )
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Spacing.lg, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.lg)
                     ) {
-                        rowColors.forEach { color ->
-                            ExpressiveColorDot(
-                                color = color,
-                                selected = currentColor == color.toArgb(),
-                                onClick = {
-                                    onColorSelected(color.toArgb())
-                                }
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .border(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.outlineVariant,
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "A",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Automatic",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = "Inherit event color",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        if (currentColor == null) {
+                            Icon(
+                                Icons.Rounded.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
                 }
+
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.lg)) {
+                    SectionHeader("Preset colors")
+                    palette.chunked(4).forEach { rowColors ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(
+                                Spacing.lg,
+                                Alignment.CenterHorizontally
+                            )
+                        ) {
+                            rowColors.forEach { color ->
+                                ColorDot(
+                                    color = color,
+                                    selected = currentColor == color.toArgb(),
+                                    onClick = { onColorSelected(color.toArgb()) },
+                                    size = 56.dp
+                                )
+                            }
+                        }
+                    }
+                }
             }
-        }
-    }
-}
-
-@Composable
-private fun ExpressiveColorDot(
-    color: Color,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        onClick = onClick,
-        shape = CircleShape,
-        color = Color.Transparent,
-        modifier = modifier.size(64.dp)
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Surface(
-                modifier = Modifier.size(if (selected) 54.dp else 48.dp),
-                shape = CircleShape,
-                color = color,
-                tonalElevation = if (selected) 4.dp else 0.dp,
-                shadowElevation = if (selected) 2.dp else 0.dp
-            ) {}
-
-            if (selected) {
-                val luminance = color.luminance()
-
-                Icon(
-                    Icons.Rounded.Check,
-                    contentDescription = null,
-                    modifier = Modifier.size(22.dp),
-                    tint = if (luminance > 0.5f) Color.Black else Color.White
-                )
-            }
-        }
-    }
-}
-//@Composable
-//private fun SeriesColorPickerDialog(
-//    currentColor: Int?,
-//    onColorSelected: (Int?) -> Unit,
-//    onDismiss: () -> Unit
-//) {
-//    AlertDialog(
-//        onDismissRequest = onDismiss,
-//        title = { Text("Series color") },
-//        text = {
-//            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-//                // Auto option — clearly labeled chip spanning full width
-//                FilterChip(
-//                    selected = currentColor == null,
-//                    onClick = { onColorSelected(null) },
-//                    label = { Text("Auto (inherit event color)") },
-//                    modifier = Modifier.fillMaxWidth()
-//                )
-//
-//                // 4-column grid of preset colors (12 items → 3 rows of 4)
-//                PRESET_COLORS.chunked(4).forEach { rowColors ->
-//                    Row(
-//                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-//                        verticalAlignment = Alignment.CenterVertically
-//                    ) {
-//                        rowColors.forEach { argb ->
-//                            PickerColorDot(
-//                                color = Color(argb),
-//                                selected = currentColor == argb,
-//                                onClick = { onColorSelected(argb) }
-//                            )
-//                        }
-//                    }
-//                }
-//            }
-//        },
-//        confirmButton = {},
-//        dismissButton = {
-//            TextButton(onClick = onDismiss) { Text("Cancel") }
-//        }
-//    )
-//}
-
-/** 40 dp tappable color circle used inside the picker dialog. */
-@Composable
-private fun PickerColorDot(
-    color: Color,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .then(
-                if (selected) Modifier.border(2.5.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
-                else Modifier
-            )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Surface(
-            modifier = Modifier.size(if (selected) 32.dp else 40.dp),
-            shape = CircleShape,
-            color = color
-        ) {}
-        if (selected) {
-            val lum = 0.2126f * color.red + 0.7152f * color.green + 0.0722f * color.blue
-            Icon(
-                Icons.Rounded.Check,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = if (lum > 0.4f) Color.Black else Color.White
-            )
         }
     }
 }

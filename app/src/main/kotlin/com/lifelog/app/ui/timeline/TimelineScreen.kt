@@ -1,29 +1,52 @@
 package com.lifelog.app.ui.timeline
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Timeline
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.DockedSearchBar
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.EventEntry
+import com.lifelog.app.ui.components.DeleteConfirmDialog
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
 import com.lifelog.app.ui.components.SwipeDeleteBackground
 import com.lifelog.app.ui.components.TagFilterRow
 import com.lifelog.app.ui.events.EntryCard
 import com.lifelog.app.ui.events.EntryFormSheet
+import com.lifelog.app.ui.theme.Spacing
 import com.lifelog.app.util.toDisplayDate
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -82,14 +105,14 @@ fun TimelineScreen(
                 onExpandedChange = {},
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = Spacing.screenEdge, vertical = Spacing.sm)
             ) {}
 
             TagFilterRow(
                 tags = availableTags,
                 filterState = filterState,
                 onFilterChange = viewModel::updateFilter,
-                modifier = Modifier.padding(bottom = 4.dp)
+                modifier = Modifier.padding(bottom = Spacing.xs)
             )
 
             if (entries.isEmpty() && searchQuery.isBlank() && !filterState.hasActiveFilters) {
@@ -120,37 +143,16 @@ fun TimelineScreen(
 
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    contentPadding = PaddingValues(
+                        start = Spacing.screenEdge,
+                        end = Spacing.screenEdge,
+                        bottom = Spacing.xl
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.cardGap)
                 ) {
                     grouped.forEach { (date, dayEntries) ->
                         stickyHeader(key = "header_$date") {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surface,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    HorizontalDivider(
-                                        modifier = Modifier.width(12.dp),
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        date,
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    HorizontalDivider(
-                                        modifier = Modifier.weight(1f),
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                                    )
-                                }
-                            }
+                            DateHeader(date)
                         }
                         items(dayEntries, key = { it.id }) { entry ->
                             val dismissState = rememberSwipeToDismissBoxState(
@@ -172,14 +174,12 @@ fun TimelineScreen(
                                     entry = entry,
                                     fields = fieldsMap[entry.eventTypeId] ?: emptyList(),
                                     showEventName = true,
-                                    showDivider = false,
                                     onEdit = { editingEntryId = entry.id },
                                     onDelete = { deleteTarget = entry }
                                 )
                             }
                         }
                     }
-                    item { Spacer(Modifier.height(80.dp)) }
                 }
             }
         }
@@ -194,26 +194,30 @@ fun TimelineScreen(
     }
 
     deleteTarget?.let { target ->
-        AlertDialog(
-            onDismissRequest = { deleteTarget = null },
-            icon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text("Delete entry?") },
-            text = { Text("This entry will be permanently deleted.") },
-            confirmButton = {
-                FilledTonalButton(
-                    onClick = {
-                        viewModel.deleteEntry(target.id)
-                        deleteTarget = null
-                    },
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                ) { Text("Delete") }
+        DeleteConfirmDialog(
+            title = "Delete entry?",
+            text = "This entry will be permanently deleted.",
+            onConfirm = {
+                viewModel.deleteEntry(target.id)
+                deleteTarget = null
             },
-            dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text("Cancel") }
-            }
+            onDismiss = { deleteTarget = null }
+        )
+    }
+}
+
+/** Pinned day separator: a quiet primary label over the screen background. */
+@Composable
+private fun DateHeader(date: String) {
+    Surface(
+        color = MaterialTheme.colorScheme.background,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            date,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = Spacing.sm, bottom = Spacing.xs, start = Spacing.xs)
         )
     }
 }
