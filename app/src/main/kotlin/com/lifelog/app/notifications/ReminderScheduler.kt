@@ -3,7 +3,6 @@ package com.lifelog.app.notifications
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.os.Build
 import com.lifelog.app.domain.model.DeliveryType
 import com.lifelog.app.domain.model.Reminder
@@ -54,13 +53,20 @@ class ReminderScheduler @Inject constructor(
     }
 
     fun cancel(reminderId: Long) {
-        val intent = PendingIntent.getBroadcast(
+        // Build from the same component + action base as schedule() so the PendingIntents match.
+        // Intent.filterEquals() (used to match PendingIntents) compares the action and ignores
+        // extras; the old actionless cancel intent never matched our ACTION_REMINDER alarm, so
+        // cancel was a silent no-op that left the OS-level alarm armed after a reminder was deleted
+        // or disabled. Skip FLAG_NO_CREATE so cancellation works even if the token isn't cached in
+        // this process (e.g. after a restart); alarmManager.cancel() matches by identity, not object.
+        val pendingIntent = PendingIntent.getBroadcast(
             context,
             reminderId.toInt(),
-            Intent(context, ReminderReceiver::class.java),
-            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            ReminderReceiver.alarmIntent(context),
+            PendingIntent.FLAG_IMMUTABLE
         )
-        intent?.let { alarmManager.cancel(it) }
+        alarmManager.cancel(pendingIntent)
+        pendingIntent.cancel()
     }
 
     fun rescheduleAll(reminders: List<Reminder>) {

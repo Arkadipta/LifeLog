@@ -7,6 +7,7 @@ import com.lifelog.app.data.repository.ReminderRepository
 import com.lifelog.app.domain.RecurrenceCalculator
 import com.lifelog.app.domain.model.DeliveryType
 import com.lifelog.app.domain.model.RecurrenceType
+import com.lifelog.app.domain.model.Reminder
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,39 +31,21 @@ class ReminderReceiver : BroadcastReceiver() {
     }
 
     private fun handleReminder(context: Context, intent: Intent) {
-        val reminderId  = intent.getLongExtra(EXTRA_REMINDER_ID, -1L).takeIf { it != -1L } ?: return
-        val title       = intent.getStringExtra(EXTRA_TITLE) ?: "LifeLog Reminder"
-        val message     = intent.getStringExtra(EXTRA_MESSAGE) ?: ""
-        val eventTypeId = intent.getLongExtra(EXTRA_EVENT_TYPE_ID, -1L).takeIf { it != -1L }
-        val isAlarm     = intent.getBooleanExtra(EXTRA_IS_ALARM, false)
-        val notifId     = reminderId.toInt()
-
-        if (isAlarm) {
-            // The foreground service owns the single audio source and posts the ongoing full-screen-
-            // intent notification. Exact alarms (setAlarmClock) are exempt from the background
-            // foreground-service-start restriction, so starting it from here is allowed.
-            AlarmService.start(context, reminderId, title, message, notifId, eventTypeId)
-            // setFullScreenIntent only auto-launches the activity when the screen is locked/off; while
-            // the device is unlocked the system shows a heads-up notification instead and waits for a
-            // tap. Launch the activity directly so the full-screen alarm appears in BOTH states.
-            // AlarmDismissActivity is singleInstance, so this and any full-screen-intent launch
-            // collapse into one instance.
-            try {
-                context.startActivity(
-                    AlarmDismissActivity.createIntent(context, reminderId, title, message, notifId, eventTypeId)
-                )
-            } catch (_: Exception) {
-                // Background-activity-launch blocked (rare): the full-screen-intent notification is the fallback.
-            }
-        } else {
-            NotificationHelper.showReminderNotification(context, notifId, title, message, reminderId, eventTypeId)
-        }
+        val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L).takeIf { it != -1L } ?: return
 
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val reminder = reminderRepository.getById(reminderId) ?: return@launch
-                if (!reminder.isActive) return@launch
+                // The DB is the source of truth — not the intent extras (a snapshot from schedule
+                // time). Verify the reminder still exists and is active BEFORE ringing: a deleted or
+                // disabled reminder can still have an OS-level alarm armed — it may have fired in the
+                // gap between delete and cancel, or it was armed by an older build whose cancel()
+                // never matched the alarm. Bailing here keeps those ghost alarms silent, which the
+                // platform otherwise can't reach (AlarmManager pending alarms aren't enumerable).
+                val reminder = reminderRepository.getById(reminderId)
+                if (reminder == null || !reminder.isActive) return@launch
+
+                ring(context, reminder)
 
                 // TIME_SINCE_LAST reminders don't auto-reschedule; they reset on entry-logged event
                 if (reminder.recurrenceRule.type == RecurrenceType.TIME_SINCE_LAST) return@launch
@@ -80,6 +63,36 @@ class ReminderReceiver : BroadcastReceiver() {
             } finally {
                 pending.finish()
             }
+        }
+    }
+
+    /** Rings [reminder] from its freshly-loaded DB row: alarm audio + full-screen UI, or a notification. */
+    private fun ring(context: Context, reminder: Reminder) {
+        val notifId = reminder.id.toInt()
+        val title = reminder.title.ifBlank { "LifeLog Reminder" }
+        val message = reminder.message
+        val eventTypeId = reminder.eventTypeId
+
+        if (reminder.deliveryType == DeliveryType.ALARM) {
+            // The foreground service owns the single audio source and posts the ongoing full-screen-
+            // intent notification. Exact alarms (setAlarmClock) get a temporary background-start
+            // allowlist when they fire, which holds for the duration of this broadcast (goAsync),
+            // so starting the service after the quick DB read above is still allowed.
+            AlarmService.start(context, reminder.id, title, message, notifId, eventTypeId)
+            // setFullScreenIntent only auto-launches the activity when the screen is locked/off; while
+            // the device is unlocked the system shows a heads-up notification instead and waits for a
+            // tap. Launch the activity directly so the full-screen alarm appears in BOTH states.
+            // AlarmDismissActivity is singleInstance, so this and any full-screen-intent launch
+            // collapse into one instance.
+            try {
+                context.startActivity(
+                    AlarmDismissActivity.createIntent(context, reminder.id, title, message, notifId, eventTypeId)
+                )
+            } catch (_: Exception) {
+                // Background-activity-launch blocked (rare): the full-screen-intent notification is the fallback.
+            }
+        } else {
+            NotificationHelper.showReminderNotification(context, notifId, title, message, reminder.id, eventTypeId)
         }
     }
 
@@ -129,9 +142,18 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_IS_ALARM      = "is_alarm"
         const val SNOOZE_MINUTES      = 10L
 
-        fun buildIntent(context: Context, reminder: com.lifelog.app.domain.model.Reminder): Intent =
-            Intent(context, ReminderReceiver::class.java).apply {
-                action = ACTION_REMINDER
+        /**
+         * The bare component + action that define a scheduled alarm's PendingIntent identity.
+         * Intent.filterEquals() — which matches PendingIntents for update/cancel — compares the
+         * action and component but ignores extras, so [schedule][ReminderScheduler.schedule] and
+         * [cancel][ReminderScheduler.cancel] MUST build from this same base or cancellation silently
+         * fails. Defined once, here, so the two can never drift apart again.
+         */
+        fun alarmIntent(context: Context): Intent =
+            Intent(context, ReminderReceiver::class.java).apply { action = ACTION_REMINDER }
+
+        fun buildIntent(context: Context, reminder: Reminder): Intent =
+            alarmIntent(context).apply {
                 putExtra(EXTRA_REMINDER_ID, reminder.id)
                 putExtra(EXTRA_TITLE, reminder.title)
                 putExtra(EXTRA_MESSAGE, reminder.message)
