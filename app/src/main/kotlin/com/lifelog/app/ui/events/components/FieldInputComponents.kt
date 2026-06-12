@@ -9,7 +9,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
@@ -24,12 +23,11 @@ fun FieldInput(
     onValueChange: (FieldValue?) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 field.name,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Medium
+                style = MaterialTheme.typography.labelLarge
             )
             if (field.isRequired) {
                 Text("*", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelLarge)

@@ -9,19 +9,22 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.domain.query.*
+import com.lifelog.app.ui.components.LifeLogCard
+import com.lifelog.app.ui.components.SectionHeader
+import com.lifelog.app.ui.components.SheetHeader
 import com.lifelog.app.ui.theme.LifeLogTheme
+import com.lifelog.app.ui.theme.Sizing
+import com.lifelog.app.ui.theme.Spacing
 
 /**
  * Modal bottom sheet for configuring filter conditions and sort specification on entries.
@@ -57,36 +60,16 @@ fun FilterSortSheet(
                 .fillMaxWidth()
                 .navigationBarsPadding()
         ) {
-            // ── Header ───────────────────────────────────────────────────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Rounded.FilterList, null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    "Filter & Sort",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Rounded.Close, "Close")
-                }
-            }
-
-            HorizontalDivider()
+            SheetHeader(title = "Filter & Sort", onClose = onDismiss)
 
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp)
+                    .padding(horizontal = Spacing.sheetEdge)
             ) {
                 // ── Filters section ──────────────────────────────────────────────
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(Spacing.sm))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -94,7 +77,6 @@ fun FilterSortSheet(
                     Text(
                         "Filters",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f)
                     )
                     if (draftFilters.isNotEmpty()) {
@@ -139,37 +121,36 @@ fun FilterSortSheet(
                 }
 
                 // ── Sort section ─────────────────────────────────────────────────
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(Spacing.xl))
                 Text(
                     "Sort",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    style = MaterialTheme.typography.titleMedium
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(Spacing.md))
                 SortSection(
                     sortableFields = sortableFields,
                     current = draftSort,
                     onChange = { draftSort = it }
                 )
 
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(Spacing.sm))
             }
-
-            HorizontalDivider()
 
             // ── Action buttons ────────────────────────────────────────────────
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(horizontal = Spacing.sheetEdge, vertical = Spacing.lg),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.md)
             ) {
-                OutlinedButton(
+                FilledTonalButton(
                     onClick = {
                         onApply(EntryQuery.Empty)
                         onDismiss()
                     },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(Sizing.cta)
                 ) { Text("Clear All") }
 
                 Button(
@@ -177,7 +158,9 @@ fun FilterSortSheet(
                         onApply(EntryQuery(draftFilters, draftLogicalOp, draftSort))
                         onDismiss()
                     },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(Sizing.cta)
                 ) { Text("Apply") }
             }
         }
@@ -250,14 +233,15 @@ private fun FilterConditionChip(
             "${condition.fieldName} ${condition.operator.label} ${condition.value}"
     }
 
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onEdit
+    LifeLogCard(
+        onClick = onEdit,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = Spacing.md, vertical = Spacing.sm),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -275,7 +259,7 @@ private fun FilterConditionChip(
             }
         }
     }
-    Spacer(Modifier.height(4.dp))
+    Spacer(Modifier.height(Spacing.xs))
 }
 
 private fun Double.toDisplayValue(): String =
@@ -295,7 +279,7 @@ private fun SortSection(
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // ── Sort field — horizontal scrollable row ────────────────────────────
-        Text("Sort by", style = MaterialTheme.typography.labelLarge)
+        SectionHeader("Sort by")
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -331,7 +315,7 @@ private fun SortSection(
         }
 
         // ── Direction — always visible; disabled when no field is selected ───
-        Text("Direction", style = MaterialTheme.typography.labelLarge)
+        SectionHeader("Direction")
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -388,7 +372,7 @@ private fun FilterBuilderDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 // Field picker — horizontal scrollable row
-                Text("Field", style = MaterialTheme.typography.labelLarge)
+                SectionHeader("Field")
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -406,7 +390,7 @@ private fun FilterBuilderDialog(
 
                 // Operator + value editor
                 selectedField?.let { field ->
-                    HorizontalDivider()
+                    Spacer(Modifier.height(Spacing.xs))
                     FilterValueEditor(
                         field = field,
                         initial = initial,
@@ -451,7 +435,7 @@ private fun NumericFilterEditor(
     var valueText by remember { mutableStateOf(initial?.value?.let { it.toDisplayValue() } ?: "") }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Operator", style = MaterialTheme.typography.labelLarge)
+        SectionHeader("Operator")
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -496,7 +480,7 @@ private fun BooleanFilterEditor(
     var value by remember { mutableStateOf(initial?.value ?: true) }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Operator", style = MaterialTheme.typography.labelLarge)
+        SectionHeader("Operator")
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -505,7 +489,7 @@ private fun BooleanFilterEditor(
                 FilterChip(selected = operator == op, onClick = { operator = op }, label = { Text(op.label) })
             }
         }
-        Text("Value", style = MaterialTheme.typography.labelLarge)
+        SectionHeader("Value")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = value, onClick = { value = true }, label = { Text("Yes") })
             FilterChip(selected = !value, onClick = { value = false }, label = { Text("No") })
@@ -527,7 +511,7 @@ private fun ChoiceFilterEditor(
     var selectedValue by remember { mutableStateOf(initial?.value ?: "") }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Operator", style = MaterialTheme.typography.labelLarge)
+        SectionHeader("Operator")
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -536,7 +520,7 @@ private fun ChoiceFilterEditor(
                 FilterChip(selected = operator == op, onClick = { operator = op }, label = { Text(op.label) })
             }
         }
-        Text("Value", style = MaterialTheme.typography.labelLarge)
+        SectionHeader("Value")
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -571,7 +555,7 @@ private fun MultiSelectFilterEditor(
     var selectedValue by remember { mutableStateOf(initial?.value ?: "") }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Operator", style = MaterialTheme.typography.labelLarge)
+        SectionHeader("Operator")
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -580,7 +564,7 @@ private fun MultiSelectFilterEditor(
                 FilterChip(selected = operator == op, onClick = { operator = op }, label = { Text(op.label) })
             }
         }
-        Text("Tag", style = MaterialTheme.typography.labelLarge)
+        SectionHeader("Tag")
         Row(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)

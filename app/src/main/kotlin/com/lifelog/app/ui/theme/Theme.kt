@@ -3,6 +3,7 @@ package com.lifelog.app.ui.theme
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
@@ -10,8 +11,6 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -52,17 +51,31 @@ internal val LightColorScheme = lightColorScheme(
     onTertiaryContainer = Pink20,
 )
 
+// Expressive shape scale: generous radii, cards on `large`, sheets/dialogs on `extraLarge`.
 val LifeLogShapes = Shapes(
-    extraSmall = RoundedCornerShape(6.dp),
-    small = RoundedCornerShape(10.dp),
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
     medium = RoundedCornerShape(16.dp),
     large = RoundedCornerShape(20.dp),
     extraLarge = RoundedCornerShape(28.dp)
 )
 
-data class AmoledColors(val isAmoled: Boolean)
-
-val LocalAmoledColors = staticCompositionLocalOf { AmoledColors(false) }
+/**
+ * AMOLED variant: the window goes pure black while container roles stay on
+ * subtly elevated dark surfaces, so cards separate through color and depth
+ * instead of borders. Dynamic schemes keep their wallpaper-tinted containers;
+ * the static scheme swaps in brand-tinted ones.
+ */
+private fun ColorScheme.toAmoled(retainContainers: Boolean): ColorScheme = copy(
+    background = AmoledBlack,
+    surface = AmoledBlack,
+    surfaceDim = AmoledBlack,
+    surfaceContainerLowest = if (retainContainers) surfaceContainerLowest else AmoledSurfaceContainerLowest,
+    surfaceContainerLow = if (retainContainers) surfaceContainerLow else AmoledSurfaceContainerLow,
+    surfaceContainer = if (retainContainers) surfaceContainer else AmoledSurfaceContainer,
+    surfaceContainerHigh = if (retainContainers) surfaceContainerHigh else AmoledSurfaceContainerHigh,
+    surfaceContainerHighest = if (retainContainers) surfaceContainerHighest else AmoledSurfaceContainerHighest,
+)
 
 @Composable
 fun LifeLogTheme(
@@ -71,8 +84,9 @@ fun LifeLogTheme(
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    val useDynamic = dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val baseColorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+        useDynamic -> {
             val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
@@ -81,26 +95,15 @@ fun LifeLogTheme(
     }
 
     val colorScheme = if (darkTheme && amoledBlack) {
-        baseColorScheme.copy(
-            background = AmoledBlack,
-            surface = AmoledBlack,
-            surfaceVariant = AmoledSurfaceVariant,
-            surfaceContainer = AmoledSurfaceContainer,
-            surfaceContainerHigh = AmoledSurfaceContainerHigh,
-            surfaceContainerHighest = AmoledSurfaceContainerHighest,
-            surfaceBright = AmoledSurfaceContainerHighest,
-            surfaceDim = AmoledBlack,
-        )
+        baseColorScheme.toAmoled(retainContainers = useDynamic)
     } else {
         baseColorScheme
     }
 
-    CompositionLocalProvider(LocalAmoledColors provides AmoledColors(darkTheme && amoledBlack)) {
-        MaterialTheme(
-            colorScheme = colorScheme,
-            typography = LifeLogTypography,
-            shapes = LifeLogShapes,
-            content = content
-        )
-    }
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = LifeLogTypography,
+        shapes = LifeLogShapes,
+        content = content
+    )
 }

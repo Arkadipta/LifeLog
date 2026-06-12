@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.EventFilterState
+import com.lifelog.app.ui.theme.Spacing
 
 private const val INLINE_TAG_LIMIT = 6
 
@@ -128,16 +129,16 @@ private fun TagPickerSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = Spacing.sheetEdge)
+                .padding(bottom = Spacing.xxl),
+            verticalArrangement = Arrangement.spacedBy(Spacing.lg)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Filter by tag", style = MaterialTheme.typography.titleMedium)
+                Text("Filter by tag", style = MaterialTheme.typography.titleLarge)
                 if (filterState.hasActiveFilters) {
                     TextButton(onClick = { onFilterChange(filterState.clearAll()) }) {
                         Text("Clear all")

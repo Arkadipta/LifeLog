@@ -1,6 +1,5 @@
 package com.lifelog.app.ui.navigation
 
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -15,10 +14,8 @@ import androidx.compose.material.icons.outlined.Timeline
 import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Timeline
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,6 +37,7 @@ import com.lifelog.app.ui.events.EventsScreen
 import com.lifelog.app.ui.reminders.CreateReminderScreen
 import com.lifelog.app.ui.reminders.RemindersScreen
 import com.lifelog.app.ui.settings.SettingsScreen
+import com.lifelog.app.ui.theme.Motion
 import com.lifelog.app.ui.timeline.TimelineScreen
 
 sealed class Screen(val route: String, val label: String) {
@@ -95,36 +93,36 @@ fun AppNavigation() {
             enterTransition = {
                 // Tab siblings fade; push-forward slides in from the right
                 if (initialState.destination.route in tabRoutes && targetState.destination.route in tabRoutes) {
-                    fadeIn(tween(250))
+                    fadeIn(tween(Motion.MEDIUM))
                 } else {
                     slideInHorizontally(
                         initialOffsetX = { it / 5 },
-                        animationSpec = tween(300, easing = FastOutSlowInEasing)
-                    ) + fadeIn(tween(300))
+                        animationSpec = tween(Motion.LONG, easing = Motion.emphasizedEasing)
+                    ) + fadeIn(tween(Motion.LONG))
                 }
             },
             exitTransition = {
                 if (initialState.destination.route in tabRoutes && targetState.destination.route in tabRoutes) {
-                    fadeOut(tween(200))
+                    fadeOut(tween(Motion.SHORT + 50))
                 } else {
                     slideOutHorizontally(
                         targetOffsetX = { -it / 5 },
-                        animationSpec = tween(300, easing = FastOutSlowInEasing)
-                    ) + fadeOut(tween(200))
+                        animationSpec = tween(Motion.LONG, easing = Motion.emphasizedEasing)
+                    ) + fadeOut(tween(Motion.SHORT + 50))
                 }
             },
             popEnterTransition = {
                 // Back always slides in from the left (reverse of push)
                 slideInHorizontally(
                     initialOffsetX = { -it / 5 },
-                    animationSpec = tween(300, easing = FastOutSlowInEasing)
-                ) + fadeIn(tween(300))
+                    animationSpec = tween(Motion.LONG, easing = Motion.emphasizedEasing)
+                ) + fadeIn(tween(Motion.LONG))
             },
             popExitTransition = {
                 slideOutHorizontally(
                     targetOffsetX = { it / 5 },
-                    animationSpec = tween(300, easing = FastOutSlowInEasing)
-                ) + fadeOut(tween(200))
+                    animationSpec = tween(Motion.LONG, easing = Motion.emphasizedEasing)
+                ) + fadeOut(tween(Motion.SHORT + 50))
             }
         ) {
             composable(Screen.Events.route) {
@@ -222,11 +220,7 @@ private fun BottomNavigationBar(navController: NavHostController) {
                         contentDescription = item.screen.label
                     )
                 },
-                label = { Text(item.screen.label) },
-                alwaysShowLabel = false,
-                colors = NavigationBarItemDefaults.colors(
-                    indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                )
+                label = { Text(item.screen.label) }
             )
         }
     }
