@@ -37,7 +37,7 @@ object ChartDataProcessor {
         return when (config.type) {
             ChartType.LINE, ChartType.BAR ->
                 buildCartesianData(config, windowed, fields, anchorMs, anchoredEndMs)
-            ChartType.PIE -> buildPieData(config, windowed, anchoredEndMs)
+            ChartType.PIE -> buildPieData(config, windowed, fields, anchoredEndMs)
         }
     }
 
@@ -188,7 +188,7 @@ object ChartDataProcessor {
                 else ChartData.Cartesian.Point(idx, aggregate(values, config.aggregation))
             }
             if (points.isEmpty()) null
-            else ChartData.Cartesian.Series(field.name, seriesColor, points)
+            else ChartData.Cartesian.Series(field.name, seriesColor, points, field.unit)
         }
 
         return if (series.isEmpty()) ChartData.Empty
@@ -200,6 +200,7 @@ object ChartDataProcessor {
     private fun buildPieData(
         config: ChartConfig,
         entries: List<EventEntry>,
+        fields: List<EventField>,
         anchoredEndMs: Long?
     ): ChartData {
         val numericFieldId = config.numericFieldIds.firstOrNull() ?: return ChartData.Empty
@@ -227,7 +228,8 @@ object ChartDataProcessor {
         val slices = sorted.mapIndexed { i, (label, value) ->
             ChartData.Pie.Slice(label, value, PALETTE[i % PALETTE.size])
         }
-        return ChartData.Pie(slices, anchoredEndMs)
+        val unit = fields.firstOrNull { it.id == numericFieldId }?.unit.orEmpty()
+        return ChartData.Pie(slices, anchoredEndMs, unit)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -22,6 +22,8 @@ import com.patrykandpatrick.vico.compose.cartesian.layer.rememberColumnCartesian
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLineCartesianLayer
 import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
 import com.patrykandpatrick.vico.compose.cartesian.rememberVicoScrollState
+import com.patrykandpatrick.vico.compose.cartesian.rememberVicoZoomState
+import com.patrykandpatrick.vico.core.cartesian.Zoom
 import com.patrykandpatrick.vico.compose.common.component.rememberLineComponent
 import com.patrykandpatrick.vico.compose.common.component.rememberShapeComponent
 import com.patrykandpatrick.vico.compose.common.component.rememberTextComponent
@@ -123,10 +125,21 @@ fun CartesianChartContent(data: ChartData.Cartesian, eventAccentColor: Color, mo
                     label = axisLabel, line = axisLine, tick = axisTick, guideline = null,
                     itemPlacer = remember(tickValues) { ExplicitTickItemPlacer(tickValues) },
                     valueFormatter = { _, value, _ -> tickLabels[value.roundToInt()] ?: "" }
-                )
+                ),
+                marker = rememberChartMarker(data, seriesColors)
             ),
             modelProducer = modelProducer,
-            scrollState = rememberVicoScrollState(scrollEnabled = false),
+            // Scroll stays enabled with zoom pinned to Content: the chart then
+            // has zero scrollable extent, so horizontal drags bubble up to the
+            // carousel instead of being claimed by Vico's marker scrubber,
+            // while tap-and-hold still shows the marker.
+            scrollState = rememberVicoScrollState(scrollEnabled = true),
+            zoomState = rememberVicoZoomState(
+                zoomEnabled = false,
+                initialZoom = Zoom.Content,
+                minZoom = Zoom.Content,
+                maxZoom = Zoom.Content
+            ),
             modifier = Modifier.fillMaxSize()
         )
     }

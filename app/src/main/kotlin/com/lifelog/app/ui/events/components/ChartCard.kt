@@ -149,7 +149,11 @@ private fun legendItems(data: ChartData, eventAccentColor: Color): List<LegendIt
             // A single series is already identified by the card title.
             if (data.series.size < 2) emptyList()
             else resolveSeriesColors(data.series, eventAccentColor)
-                .zip(data.series) { color, series -> LegendItem(series.fieldName, color) }
+                .zip(data.series) { color, series ->
+                    val label = if (series.unit.isBlank()) series.fieldName
+                                else "${series.fieldName} (${series.unit})"
+                    LegendItem(label, color)
+                }
         is ChartData.Pie -> data.slices.map { LegendItem(it.label, Color(it.colorArgb)) }
         else -> emptyList()
     }

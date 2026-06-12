@@ -48,6 +48,21 @@ object ChartTickGenerator {
         }
     }
 
+    /**
+     * Date pattern for the tap-to-inspect marker: precise enough to identify
+     * one bucket among its neighbors, so it follows the bucket resolution.
+     */
+    fun markerPattern(bucketTimestamps: List<Long>): String {
+        val minGap = bucketTimestamps.zipWithNext().minOfOrNull { (a, b) -> b - a }
+            ?: return "MMM d"
+        return when {
+            minGap < 23 * MS_PER_HOUR -> "MMM d, HH:mm"
+            minGap < 2 * MS_PER_DAY -> "EEE, MMM d"
+            minGap < 21 * MS_PER_DAY -> "MMM d"
+            else -> "MMM yyyy"
+        }
+    }
+
     /** Every bucket when few; otherwise evenly stepped starting at the first. */
     private fun tickIndices(bucketCount: Int, maxTicks: Int): List<Int> {
         if (bucketCount <= maxTicks) return (0 until bucketCount).toList()

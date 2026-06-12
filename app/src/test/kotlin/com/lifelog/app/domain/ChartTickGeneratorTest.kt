@@ -129,6 +129,18 @@ class ChartTickGeneratorTest {
     }
 
     @Test
+    fun `marker pattern follows bucket resolution`() {
+        val noon = at(2026, Calendar.MAY, 20)
+        // Hourly buckets include the time; daily add the weekday; weekly drop
+        // it; monthly switch to month + year.
+        assertEquals("MMM d, HH:mm", ChartTickGenerator.markerPattern(listOf(noon, noon + HOUR)))
+        assertEquals("EEE, MMM d", ChartTickGenerator.markerPattern(listOf(noon, noon + DAY)))
+        assertEquals("MMM d", ChartTickGenerator.markerPattern(listOf(noon, noon + 7 * DAY)))
+        assertEquals("MMM yyyy", ChartTickGenerator.markerPattern(listOf(noon, noon + 30 * DAY)))
+        assertEquals("MMM d", ChartTickGenerator.markerPattern(listOf(noon)))
+    }
+
+    @Test
     fun `wider charts get more ticks`() {
         val monday = at(2026, Calendar.MAY, 11)
         val timestamps = (0 until 14).map { monday + it * DAY }
