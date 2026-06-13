@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -58,6 +59,7 @@ import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.ui.components.LifeLogCard
 import com.lifelog.app.ui.components.SwipeActionBackground
 import com.lifelog.app.ui.theme.Motion
+import com.lifelog.app.ui.theme.onAccentTile
 import com.lifelog.app.ui.theme.Spacing
 import com.lifelog.app.util.iconForName
 import com.lifelog.app.util.relativeTimeLabel
@@ -249,14 +251,13 @@ fun EntryCard(
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.md)) {
-            Row(verticalAlignment = Alignment.Top) {
+            // Collapsed, the header row is the whole card, so center it; the
+            // leading time tile, field previews, and trailing meta stay
+            // mutually centered no matter how many lines each holds.
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 TimeTile(timestamp = entry.createdAt, accent = accent)
                 Spacer(Modifier.width(Spacing.md))
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(top = 2.dp)
-                ) {
+                Column(modifier = Modifier.weight(1f)) {
                     if (showEventName) {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -307,10 +308,7 @@ fun EntryCard(
                     }
                 }
                 Spacer(Modifier.width(Spacing.sm))
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    modifier = Modifier.padding(top = 2.dp)
-                ) {
+                Column(horizontalAlignment = Alignment.End) {
                     Text(
                         entry.createdAt.relativeTimeLabel(),
                         style = MaterialTheme.typography.labelSmall,
@@ -379,6 +377,8 @@ private fun TimeTile(timestamp: Long, accent: Color) {
     val context = LocalContext.current
     val is24Hour = remember(context) { DateFormat.is24HourFormat(context) }
     val (clock, meridiem) = remember(timestamp, is24Hour) { timestamp.toClockParts(is24Hour) }
+    val onDarkSurface = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val onTile = remember(accent, onDarkSurface) { accent.onAccentTile(onDarkSurface) }
     Surface(shape = MaterialTheme.shapes.medium, color = accent.copy(alpha = 0.14f)) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -389,14 +389,14 @@ private fun TimeTile(timestamp: Long, accent: Color) {
             Text(
                 clock,
                 style = MaterialTheme.typography.titleMedium,
-                color = accent,
+                color = onTile,
                 maxLines = 1
             )
             meridiem?.let {
                 Text(
                     it,
                     style = MaterialTheme.typography.labelSmall,
-                    color = accent.copy(alpha = 0.8f),
+                    color = onTile.copy(alpha = 0.85f),
                     maxLines = 1
                 )
             }

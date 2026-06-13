@@ -1,6 +1,7 @@
 package com.lifelog.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 
 // Material 3 seed color palette
@@ -55,3 +56,13 @@ val EventColors = listOf(
 
 /** Black or white — whichever stays readable on top of this color. */
 fun Color.bestContentColor(): Color = if (luminance() > 0.5f) Color.Black else Color.White
+
+/**
+ * A readable on-color for text or icons drawn over a faint tint of this accent
+ * (tonal tiles like the entry TimeTile). Event accents are deep and saturated,
+ * so at full strength they wash out on a dark surface; lifting toward white on
+ * dark and toward black on light recreates the M3 container/on-container
+ * relationship for a custom accent — legible without going full monochrome.
+ */
+fun Color.onAccentTile(onDarkSurface: Boolean): Color =
+    if (onDarkSurface) lerp(this, Color.White, 0.55f) else lerp(this, Color.Black, 0.40f)
