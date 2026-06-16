@@ -57,7 +57,7 @@ import com.lifelog.app.ui.components.EmptyStatePlaceholder
 import com.lifelog.app.ui.components.IconTile
 import com.lifelog.app.ui.components.LifeLogCard
 import com.lifelog.app.ui.components.LifeLogFab
-import com.lifelog.app.ui.components.SwipeDeleteBackground
+import com.lifelog.app.ui.components.SwipeActionBackground
 import com.lifelog.app.ui.theme.Sizing
 import com.lifelog.app.ui.theme.Spacing
 
@@ -176,7 +176,7 @@ fun RemindersScreen(
                     )
                     SwipeToDismissBox(
                         state = dismissState,
-                        backgroundContent = { SwipeDeleteBackground(dismissState) },
+                        backgroundContent = { SwipeActionBackground(dismissState) },
                         enableDismissFromEndToStart = true,
                         enableDismissFromStartToEnd = false,
                         modifier = Modifier.animateItem()

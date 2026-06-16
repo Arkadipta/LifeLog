@@ -17,11 +17,22 @@ private val dateTimeFormat = simpleDateFormat("MMM d, yyyy  h:mm a")
 private val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
 private val timeFormat = simpleDateFormat("h:mm a")
 private val iso8601Format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
+private val clock12Format = simpleDateFormat("h:mm")
+private val clock24Format = SimpleDateFormat("HH:mm", Locale.getDefault())
+private val meridiemFormat = simpleDateFormat("a")
 
 fun Long.toDisplayDateTime(): String = dateTimeFormat.format(Date(this))
 fun Long.toDisplayDate(): String = dateFormat.format(Date(this))
 fun Long.toDisplayTime(): String = timeFormat.format(Date(this))
 fun Long.toIso8601(): String = iso8601Format.format(Date(this))
+
+/**
+ * Clock reading split for the entry time tile: "14:32" to null in 24-hour
+ * mode, "2:32" to "PM" otherwise. [is24Hour] comes from the device setting.
+ */
+fun Long.toClockParts(is24Hour: Boolean): Pair<String, String?> =
+    if (is24Hour) clock24Format.format(Date(this)) to null
+    else clock12Format.format(Date(this)) to meridiemFormat.format(Date(this))
 
 fun Long.isToday(): Boolean {
     val now = Calendar.getInstance()
