@@ -90,6 +90,7 @@ fun EventDetailScreen(
     var searchActive by remember { mutableStateOf(false) }
     var showChartConfigSheet by remember { mutableStateOf(false) }
     var editingChart by remember { mutableStateOf<ChartConfig?>(null) }
+    var chartDeleteTarget by remember { mutableStateOf<ChartConfig?>(null) }
     var overflowMenuExpanded by remember { mutableStateOf(false) }
     var showDeleteEventDialog by remember { mutableStateOf(false) }
     var showFilterSortSheet by remember { mutableStateOf(false) }
@@ -326,7 +327,7 @@ fun EventDetailScreen(
                                     editingChart = chart
                                     showChartConfigSheet = true
                                 },
-                                onDeleteChart = viewModel::deleteChart,
+                                onDeleteChart = { id -> chartDeleteTarget = charts.find { it.id == id } },
                                 modifier = Modifier.padding(top = Spacing.sm, bottom = Spacing.md)
                             )
                         }
@@ -407,10 +408,22 @@ fun EventDetailScreen(
             title = "Delete entry?",
             text = "This entry logged at ${target.createdAt.toDisplayDateTime()} will be deleted.",
             onConfirm = {
-                viewModel.deleteEntry(target.id)
+                viewModel.deleteEntry(target)
                 deleteTarget = null
             },
             onDismiss = { deleteTarget = null }
+        )
+    }
+
+    chartDeleteTarget?.let { target ->
+        DeleteConfirmDialog(
+            title = "Delete chart?",
+            text = "\"${target.title.ifBlank { target.type.displayName + " Chart" }}\" will be deleted.",
+            onConfirm = {
+                viewModel.deleteChart(target.id)
+                chartDeleteTarget = null
+            },
+            onDismiss = { chartDeleteTarget = null }
         )
     }
 

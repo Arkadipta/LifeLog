@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.ReminderRepository
 import com.lifelog.app.domain.model.Reminder
 import com.lifelog.app.notifications.ReminderScheduler
+import com.lifelog.app.ui.undo.UndoDeleteManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -15,7 +16,8 @@ import javax.inject.Inject
 @HiltViewModel
 class RemindersViewModel @Inject constructor(
     private val repository: ReminderRepository,
-    private val scheduler: ReminderScheduler
+    private val scheduler: ReminderScheduler,
+    private val undoManager: UndoDeleteManager
 ) : ViewModel() {
 
     val reminders: StateFlow<List<Reminder>> = repository.observeAll()
@@ -34,9 +36,18 @@ class RemindersViewModel @Inject constructor(
     }
 
     fun delete(reminder: Reminder) {
-        viewModelScope.launch {
-            scheduler.cancel(reminder.id)
-            repository.delete(reminder.id)
-        }
+        undoManager.delete(
+            message = "Reminder deleted",
+            delete = {
+                scheduler.cancel(reminder.id)
+                repository.delete(reminder.id)
+                reminder
+            },
+            restore = { deleted ->
+                repository.restore(deleted)
+                // Re-arm the OS alarm only if the reminder was active when deleted.
+                if (deleted.isActive) scheduler.schedule(deleted)
+            }
+        )
     }
 }

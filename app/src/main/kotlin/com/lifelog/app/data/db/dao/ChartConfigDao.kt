@@ -12,6 +12,9 @@ interface ChartConfigDao {
     @Query("SELECT * FROM chart_configs WHERE eventTypeId = :eventTypeId ORDER BY sortOrder ASC, createdAt ASC")
     fun observeByEventType(eventTypeId: Long): Flow<List<ChartConfigEntity>>
 
+    @Query("SELECT * FROM chart_configs WHERE eventTypeId = :eventTypeId ORDER BY sortOrder ASC, createdAt ASC")
+    suspend fun getByEventType(eventTypeId: Long): List<ChartConfigEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: ChartConfigEntity)
 

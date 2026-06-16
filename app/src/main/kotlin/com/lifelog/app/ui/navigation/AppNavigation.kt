@@ -17,11 +17,19 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -39,6 +47,7 @@ import com.lifelog.app.ui.reminders.RemindersScreen
 import com.lifelog.app.ui.settings.SettingsScreen
 import com.lifelog.app.ui.theme.Motion
 import com.lifelog.app.ui.timeline.TimelineScreen
+import com.lifelog.app.ui.undo.UndoHostViewModel
 
 sealed class Screen(val route: String, val label: String) {
     // Events graph
@@ -83,8 +92,30 @@ private val bottomNavItems = listOf(
 fun AppNavigation() {
     val navController = rememberNavController()
 
+    // One app-wide snackbar host drives the shared undo experience for every
+    // deletable object. State lives in the singleton UndoDeleteManager (via this
+    // ViewModel), so the snackbar survives configuration changes and the screen
+    // navigation that follows an event deletion.
+    val undoViewModel: UndoHostViewModel = hiltViewModel()
+    val pendingUndo by undoViewModel.pending.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(pendingUndo?.token) {
+        val pending = pendingUndo ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbar(
+            message = pending.message,
+            actionLabel = pending.actionLabel,
+            duration = SnackbarDuration.Short
+        )
+        when (result) {
+            SnackbarResult.ActionPerformed -> undoViewModel.undo(pending.token)
+            SnackbarResult.Dismissed -> undoViewModel.commit(pending.token)
+        }
+    }
+
     Scaffold(
-        bottomBar = { BottomNavigationBar(navController) }
+        bottomBar = { BottomNavigationBar(navController) },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         NavHost(
             navController = navController,

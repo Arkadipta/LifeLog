@@ -6,6 +6,7 @@ import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.domain.EventFilterUseCase
 import com.lifelog.app.domain.model.EventFilterState
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.ui.undo.UndoDeleteManager
 import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,14 +16,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class EventsViewModel @Inject constructor(
     private val repository: EventRepository,
     private val filterUseCase: EventFilterUseCase,
-    private val widgetUpdater: WidgetUpdater
+    private val widgetUpdater: WidgetUpdater,
+    private val undoManager: UndoDeleteManager
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -49,11 +50,21 @@ class EventsViewModel @Inject constructor(
     fun updateFilter(state: EventFilterState) { _filterState.value = state }
 
     fun deleteEventType(id: Long) {
-        viewModelScope.launch {
-            repository.deleteEventType(id)
-            // Deleting an event type removes its entries from the timeline and may
-            // leave a QuickAddWidget pointing at a now-deleted event — refresh all.
-            widgetUpdater.refreshAll()
-        }
+        undoManager.delete(
+            message = "Event deleted",
+            delete = {
+                val snapshot = repository.deleteEventTypeReturningSnapshot(id)
+                // Deleting an event type removes its entries from the timeline and may
+                // leave a QuickAddWidget pointing at a now-deleted event — refresh all.
+                widgetUpdater.refreshAll()
+                snapshot
+            },
+            restore = { snapshot ->
+                snapshot?.let {
+                    repository.restoreEventType(it)
+                    widgetUpdater.refreshAll()
+                }
+            }
+        )
     }
 }

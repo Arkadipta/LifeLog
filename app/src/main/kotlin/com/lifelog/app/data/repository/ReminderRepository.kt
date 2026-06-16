@@ -56,6 +56,11 @@ class ReminderRepository @Inject constructor(
         reminderDao.deleteById(id)
     }
 
+    /** Re-inserts a previously deleted reminder exactly as it was (same id and schedule). */
+    suspend fun restore(reminder: Reminder) {
+        reminderDao.insert(reminder.toEntity())
+    }
+
     suspend fun setActive(id: Long, isActive: Boolean) {
         reminderDao.setActive(id, isActive)
     }

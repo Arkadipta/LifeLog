@@ -13,6 +13,7 @@ import com.lifelog.app.domain.EntryQueryEngine
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.query.EntryQuery
+import com.lifelog.app.ui.undo.UndoDeleteManager
 import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +27,8 @@ class EventDetailViewModel @Inject constructor(
     private val repository: EventRepository,
     private val chartRepository: ChartRepository,
     private val csvManager: CsvManager,
-    private val widgetUpdater: WidgetUpdater
+    private val widgetUpdater: WidgetUpdater,
+    private val undoManager: UndoDeleteManager
 ) : ViewModel() {
 
     private val eventIdFlow = MutableStateFlow<Long>(0)
@@ -84,18 +86,36 @@ class EventDetailViewModel @Inject constructor(
 
     fun clearEntryQuery() { _entryQuery.value = EntryQuery.Empty }
 
-    fun deleteEntry(id: Long) {
-        viewModelScope.launch {
-            repository.deleteEntry(id)
-            widgetUpdater.refreshTimeline()
-        }
+    fun deleteEntry(entry: EventEntry) {
+        undoManager.delete(
+            message = "Entry deleted",
+            delete = {
+                repository.deleteEntry(entry.id)
+                widgetUpdater.refreshTimeline()
+                entry
+            },
+            restore = { deleted ->
+                repository.restoreEntry(deleted)
+                widgetUpdater.refreshTimeline()
+            }
+        )
     }
 
     fun deleteEventType(id: Long) {
-        viewModelScope.launch {
-            repository.deleteEventType(id)
-            widgetUpdater.refreshTimeline()
-        }
+        undoManager.delete(
+            message = "Event deleted",
+            delete = {
+                val snapshot = repository.deleteEventTypeReturningSnapshot(id)
+                widgetUpdater.refreshAll()
+                snapshot
+            },
+            restore = { snapshot ->
+                snapshot?.let {
+                    repository.restoreEventType(it)
+                    widgetUpdater.refreshAll()
+                }
+            }
+        )
     }
 
     fun saveChart(config: ChartConfig) {
@@ -103,7 +123,15 @@ class EventDetailViewModel @Inject constructor(
     }
 
     fun deleteChart(id: String) {
-        viewModelScope.launch { chartRepository.deleteChart(id) }
+        val config = charts.value.find { it.id == id } ?: return
+        undoManager.delete(
+            message = "Chart deleted",
+            delete = {
+                chartRepository.deleteChart(id)
+                config
+            },
+            restore = { deleted -> chartRepository.saveChart(deleted) }
+        )
     }
 
     fun exportCsv(uri: Uri, onResult: (Boolean) -> Unit) {

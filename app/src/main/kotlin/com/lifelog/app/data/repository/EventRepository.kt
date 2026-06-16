@@ -1,10 +1,17 @@
 package com.lifelog.app.data.repository
 
+import androidx.room.withTransaction
+import com.lifelog.app.data.db.LifeLogDatabase
 import com.lifelog.app.data.db.toDomain
 import com.lifelog.app.data.db.toEntity
+import com.lifelog.app.data.db.dao.ChartConfigDao
 import com.lifelog.app.data.db.dao.EventEntryDao
 import com.lifelog.app.data.db.dao.EventFieldDao
 import com.lifelog.app.data.db.dao.EventTypeDao
+import com.lifelog.app.data.db.entity.ChartConfigEntity
+import com.lifelog.app.data.db.entity.EventEntryEntity
+import com.lifelog.app.data.db.entity.EventFieldEntity
+import com.lifelog.app.data.db.entity.EventTypeEntity
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventType
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -15,11 +22,25 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Everything that cascade-deletes with an event type, captured before deletion so
+ * the whole bundle can be restored on undo. Deleting the [type] row removes its
+ * [fields], [entries], and [charts] via ON DELETE CASCADE.
+ */
+data class DeletedEventType(
+    val type: EventTypeEntity,
+    val fields: List<EventFieldEntity>,
+    val entries: List<EventEntryEntity>,
+    val charts: List<ChartConfigEntity>
+)
+
 @Singleton
 class EventRepository @Inject constructor(
+    private val db: LifeLogDatabase,
     private val eventTypeDao: EventTypeDao,
     private val eventFieldDao: EventFieldDao,
-    private val eventEntryDao: EventEntryDao
+    private val eventEntryDao: EventEntryDao,
+    private val chartConfigDao: ChartConfigDao
 ) {
 
     fun observeAllEventTypes(): Flow<List<EventType>> =
@@ -64,6 +85,33 @@ class EventRepository @Inject constructor(
 
     suspend fun deleteEventType(id: Long) {
         eventTypeDao.deleteById(id)
+    }
+
+    /**
+     * Deletes an event type and returns a snapshot of it plus every child the
+     * cascade removed (fields, entries, charts), or null if it no longer exists.
+     * Pair with [restoreEventType] to undo. Atomic so a snapshot always matches
+     * exactly what was deleted.
+     */
+    suspend fun deleteEventTypeReturningSnapshot(id: Long): DeletedEventType? =
+        db.withTransaction {
+            val type = eventTypeDao.getById(id) ?: return@withTransaction null
+            val snapshot = DeletedEventType(
+                type = type,
+                fields = eventFieldDao.getByEventType(id),
+                entries = eventEntryDao.getAllForExport(id),
+                charts = chartConfigDao.getByEventType(id)
+            )
+            eventTypeDao.deleteById(id) // cascades fields, entries, and charts
+            snapshot
+        }
+
+    /** Re-inserts an event type and all of its children captured by a delete snapshot. */
+    suspend fun restoreEventType(snapshot: DeletedEventType) = db.withTransaction {
+        eventTypeDao.insert(snapshot.type) // parent first so child FKs resolve
+        eventFieldDao.insertAll(snapshot.fields)
+        snapshot.entries.forEach { eventEntryDao.insert(it) }
+        snapshot.charts.forEach { chartConfigDao.upsert(it) }
     }
 
     fun observeEntriesForEventType(eventTypeId: Long): Flow<List<EventEntry>> {
@@ -120,6 +168,11 @@ class EventRepository @Inject constructor(
 
     suspend fun deleteEntry(id: Long) {
         eventEntryDao.deleteById(id)
+    }
+
+    /** Re-inserts a previously deleted entry exactly as it was (same id and timestamps). */
+    suspend fun restoreEntry(entry: EventEntry) {
+        eventEntryDao.insert(entry.toEntity())
     }
 
     suspend fun getRecentEntries(limit: Int = 10): List<EventEntry> {

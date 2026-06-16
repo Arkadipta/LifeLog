@@ -154,9 +154,9 @@ fun TimelineScreen(
     deleteTarget?.let { target ->
         DeleteConfirmDialog(
             title = "Delete entry?",
-            text = "This entry will be permanently deleted.",
+            text = "This entry will be deleted.",
             onConfirm = {
-                viewModel.deleteEntry(target.id)
+                viewModel.deleteEntry(target)
                 deleteTarget = null
             },
             onDismiss = { deleteTarget = null }
