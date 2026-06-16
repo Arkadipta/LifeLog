@@ -1,5 +1,9 @@
 package com.lifelog.app.ui.theme
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
@@ -66,3 +70,30 @@ fun Color.bestContentColor(): Color = if (luminance() > 0.5f) Color.Black else C
  */
 fun Color.onAccentTile(onDarkSurface: Boolean): Color =
     if (onDarkSurface) lerp(this, Color.White, 0.55f) else lerp(this, Color.Black, 0.40f)
+
+/**
+ * The container and content colors of a tonal accent tile: the faint tinted
+ * background and the luminance-corrected on-color drawn over it.
+ */
+@Immutable
+data class AccentTileColors(val container: Color, val content: Color)
+
+/** Faint tint strength every accent tile shares for its container. */
+private const val ACCENT_TILE_CONTAINER_ALPHA = 0.14f
+
+/**
+ * The single source of truth for accent-tile colors. The entry time tile and
+ * the leading icon tile on list cards both read their container and on-color
+ * here — the same [onAccentTile] correction keyed to the current surface's
+ * luminance — so every tile renders with identical tint and contrast in both
+ * themes and the two can never drift apart.
+ */
+@Composable
+fun accentTileColors(accent: Color): AccentTileColors {
+    val onDarkSurface = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val content = remember(accent, onDarkSurface) { accent.onAccentTile(onDarkSurface) }
+    return AccentTileColors(
+        container = accent.copy(alpha = ACCENT_TILE_CONTAINER_ALPHA),
+        content = content
+    )
+}

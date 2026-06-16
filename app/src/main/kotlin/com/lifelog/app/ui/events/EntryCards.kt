@@ -42,7 +42,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -58,8 +57,8 @@ import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.ui.components.LifeLogCard
 import com.lifelog.app.ui.components.SwipeActionBackground
+import com.lifelog.app.ui.theme.accentTileColors
 import com.lifelog.app.ui.theme.Motion
-import com.lifelog.app.ui.theme.onAccentTile
 import com.lifelog.app.ui.theme.Spacing
 import com.lifelog.app.util.iconForName
 import com.lifelog.app.util.relativeTimeLabel
@@ -377,9 +376,8 @@ private fun TimeTile(timestamp: Long, accent: Color) {
     val context = LocalContext.current
     val is24Hour = remember(context) { DateFormat.is24HourFormat(context) }
     val (clock, meridiem) = remember(timestamp, is24Hour) { timestamp.toClockParts(is24Hour) }
-    val onDarkSurface = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val onTile = remember(accent, onDarkSurface) { accent.onAccentTile(onDarkSurface) }
-    Surface(shape = MaterialTheme.shapes.medium, color = accent.copy(alpha = 0.14f)) {
+    val tile = accentTileColors(accent)
+    Surface(shape = MaterialTheme.shapes.medium, color = tile.container) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
@@ -389,14 +387,14 @@ private fun TimeTile(timestamp: Long, accent: Color) {
             Text(
                 clock,
                 style = MaterialTheme.typography.titleMedium,
-                color = onTile,
+                color = tile.content,
                 maxLines = 1
             )
             meridiem?.let {
                 Text(
                     it,
                     style = MaterialTheme.typography.labelSmall,
-                    color = onTile.copy(alpha = 0.85f),
+                    color = tile.content.copy(alpha = 0.85f),
                     maxLines = 1
                 )
             }

@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.lifelog.app.ui.theme.accentTileColors
 import com.lifelog.app.ui.theme.Sizing
 
 /**
@@ -44,8 +45,10 @@ fun LifeLogCard(
 }
 
 /**
- * Rounded icon tile that leads list cards: a tinted container with the icon
- * drawn in its accent color. Gives every list the same visual anchor.
+ * Rounded icon tile that leads list cards: a faint tinted container with the
+ * icon drawn in the matching luminance-corrected on-color. Sources its colors
+ * from [accentTileColors], the same place the entry time tile does, so every
+ * tile across the app reads with identical tint and contrast in both themes.
  */
 @Composable
 fun IconTile(
@@ -53,19 +56,19 @@ fun IconTile(
     tint: Color,
     modifier: Modifier = Modifier,
     size: Dp = Sizing.iconTile,
-    containerColor: Color = tint.copy(alpha = 0.14f),
     contentDescription: String? = null
 ) {
+    val tile = accentTileColors(tint)
     Surface(
         shape = MaterialTheme.shapes.medium,
-        color = containerColor,
+        color = tile.container,
         modifier = modifier.size(size)
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                tint = tint,
+                tint = tile.content,
                 modifier = Modifier.size(size * 0.54f)
             )
         }
