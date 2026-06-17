@@ -13,6 +13,7 @@ data class EventType(
     val entryCount: Int = 0
 ) {
     companion object {
-        const val DEFAULT_COLOR = 0xFF6750A4.toInt()
+        // Soft Blue — the first swatch in EventColors. Keep these in sync.
+        const val DEFAULT_COLOR = 0xFF7FB0F2.toInt()
     }
 }
