@@ -64,6 +64,7 @@ import com.lifelog.app.util.iconForName
 import com.lifelog.app.util.relativeTimeLabel
 import com.lifelog.app.util.toClockParts
 import com.lifelog.app.util.toDisplayDate
+import com.lifelog.app.util.toUtcDateMillis
 
 /**
  * The one entry-card system shared by the Timeline and Event Detail screens.
@@ -122,6 +123,49 @@ fun LazyListScope.entryCardItems(
             EntryListItem(entry, fieldsFor(entry), showEventName, true, onEdit, onDeleteRequest)
         }
     }
+}
+
+/**
+ * Where a single day group sits inside an [entryCardItems] list, so a
+ * [DateNavigator] can scroll straight to it. [index] is the flat
+ * [LazyListScope] position of the group's sticky header (or its first card when
+ * ungrouped), offset by [leadingItemCount] for items a screen emits before the
+ * cards. [utcDateMillis] keys the day in UTC to line up with the M3 picker.
+ */
+data class EntryDateAnchor(val utcDateMillis: Long, val index: Int)
+
+/**
+ * The list position of every day group, in render order. Mirrors the grouping
+ * in [entryCardItems] exactly — they live together so a computed jump target
+ * can never drift from what is actually laid out. When [groupByDate] is false
+ * the list is not chronological, so the first card of each contiguous date run
+ * anchors instead of a header.
+ */
+fun entryDateAnchors(
+    entries: List<EventEntry>,
+    groupByDate: Boolean = true,
+    leadingItemCount: Int = 0
+): List<EntryDateAnchor> {
+    if (entries.isEmpty()) return emptyList()
+    val anchors = mutableListOf<EntryDateAnchor>()
+    var index = leadingItemCount
+    if (groupByDate) {
+        entries.groupBy { it.createdAt.toDisplayDate() }.forEach { (_, dayEntries) ->
+            anchors += EntryDateAnchor(dayEntries.first().createdAt.toUtcDateMillis(), index)
+            index += 1 + dayEntries.size // sticky header + one item per entry
+        }
+    } else {
+        var lastDate: String? = null
+        entries.forEach { entry ->
+            val date = entry.createdAt.toDisplayDate()
+            if (date != lastDate) {
+                anchors += EntryDateAnchor(entry.createdAt.toUtcDateMillis(), index)
+                lastDate = date
+            }
+            index++
+        }
+    }
+    return anchors
 }
 
 @Composable
