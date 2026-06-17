@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AddChart
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Upload
+import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DockedSearchBar
@@ -130,6 +133,17 @@ fun EventDetailScreen(
         eventType?.fields?.any { it.type == FieldType.NUMERIC } == true
     }
 
+    val listState = rememberLazyListState()
+    // The chart carousel is the only item the list emits before the entry
+    // cards, so it is the lone offset the date navigator needs.
+    val leadingItemCount = if (hasNumericFields && charts.isNotEmpty()) 1 else 0
+    val dateNavigator = rememberDateNavigator(
+        entries = entries,
+        listState = listState,
+        groupByDate = groupByDate,
+        leadingItemCount = leadingItemCount
+    )
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -177,6 +191,26 @@ fun EventDetailScreen(
                             expanded = overflowMenuExpanded,
                             onDismissRequest = { overflowMenuExpanded = false }
                         ) {
+                            if (dateNavigator.canPickDate) {
+                                DropdownMenuItem(
+                                    text = { Text("Jump to date") },
+                                    leadingIcon = { Icon(Icons.Rounded.CalendarMonth, null) },
+                                    onClick = {
+                                        overflowMenuExpanded = false
+                                        dateNavigator.openPicker()
+                                    }
+                                )
+                            }
+                            if (entries.isNotEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("Jump to top") },
+                                    leadingIcon = { Icon(Icons.Rounded.VerticalAlignTop, null) },
+                                    onClick = {
+                                        overflowMenuExpanded = false
+                                        dateNavigator.jumpToTop()
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Edit") },
                                 leadingIcon = { Icon(Icons.Rounded.Edit, null) },
@@ -308,6 +342,7 @@ fun EventDetailScreen(
                 }
             } else {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = Spacing.fabClearance)
                 ) {
@@ -374,6 +409,8 @@ fun EventDetailScreen(
             }
         }
     }
+
+    JumpToDateDialog(dateNavigator)
 
     if (showFilterSortSheet) {
         FilterSortSheet(

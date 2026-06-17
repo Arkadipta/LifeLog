@@ -7,10 +7,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Timeline
+import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.material3.DockedSearchBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -36,7 +39,9 @@ import com.lifelog.app.ui.components.DeleteConfirmDialog
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
 import com.lifelog.app.ui.components.TagFilterRow
 import com.lifelog.app.ui.events.EntryFormSheet
+import com.lifelog.app.ui.events.JumpToDateDialog
 import com.lifelog.app.ui.events.entryCardItems
+import com.lifelog.app.ui.events.rememberDateNavigator
 import com.lifelog.app.ui.theme.Spacing
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,6 +57,9 @@ fun TimelineScreen(
     var deleteTarget by remember { mutableStateOf<EventEntry?>(null) }
     var editingEntryId by remember { mutableStateOf<Long?>(null) }
 
+    val listState = rememberLazyListState()
+    val dateNavigator = rememberDateNavigator(entries = entries, listState = listState)
+
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
@@ -59,6 +67,19 @@ fun TimelineScreen(
             LargeTopAppBar(
                 title = { Text("Timeline") },
                 scrollBehavior = scrollBehavior,
+                actions = {
+                    if (entries.isNotEmpty()) {
+                        IconButton(onClick = { dateNavigator.jumpToTop() }) {
+                            Icon(Icons.Rounded.VerticalAlignTop, "Jump to latest")
+                        }
+                        IconButton(
+                            onClick = { dateNavigator.openPicker() },
+                            enabled = dateNavigator.canPickDate
+                        ) {
+                            Icon(Icons.Rounded.CalendarMonth, "Jump to date")
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.largeTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     scrolledContainerColor = MaterialTheme.colorScheme.surface
@@ -128,6 +149,7 @@ fun TimelineScreen(
                 }
             } else {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = Spacing.xl)
                 ) {
@@ -142,6 +164,8 @@ fun TimelineScreen(
             }
         }
     }
+
+    JumpToDateDialog(dateNavigator)
 
     editingEntryId?.let { entryId ->
         EntryFormSheet(

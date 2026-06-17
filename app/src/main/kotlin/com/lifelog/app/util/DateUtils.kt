@@ -5,6 +5,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 private fun simpleDateFormat(pattern: String) =
     SimpleDateFormat(pattern, Locale.getDefault()).apply {
@@ -33,6 +34,24 @@ fun Long.toIso8601(): String = iso8601Format.format(Date(this))
 fun Long.toClockParts(is24Hour: Boolean): Pair<String, String?> =
     if (is24Hour) clock24Format.format(Date(this)) to null
     else clock12Format.format(Date(this)) to meridiemFormat.format(Date(this))
+
+/**
+ * The UTC start-of-day epoch millis for this timestamp's *local* calendar
+ * date. Material 3's DatePicker speaks UTC for its selection and selectable-day
+ * checks, so entry days are keyed through this to line up with the picker
+ * regardless of the device time zone.
+ */
+fun Long.toUtcDateMillis(): Long {
+    val local = Calendar.getInstance().apply { timeInMillis = this@toUtcDateMillis }
+    return Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+        clear()
+        set(
+            local.get(Calendar.YEAR),
+            local.get(Calendar.MONTH),
+            local.get(Calendar.DAY_OF_MONTH)
+        )
+    }.timeInMillis
+}
 
 fun Long.isToday(): Boolean {
     val now = Calendar.getInstance()
