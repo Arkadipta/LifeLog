@@ -68,6 +68,7 @@ import com.lifelog.app.ui.events.components.ChartConfigSheet
 import com.lifelog.app.ui.theme.Motion
 import com.lifelog.app.ui.theme.Spacing
 import com.lifelog.app.ui.theme.bestContentColor
+import com.lifelog.app.ui.theme.rememberAccentOnSurface
 import com.lifelog.app.util.iconForName
 import com.lifelog.app.util.toDisplayDateTime
 
@@ -319,7 +320,7 @@ fun EventDetailScreen(
                             iconForName(it.iconName),
                             null,
                             modifier = Modifier.size(64.dp),
-                            tint = Color(it.colorArgb).copy(alpha = 0.4f)
+                            tint = rememberAccentOnSurface(Color(it.colorArgb)).copy(alpha = 0.5f)
                         )
                     }
                     Spacer(Modifier.height(Spacing.lg))
@@ -381,7 +382,7 @@ fun EventDetailScreen(
                                         iconForName(it.iconName),
                                         null,
                                         modifier = Modifier.size(48.dp),
-                                        tint = Color(it.colorArgb).copy(alpha = 0.4f)
+                                        tint = rememberAccentOnSurface(Color(it.colorArgb)).copy(alpha = 0.5f)
                                     )
                                 }
                                 Spacer(Modifier.height(Spacing.md))

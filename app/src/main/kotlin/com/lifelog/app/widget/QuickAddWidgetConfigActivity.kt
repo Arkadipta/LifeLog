@@ -30,6 +30,7 @@ import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.theme.LifeLogTheme
+import com.lifelog.app.ui.components.IconTile
 import com.lifelog.app.util.iconForName
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -204,20 +205,11 @@ private fun EventPickerCard(eventType: EventType, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Surface(
-                shape = MaterialTheme.shapes.medium,
-                color = color.copy(alpha = 0.15f),
-                modifier = Modifier.size(44.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = iconForName(eventType.iconName),
-                        contentDescription = null,
-                        tint = color,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
+            IconTile(
+                icon = iconForName(eventType.iconName),
+                tint = color,
+                size = 44.dp
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Text(eventType.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 if (eventType.description.isNotBlank()) {

@@ -6,7 +6,6 @@ import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.model.FieldType
-import com.lifelog.app.ui.theme.EventColors
 import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,7 +19,7 @@ data class CreateEventUiState(
     val name: String = "",
     val description: String = "",
     val category: String = "",
-    val colorArgb: Int = EventColors.first().hashCode(),
+    val colorArgb: Int = EventType.DEFAULT_COLOR,
     val iconName: String = "star",
     val fields: List<EventField> = emptyList(),
     val isLoading: Boolean = false,

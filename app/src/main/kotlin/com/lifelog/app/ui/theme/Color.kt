@@ -44,32 +44,68 @@ val AmoledSurfaceContainer = Color(0xFF1A1721)
 val AmoledSurfaceContainerHigh = Color(0xFF211E29)
 val AmoledSurfaceContainerHighest = Color(0xFF2A2733)
 
-// Accent colors for event categories
+/**
+ * Quick-pick accent swatches for event categories: a compact, balanced set of
+ * bright, pastel-inspired hues laid out as a spectrum (blues → greens → warms →
+ * pinks → violets → neutral). These are convenience presets only — the color
+ * picker also offers a full color wheel, so an event's accent can be any color.
+ *
+ * Whatever color is chosen (preset or custom, light or dark), the rendering
+ * helpers below adapt content for it: [bestContentColor] picks black/white for
+ * solid fills, and [onAccentTile] / [rememberAccentOnSurface] produce a legible
+ * on-color for tiles and accent text across light / dark / AMOLED.
+ *
+ * The first entry doubles as [com.lifelog.app.domain.model.EventType.DEFAULT_COLOR]
+ * — keep them in sync.
+ */
 val EventColors = listOf(
-    Color(0xFF6750A4), // Purple
-    Color(0xFF0061A4), // Blue
-    Color(0xFF006E1C), // Green
-    Color(0xFFBA1A1A), // Red
-    Color(0xFFB85300), // Orange
-    Color(0xFF006874), // Teal
-    Color(0xFF6B5F00), // Yellow
-    Color(0xFF8B0086), // Pink
-    Color(0xFF006A60), // Cyan
-    Color(0xFF904D00), // Brown
+    Color(0xFF7FB0F2), // Soft Blue
+    Color(0xFF4FC9C4), // Teal
+    Color(0xFF5FC98A), // Emerald
+    Color(0xFFA8D965), // Lime
+    Color(0xFFE9C23A), // Yellow
+    Color(0xFFFB9E5E), // Orange
+    Color(0xFFF89685), // Coral
+    Color(0xFFF593B9), // Pink
+    Color(0xFFB795F0), // Purple
+    Color(0xFFC3AEF5), // Lavender
+    Color(0xFF9FA3F2), // Indigo
+    Color(0xFF9EAAC0), // Slate
 )
 
-/** Black or white — whichever stays readable on top of this color. */
-fun Color.bestContentColor(): Color = if (luminance() > 0.5f) Color.Black else Color.White
+/**
+ * Black or white — whichever stays more readable on top of this color. The
+ * threshold is the relative-luminance crossover (~0.179) where black and white
+ * give equal WCAG contrast; above it black wins. The bright event accents all
+ * land above this point (so they take black content), while the deep legacy
+ * colors fall below it and take white.
+ */
+fun Color.bestContentColor(): Color = if (luminance() > 0.179f) Color.Black else Color.White
 
 /**
- * A readable on-color for text or icons drawn over a faint tint of this accent
- * (tonal tiles like the entry TimeTile). Event accents are deep and saturated,
- * so at full strength they wash out on a dark surface; lifting toward white on
- * dark and toward black on light recreates the M3 container/on-container
- * relationship for a custom accent — legible without going full monochrome.
+ * A readable on-color for text or icons drawn over this accent — either a faint
+ * tint of it (tonal tiles like the entry TimeTile / IconTile) or the card
+ * surface directly. The bright pastel accents are light, so on a light surface
+ * they need real darkening for contrast, while on a dark surface only a gentle
+ * white-lift is needed — lifting further would wash distinct hues toward a
+ * uniform white. These two factors recreate the M3 container/on-container
+ * relationship for a custom accent and clear 4.5:1 in light, dark, and AMOLED.
  */
 fun Color.onAccentTile(onDarkSurface: Boolean): Color =
-    if (onDarkSurface) lerp(this, Color.White, 0.55f) else lerp(this, Color.Black, 0.40f)
+    if (onDarkSurface) lerp(this, Color.White, 0.22f) else lerp(this, Color.Black, 0.50f)
+
+/**
+ * The luminance-corrected accent for drawing text or icons on the current
+ * surface (or a faint tint of the accent). Keyed to the active surface's
+ * luminance so it adapts across light / dark / AMOLED, this is the same
+ * correction [accentTileColors] applies to tile content — use it anywhere a raw
+ * event accent would otherwise sit as content directly on a surface.
+ */
+@Composable
+fun rememberAccentOnSurface(accent: Color): Color {
+    val onDarkSurface = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    return remember(accent, onDarkSurface) { accent.onAccentTile(onDarkSurface) }
+}
 
 /**
  * The container and content colors of a tonal accent tile: the faint tinted
@@ -89,11 +125,8 @@ private const val ACCENT_TILE_CONTAINER_ALPHA = 0.14f
  * themes and the two can never drift apart.
  */
 @Composable
-fun accentTileColors(accent: Color): AccentTileColors {
-    val onDarkSurface = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val content = remember(accent, onDarkSurface) { accent.onAccentTile(onDarkSurface) }
-    return AccentTileColors(
+fun accentTileColors(accent: Color): AccentTileColors =
+    AccentTileColors(
         container = accent.copy(alpha = ACCENT_TILE_CONTAINER_ALPHA),
-        content = content
+        content = rememberAccentOnSurface(accent)
     )
-}

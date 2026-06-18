@@ -58,6 +58,7 @@ import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.ui.components.LifeLogCard
 import com.lifelog.app.ui.components.SwipeActionBackground
 import com.lifelog.app.ui.theme.accentTileColors
+import com.lifelog.app.ui.theme.rememberAccentOnSurface
 import com.lifelog.app.ui.theme.Motion
 import com.lifelog.app.ui.theme.Spacing
 import com.lifelog.app.util.iconForName
@@ -279,6 +280,9 @@ fun EntryCard(
     var expanded by rememberSaveable { mutableStateOf(false) }
 
     val accent = Color(entry.eventTypeColor)
+    // The bright pastel accents need the luminance correction to stay legible as
+    // text/icon directly on the card surface (raw, they wash out in light mode).
+    val accentOnSurface = rememberAccentOnSurface(accent)
     val orderedFields = fields.filter { entry.fieldValues.containsKey(it.id) }
     val preview = orderedFields.take(PREVIEW_FIELD_COUNT)
     val hasMore = orderedFields.size > PREVIEW_FIELD_COUNT ||
@@ -309,13 +313,13 @@ fun EntryCard(
                             Icon(
                                 iconForName(entry.eventTypeIcon),
                                 null,
-                                tint = accent,
+                                tint = accentOnSurface,
                                 modifier = Modifier.size(14.dp)
                             )
                             Text(
                                 entry.eventTypeName,
                                 style = MaterialTheme.typography.labelMedium,
-                                color = accent,
+                                color = accentOnSurface,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
