@@ -34,7 +34,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Label
-import androidx.compose.material.icons.automirrored.rounded.NavigateNext
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
@@ -188,13 +187,12 @@ fun CreateEventScreen(
                 )
             }
 
-            item { ColorPicker(selected = state.colorArgb, onSelect = viewModel::setColor) }
-
             item {
-                IconPicker(
-                    selected = state.iconName,
-                    accent = Color(state.colorArgb),
-                    onSelect = viewModel::setIcon
+                AppearancePicker(
+                    colorArgb = state.colorArgb,
+                    iconName = state.iconName,
+                    onColorSelect = viewModel::setColor,
+                    onIconSelect = viewModel::setIcon
                 )
             }
 
@@ -253,36 +251,88 @@ fun CreateEventScreen(
     }
 }
 
-/** A settings-style row that opens a picker sheet: leading preview, label, chevron. */
+/**
+ * Compact appearance controls: color and icon shown side-by-side under a single
+ * header, so they take one row instead of two stacked pickers (keeps the Fields
+ * section above the fold on small phones). Each tile previews the current
+ * selection and opens its picker sheet.
+ */
 @Composable
-private fun PickerRow(
+private fun AppearancePicker(
+    colorArgb: Int,
+    iconName: String,
+    onColorSelect: (Int) -> Unit,
+    onIconSelect: (String) -> Unit
+) {
+    var showColorSheet by remember { mutableStateOf(false) }
+    var showIconSheet by remember { mutableStateOf(false) }
+    val accent = Color(colorArgb)
+
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        SectionHeader("Appearance")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+        ) {
+            AppearanceTile(
+                label = "Color",
+                onClick = { showColorSheet = true },
+                modifier = Modifier.weight(1f)
+            ) {
+                ColorSwatch(accent, size = Sizing.iconTileSmall)
+            }
+            AppearanceTile(
+                label = "Icon",
+                onClick = { showIconSheet = true },
+                modifier = Modifier.weight(1f)
+            ) {
+                IconTile(icon = iconForName(iconName), tint = accent, size = Sizing.iconTileSmall)
+            }
+        }
+    }
+
+    if (showColorSheet) {
+        ColorPickerSheet(
+            selected = colorArgb,
+            onSelect = { onColorSelect(it); showColorSheet = false },
+            onDismiss = { showColorSheet = false }
+        )
+    }
+    if (showIconSheet) {
+        IconPickerSheet(
+            selected = iconName,
+            onSelect = { onIconSelect(it); showIconSheet = false },
+            onDismiss = { showIconSheet = false }
+        )
+    }
+}
+
+/** One half of the appearance row: a tappable tile showing a preview and label. */
+@Composable
+private fun AppearanceTile(
     label: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     leading: @Composable () -> Unit
 ) {
     Surface(
         onClick = onClick,
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier
     ) {
         Row(
             modifier = Modifier.padding(Spacing.md),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm, Alignment.CenterHorizontally)
         ) {
             leading()
-            Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-            Icon(
-                Icons.AutoMirrored.Rounded.NavigateNext,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text(label, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
         }
     }
 }
 
-/** Solid color tile used as the color picker's [PickerRow] leading preview. */
+/** Solid color tile previewing the chosen accent in the appearance row. */
 @Composable
 private fun ColorSwatch(color: Color, size: Dp = Sizing.iconTile) {
     Surface(
@@ -291,28 +341,6 @@ private fun ColorSwatch(color: Color, size: Dp = Sizing.iconTile) {
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.size(size)
     ) {}
-}
-
-@Composable
-private fun ColorPicker(selected: Int, onSelect: (Int) -> Unit) {
-    var showSheet by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-        SectionHeader("Color")
-        PickerRow(label = "Choose color", onClick = { showSheet = true }) {
-            ColorSwatch(Color(selected))
-        }
-    }
-
-    if (showSheet) {
-        ColorPickerSheet(
-            selected = selected,
-            onSelect = {
-                onSelect(it)
-                showSheet = false
-            },
-            onDismiss = { showSheet = false }
-        )
-    }
 }
 
 /**
@@ -522,34 +550,6 @@ private fun ValueSlider(
         val tx = (value * trackWidth).coerceIn(r, trackWidth - r)
         drawCircle(Color.White, r * 0.7f, Offset(tx, trackHeight / 2f))
         drawCircle(Color.Black.copy(alpha = 0.35f), r * 0.7f, Offset(tx, trackHeight / 2f), style = Stroke(2.dp.toPx()))
-    }
-}
-
-/**
- * The icon library is large, so rather than a long inline strip the picker shows
- * the current selection as a tappable row that opens a category-grouped sheet.
- * The preview tile uses the chosen [accent] so it reflects how the event will
- * actually look on cards.
- */
-@Composable
-private fun IconPicker(selected: String, accent: Color, onSelect: (String) -> Unit) {
-    var showSheet by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-        SectionHeader("Icon")
-        PickerRow(label = "Choose icon", onClick = { showSheet = true }) {
-            IconTile(icon = iconForName(selected), tint = accent)
-        }
-    }
-
-    if (showSheet) {
-        IconPickerSheet(
-            selected = selected,
-            onSelect = {
-                onSelect(it)
-                showSheet = false
-            },
-            onDismiss = { showSheet = false }
-        )
     }
 }
 
