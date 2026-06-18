@@ -45,35 +45,30 @@ val AmoledSurfaceContainerHigh = Color(0xFF211E29)
 val AmoledSurfaceContainerHighest = Color(0xFF2A2733)
 
 /**
- * Accent palette for event categories: a curated set of bright, pastel-inspired
- * hues laid out as a smooth spectrum (blues → greens → warms → pinks → violets →
- * neutral). Every entry is tuned so that, across light / dark / AMOLED:
- *  - black content stays readable on the solid fill (FAB, swatch check) via
- *    [bestContentColor] — all sit above its crossover, so they read with black,
- *  - the luminance-corrected [onAccentTile] on-color clears 4.5:1 on both the
- *    faint accent tiles and directly on the card surface,
- *  - dark-mode tiles keep their hue (only a light white-lift) so colors stay
- *    distinguishable instead of washing toward white.
- * Hues are spaced for distinguishability; where the brief pairs near hues
- * (peach/orange, pink/rose, lavender/purple) they separate by lightness/chroma.
+ * Quick-pick accent swatches for event categories: a compact, balanced set of
+ * bright, pastel-inspired hues laid out as a spectrum (blues → greens → warms →
+ * pinks → violets → neutral). These are convenience presets only — the color
+ * picker also offers a full color wheel, so an event's accent can be any color.
+ *
+ * Whatever color is chosen (preset or custom, light or dark), the rendering
+ * helpers below adapt content for it: [bestContentColor] picks black/white for
+ * solid fills, and [onAccentTile] / [rememberAccentOnSurface] produce a legible
+ * on-color for tiles and accent text across light / dark / AMOLED.
+ *
+ * The first entry doubles as [com.lifelog.app.domain.model.EventType.DEFAULT_COLOR]
+ * — keep them in sync.
  */
 val EventColors = listOf(
     Color(0xFF7FB0F2), // Soft Blue
-    Color(0xFF67C7F0), // Sky Blue
     Color(0xFF4FC9C4), // Teal
-    Color(0xFF74D6AE), // Mint
-    Color(0xFFA6CDA0), // Sage
     Color(0xFF5FC98A), // Emerald
     Color(0xFFA8D965), // Lime
     Color(0xFFE9C23A), // Yellow
-    Color(0xFFF7C25C), // Amber
-    Color(0xFFF8B58E), // Peach
     Color(0xFFFB9E5E), // Orange
     Color(0xFFF89685), // Coral
     Color(0xFFF593B9), // Pink
-    Color(0xFFEC85A6), // Rose
-    Color(0xFFC3AEF5), // Lavender
     Color(0xFFB795F0), // Purple
+    Color(0xFFC3AEF5), // Lavender
     Color(0xFF9FA3F2), // Indigo
     Color(0xFF9EAAC0), // Slate
 )
