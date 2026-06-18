@@ -23,7 +23,8 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             Intent.ACTION_BOOT_COMPLETED,
-            Intent.ACTION_MY_PACKAGE_REPLACED -> rescheduleAll()
+            Intent.ACTION_MY_PACKAGE_REPLACED,
+            ACTION_RESCHEDULE_ALL -> rescheduleAll()
             ACTION_REMINDER -> handleReminder(context, intent)
             ACTION_SNOOZE   -> handleSnooze(context, intent)
             ACTION_DISMISS  -> handleDismiss(context, intent)
@@ -134,6 +135,8 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_REMINDER = "com.lifelog.app.ACTION_REMINDER"
         const val ACTION_SNOOZE   = "com.lifelog.app.ACTION_SNOOZE"
         const val ACTION_DISMISS  = "com.lifelog.app.ACTION_DISMISS"
+        /** Re-arm OS alarms for all active reminders, e.g. after a database restore. */
+        const val ACTION_RESCHEDULE_ALL = "com.lifelog.app.ACTION_RESCHEDULE_ALL"
 
         const val EXTRA_REMINDER_ID   = "reminder_id"
         const val EXTRA_TITLE         = "title"

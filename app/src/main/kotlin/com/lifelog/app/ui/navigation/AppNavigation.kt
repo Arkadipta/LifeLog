@@ -12,16 +12,26 @@ import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.outlined.Alarm
 import androidx.compose.material.icons.outlined.Timeline
 import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Timeline
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -31,6 +41,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.lifelog.app.export.SqliteRestore
 import com.lifelog.app.ui.events.CreateEventScreen
 import com.lifelog.app.ui.events.EventDetailScreen
 import com.lifelog.app.ui.events.EventsScreen
@@ -39,6 +50,8 @@ import com.lifelog.app.ui.reminders.RemindersScreen
 import com.lifelog.app.ui.settings.SettingsScreen
 import com.lifelog.app.ui.theme.Motion
 import com.lifelog.app.ui.timeline.TimelineScreen
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 sealed class Screen(val route: String, val label: String) {
     // Events graph
@@ -82,6 +95,13 @@ private val bottomNavItems = listOf(
 @Composable
 fun AppNavigation() {
     val navController = rememberNavController()
+
+    // Surface the result of a database restore that completed on the last launch.
+    val context = LocalContext.current
+    var restoreOutcome by remember { mutableStateOf<SqliteRestore.Outcome?>(null) }
+    LaunchedEffect(Unit) {
+        restoreOutcome = withContext(Dispatchers.IO) { SqliteRestore.consumeOutcome(context) }
+    }
 
     Scaffold(
         bottomBar = { BottomNavigationBar(navController) }
@@ -195,6 +215,44 @@ fun AppNavigation() {
             }
         }
     }
+
+    restoreOutcome?.let { outcome ->
+        RestoreOutcomeDialog(outcome = outcome, onDismiss = { restoreOutcome = null })
+    }
+}
+
+@Composable
+private fun RestoreOutcomeDialog(
+    outcome: SqliteRestore.Outcome,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                if (outcome.success) Icons.Rounded.CheckCircle else Icons.Rounded.ErrorOutline,
+                contentDescription = null,
+                tint = if (outcome.success) MaterialTheme.colorScheme.primary
+                       else MaterialTheme.colorScheme.error
+            )
+        },
+        title = { Text(if (outcome.success) "Restore complete" else "Restore failed") },
+        text = {
+            if (outcome.success) {
+                val c = outcome.counts
+                Text(
+                    "Your data was restored successfully:\n\n" +
+                        "• ${c.eventTypes} events\n" +
+                        "• ${c.eventEntries} entries\n" +
+                        "• ${c.reminders} reminders\n" +
+                        "• ${c.chartConfigs} charts"
+                )
+            } else {
+                Text(outcome.error ?: "The restore could not be completed.")
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("OK") } }
+    )
 }
 
 @Composable
