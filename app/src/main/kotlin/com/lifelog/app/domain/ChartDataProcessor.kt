@@ -6,6 +6,7 @@ import com.lifelog.app.domain.model.ChartData
 import com.lifelog.app.domain.model.ChartType
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventField
+import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.domain.model.TimeRange
 import java.util.Calendar
@@ -26,6 +27,11 @@ object ChartDataProcessor {
         fields: List<EventField>,
         nowMs: Long = System.currentTimeMillis()
     ): ChartData {
+        // A config that points at fields no longer suited to it (e.g. a plotted
+        // field retyped away from Number) can't be rendered meaningfully. Flag it
+        // so the card prompts an edit/delete instead of silently vanishing.
+        if (isStaleConfig(config, fields)) return ChartData.StaleConfig
+
         val relevant = entries.filter { hasChartableValue(it, config) }
         if (relevant.isEmpty()) return ChartData.InsufficientData
 
@@ -238,6 +244,23 @@ object ChartDataProcessor {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    /**
+     * True when [config] references fields that no longer fit their chart role:
+     * a plotted field that is missing or no longer [FieldType.NUMERIC], or — for
+     * pie charts — a group-by field that is missing or no longer a choice /
+     * multi-select. Such a chart cannot be rendered and should prompt edit/delete.
+     */
+    private fun isStaleConfig(config: ChartConfig, fields: List<EventField>): Boolean {
+        val byId = fields.associateBy { it.id }
+        if (config.numericFieldIds.isEmpty()) return true
+        if (config.numericFieldIds.any { byId[it]?.type != FieldType.NUMERIC }) return true
+        if (config.type == ChartType.PIE) {
+            val groupType = config.groupByFieldId?.let { byId[it]?.type }
+            if (groupType != FieldType.CHOICE && groupType != FieldType.MULTI_SELECT) return true
+        }
+        return false
+    }
 
     private fun numericValues(entries: List<EventEntry>, fieldId: Long): List<Double> =
         entries.mapNotNull { (it.fieldValues[fieldId] as? FieldValue.Numeric)?.value }

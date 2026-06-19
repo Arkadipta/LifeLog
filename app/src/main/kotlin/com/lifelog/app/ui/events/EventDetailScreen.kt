@@ -133,11 +133,16 @@ fun EventDetailScreen(
     val hasNumericFields = remember(eventType) {
         eventType?.fields?.any { it.type == FieldType.NUMERIC } == true
     }
+    // Show the carousel whenever any chart config exists — even after a field was
+    // retyped so no numeric fields remain — so stale charts can be discovered and
+    // edited/deleted rather than silently disappearing. Adding new charts still
+    // requires a numeric field (gated separately by hasNumericFields).
+    val showChartCarousel = charts.isNotEmpty()
 
     val listState = rememberLazyListState()
     // The chart carousel is the only item the list emits before the entry
     // cards, so it is the lone offset the date navigator needs.
-    val leadingItemCount = if (hasNumericFields && charts.isNotEmpty()) 1 else 0
+    val leadingItemCount = if (showChartCarousel) 1 else 0
     val dateNavigator = rememberDateNavigator(
         entries = entries,
         listState = listState,
@@ -309,7 +314,7 @@ fun EventDetailScreen(
                 ) {}
             }
 
-            if (entries.isEmpty() && searchQuery.isBlank() && !hasNumericFields) {
+            if (entries.isEmpty() && searchQuery.isBlank() && !showChartCarousel) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -347,8 +352,9 @@ fun EventDetailScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = Spacing.fabClearance)
                 ) {
-                    // Chart carousel — only when at least one chart has been created
-                    if (hasNumericFields && charts.isNotEmpty()) {
+                    // Chart carousel — visible whenever a chart config exists. The
+                    // "add chart" tile only appears when a numeric field is present.
+                    if (showChartCarousel) {
                         item(key = "chart_carousel") {
                             ChartCarousel(
                                 charts = charts,
@@ -363,7 +369,8 @@ fun EventDetailScreen(
                                     showChartConfigSheet = true
                                 },
                                 onDeleteChart = viewModel::deleteChart,
-                                modifier = Modifier.padding(top = Spacing.sm, bottom = Spacing.md)
+                                modifier = Modifier.padding(top = Spacing.sm, bottom = Spacing.md),
+                                showAddCard = hasNumericFields
                             )
                         }
                     }

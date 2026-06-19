@@ -66,7 +66,8 @@ fun ChartCard(
                 when (data) {
                     is ChartData.Cartesian -> CartesianChartContent(data = data, eventAccentColor = eventAccentColor)
                     is ChartData.Pie -> PieChartContent(data = data)
-                    ChartData.Empty, ChartData.InsufficientData -> ChartEmptyState(data = data)
+                    ChartData.Empty, ChartData.InsufficientData, ChartData.StaleConfig ->
+                        ChartEmptyState(data = data)
                 }
             }
 
@@ -179,5 +180,7 @@ private fun chartContentDescription(config: ChartConfig, data: ChartData): Strin
             "${config.type.displayName} chart of $names$anchored"
         }
         is ChartData.Pie -> "Pie chart with ${data.slices.size} categories"
+        ChartData.StaleConfig ->
+            "${config.type.displayName} chart references a field that is no longer compatible"
         else -> "${config.type.displayName} chart, no data"
     }
