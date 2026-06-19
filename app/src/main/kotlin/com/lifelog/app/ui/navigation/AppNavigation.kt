@@ -42,6 +42,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.lifelog.app.export.SqliteRestore
+import com.lifelog.app.ui.csvimport.ImportCsvScreen
 import com.lifelog.app.ui.events.CreateEventScreen
 import com.lifelog.app.ui.events.EventDetailScreen
 import com.lifelog.app.ui.events.EventsScreen
@@ -57,6 +58,7 @@ sealed class Screen(val route: String, val label: String) {
     // Events graph
     object Events : Screen("events", "Events")
     object CreateEvent : Screen("events/create", "New Event")
+    object ImportCsv : Screen("events/import", "Import from CSV")
     object EditEvent : Screen("events/{eventId}/edit", "Edit Event") {
         fun route(id: Long) = "events/$id/edit"
     }
@@ -159,6 +161,19 @@ fun AppNavigation() {
                 )
             }
 
+            composable(Screen.ImportCsv.route) {
+                ImportCsvScreen(
+                    onClose = { navController.popBackStack() },
+                    onOpenEvent = { id ->
+                        // Land on the new event with Events beneath it, so back goes
+                        // to the list rather than through the (now finished) wizard.
+                        navController.navigate(Screen.EventDetail.route(id)) {
+                            popUpTo(Screen.Events.route)
+                        }
+                    }
+                )
+            }
+
             composable(
                 route = Screen.EditEvent.route,
                 arguments = listOf(navArgument("eventId") { type = NavType.LongType })
@@ -211,7 +226,10 @@ fun AppNavigation() {
             }
 
             composable(Screen.Settings.route) {
-                SettingsScreen(onNavigateBack = { navController.popBackStack() })
+                SettingsScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToImport = { navController.navigate(Screen.ImportCsv.route) }
+                )
             }
         }
     }
