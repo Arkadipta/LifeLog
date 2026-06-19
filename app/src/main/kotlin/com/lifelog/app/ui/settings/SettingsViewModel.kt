@@ -11,8 +11,11 @@ import com.lifelog.app.export.AutoBackupWorker
 import com.lifelog.app.export.BackupFrequency
 import com.lifelog.app.export.ExportEngine
 import com.lifelog.app.export.ExportFormat
+import com.lifelog.app.export.ImportEngine
+import com.lifelog.app.export.SqliteRestore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -28,11 +31,19 @@ data class ExportUiState(
     val exportSuccess: Boolean = false
 )
 
+/** Phases of the SQLite restore flow, surfaced to the Settings UI. */
+data class RestoreUiState(
+    val isRestoring: Boolean = false,
+    val isRestarting: Boolean = false,
+    val error: String? = null
+)
+
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val prefsRepo: UserPreferencesRepository,
-    private val exportEngine: ExportEngine
+    private val exportEngine: ExportEngine,
+    private val importEngine: ImportEngine
 ) : ViewModel() {
 
     val prefs: StateFlow<UserPreferences> = prefsRepo.userPreferences
@@ -40,6 +51,9 @@ class SettingsViewModel @Inject constructor(
 
     private val _exportState = MutableStateFlow(ExportUiState())
     val exportState: StateFlow<ExportUiState> = _exportState.asStateFlow()
+
+    private val _restoreState = MutableStateFlow(RestoreUiState())
+    val restoreState: StateFlow<RestoreUiState> = _restoreState.asStateFlow()
 
     fun setAmoledBlack(v: Boolean) = viewModelScope.launch { prefsRepo.setAmoledBlack(v) }
     fun setDynamicColor(v: Boolean) = viewModelScope.launch { prefsRepo.setDynamicColor(v) }
@@ -76,5 +90,28 @@ class SettingsViewModel @Inject constructor(
 
     fun clearExportResult() {
         _exportState.update { it.copy(lastExportError = null, exportSuccess = false) }
+    }
+
+    /**
+     * Validate, stage, and (on success) apply a full restore from the chosen
+     * SQLite database. On success the app is relaunched so Room re-opens the
+     * restored database in a fresh process; the success message is shown after
+     * the restart. On failure the current database is left untouched.
+     */
+    fun restoreFromSqlite(uri: Uri) = viewModelScope.launch {
+        _restoreState.update { it.copy(isRestoring = true, error = null) }
+        when (val result = importEngine.restoreFromSqlite(uri)) {
+            is ImportEngine.RestoreResult.Error ->
+                _restoreState.update { it.copy(isRestoring = false, error = result.message) }
+            is ImportEngine.RestoreResult.Success -> {
+                _restoreState.update { it.copy(isRestoring = false, isRestarting = true) }
+                delay(1200) // let the "restarting" dialog register before the process dies
+                SqliteRestore.triggerRestart(context)
+            }
+        }
+    }
+
+    fun clearRestoreError() {
+        _restoreState.update { it.copy(error = null) }
     }
 }

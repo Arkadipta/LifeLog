@@ -1,11 +1,14 @@
 package com.lifelog.app.ui.settings
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -13,8 +16,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -25,6 +33,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -57,6 +67,7 @@ fun SettingsScreen(
 ) {
     val prefs by viewModel.prefs.collectAsStateWithLifecycle()
     val exportState by viewModel.exportState.collectAsStateWithLifecycle()
+    val restoreState by viewModel.restoreState.collectAsStateWithLifecycle()
     val systemInDarkTheme = isSystemInDarkTheme()
 
     // SAF launchers – one per format (MIME type is fixed at registration time)
@@ -71,6 +82,12 @@ fun SettingsScreen(
     val zipLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip")
     ) { uri -> uri?.let { viewModel.exportNow(it, ExportFormat.ZIP_CSV) } }
+
+    // Restore picks an existing .db file; confirmation is shown before importing.
+    var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
+    val restoreLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> pendingRestoreUri = uri }
 
     var showFormatPicker by remember { mutableStateOf(false) }
     var showFrequencyPicker by remember { mutableStateOf(false) }
@@ -185,6 +202,19 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            // ── Import / Restore ──────────────────────────────────────────────
+            item { SettingsSectionLabel("Import") }
+            item {
+                SettingsGroup {
+                    SettingsClickItem(
+                        title = "Restore from SQLite Database",
+                        subtitle = "Replace all current data with an exported .db backup",
+                        enabled = !restoreState.isRestoring && !restoreState.isRestarting,
+                        onClick = { restoreLauncher.launch(arrayOf("*/*")) }
+                    )
+                }
+            }
         }
     }
 
@@ -240,6 +270,91 @@ fun SettingsScreen(
             onSelect = { idx ->
                 viewModel.setBackupFormat(ExportFormat.entries[idx])
                 showBackupFormatPicker = false
+            }
+        )
+    }
+
+    // ── Restore confirmation ──────────────────────────────────────────────────
+    pendingRestoreUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { pendingRestoreUri = null },
+            icon = {
+                Icon(
+                    Icons.Rounded.WarningAmber,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("Restore from backup?") },
+            text = {
+                Text(
+                    "All current app data will be permanently overwritten with the contents " +
+                        "of the selected database. This action cannot be undone.\n\n" +
+                        "Only restore a database that was exported from LifeLog."
+                )
+            },
+            confirmButton = {
+                FilledTonalButton(
+                    onClick = {
+                        viewModel.restoreFromSqlite(uri)
+                        pendingRestoreUri = null
+                    },
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                ) { Text("Overwrite & Restore") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRestoreUri = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // ── Restore progress (blocks interaction until the app restarts) ──────────
+    if (restoreState.isRestoring || restoreState.isRestarting) {
+        AlertDialog(
+            onDismissRequest = { },
+            confirmButton = { },
+            icon = { Icon(Icons.Rounded.Restore, contentDescription = null) },
+            title = {
+                Text(if (restoreState.isRestarting) "Restore successful" else "Restoring…")
+            },
+            text = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Text(
+                        if (restoreState.isRestarting)
+                            "Restarting the app to load your restored data…"
+                        else
+                            "Validating and preparing the backup…"
+                    )
+                }
+            }
+        )
+    }
+
+    // ── Restore error ─────────────────────────────────────────────────────────
+    restoreState.error?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::clearRestoreError,
+            icon = {
+                Icon(
+                    Icons.Rounded.WarningAmber,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("Restore failed") },
+            text = { Text("$message\n\nYour existing data was not changed.") },
+            confirmButton = {
+                TextButton(onClick = viewModel::clearRestoreError) { Text("OK") }
             }
         )
     }

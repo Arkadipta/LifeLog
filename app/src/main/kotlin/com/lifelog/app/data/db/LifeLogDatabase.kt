@@ -33,5 +33,8 @@ abstract class LifeLogDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "lifelog.db"
+
+        /** Current Room schema version. MUST equal the `version` in @Database above. */
+        const val SCHEMA_VERSION = 3
     }
 }
