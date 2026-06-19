@@ -27,6 +27,28 @@ data class CreateEventUiState(
     val nameError: String? = null
 )
 
+/** Event metadata collected by [CreateEventScreen] in draft mode (CSV import). */
+data class EventDraft(
+    val name: String,
+    val description: String,
+    val category: String,
+    val colorArgb: Int,
+    val iconName: String
+)
+
+/**
+ * Configures [CreateEventScreen] for the CSV-import "Configure Event" step: it
+ * collects metadata and hands back an [EventDraft] via [onConfirm] instead of
+ * persisting an event. The Fields section is hidden because fields are derived
+ * from the CSV columns later in the wizard.
+ */
+data class EventDraftConfig(
+    val initialName: String = "",
+    val initialColorArgb: Int = EventType.DEFAULT_COLOR,
+    val initialIconName: String = "star",
+    val onConfirm: (EventDraft) -> Unit
+)
+
 @HiltViewModel
 class CreateEventViewModel @Inject constructor(
     private val repository: EventRepository,
@@ -35,6 +57,41 @@ class CreateEventViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(CreateEventUiState())
     val state: StateFlow<CreateEventUiState> = _state.asStateFlow()
+
+    /** Guards one-time seeding so returning to the draft step keeps user edits. */
+    private var draftSeeded = false
+
+    /** Pre-fill the draft form once with import-suggested metadata. */
+    fun seedDraftOnce(config: EventDraftConfig) {
+        if (draftSeeded) return
+        draftSeeded = true
+        _state.update {
+            it.copy(
+                name = config.initialName,
+                colorArgb = config.initialColorArgb,
+                iconName = config.initialIconName
+            )
+        }
+    }
+
+    /** Validate the name and hand the collected metadata back to the import wizard. */
+    fun confirmDraft(onConfirm: (EventDraft) -> Unit) {
+        val s = _state.value
+        val name = s.name.trim()
+        if (name.isBlank()) {
+            _state.update { it.copy(nameError = "Name is required") }
+            return
+        }
+        onConfirm(
+            EventDraft(
+                name = name,
+                description = s.description.trim(),
+                category = s.category.trim(),
+                colorArgb = s.colorArgb,
+                iconName = s.iconName
+            )
+        )
+    }
 
     fun loadEvent(eventId: Long) {
         viewModelScope.launch {

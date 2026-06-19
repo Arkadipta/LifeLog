@@ -15,9 +15,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.DockedSearchBar
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,6 +33,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -54,6 +61,7 @@ fun EventsScreen(
     onNavigateToCreate: () -> Unit,
     onNavigateToEvent: (Long) -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToImport: () -> Unit,
     viewModel: EventsViewModel = hiltViewModel()
 ) {
     val eventTypes by viewModel.eventTypes.collectAsStateWithLifecycle()
@@ -70,6 +78,23 @@ fun EventsScreen(
                 actions = {
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(Icons.Rounded.Settings, "Settings")
+                    }
+                    var menuExpanded by remember { mutableStateOf(false) }
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Rounded.MoreVert, "More options")
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Import Event from CSV") },
+                            onClick = {
+                                menuExpanded = false
+                                onNavigateToImport()
+                            },
+                            leadingIcon = { Icon(Icons.Rounded.UploadFile, null) }
+                        )
                     }
                 },
                 scrollBehavior = scrollBehavior,
