@@ -23,11 +23,16 @@ class EventRepository @Inject constructor(
 ) {
 
     fun observeAllEventTypes(): Flow<List<EventType>> =
-        eventTypeDao.observeAll().map { entities ->
+        combine(
+            eventTypeDao.observeAll(),
+            // Observed (not a one-shot getEntryCount) so adding/importing/deleting an
+            // entry re-emits the list with a fresh count without an event-type edit.
+            eventTypeDao.observeEntryCounts()
+        ) { entities, counts ->
+            val countByType = counts.associate { it.eventTypeId to it.count }
             entities.map { entity ->
                 val fields = eventFieldDao.getByEventType(entity.id).map { it.toDomain() }
-                val count = eventTypeDao.getEntryCount(entity.id)
-                entity.toDomain(fields, count)
+                entity.toDomain(fields, countByType[entity.id] ?: 0)
             }
         }
 

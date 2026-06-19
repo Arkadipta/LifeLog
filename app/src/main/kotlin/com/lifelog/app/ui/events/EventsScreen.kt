@@ -46,6 +46,7 @@ import com.lifelog.app.ui.components.LifeLogFab
 import com.lifelog.app.ui.components.TagFilterRow
 import com.lifelog.app.ui.theme.Sizing
 import com.lifelog.app.ui.theme.Spacing
+import com.lifelog.app.util.formatEntryCount
 import com.lifelog.app.util.iconForName
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -222,7 +223,7 @@ private fun EventTypeCard(
                         LabelChip(eventType.category)
                     }
                     Text(
-                        text = "${eventType.entryCount} entries",
+                        text = formatEntryCount(eventType.entryCount),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
