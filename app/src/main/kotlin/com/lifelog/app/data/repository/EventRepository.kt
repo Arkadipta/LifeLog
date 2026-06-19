@@ -1,5 +1,7 @@
 package com.lifelog.app.data.repository
 
+import androidx.room.withTransaction
+import com.lifelog.app.data.db.LifeLogDatabase
 import com.lifelog.app.data.db.toDomain
 import com.lifelog.app.data.db.toEntity
 import com.lifelog.app.data.db.dao.EventEntryDao
@@ -17,6 +19,7 @@ import javax.inject.Singleton
 
 @Singleton
 class EventRepository @Inject constructor(
+    private val db: LifeLogDatabase,
     private val eventTypeDao: EventTypeDao,
     private val eventFieldDao: EventFieldDao,
     private val eventEntryDao: EventEntryDao
@@ -46,7 +49,13 @@ class EventRepository @Inject constructor(
         return entity.toDomain(fields, count)
     }
 
-    suspend fun saveEventType(eventType: EventType): Long {
+    /**
+     * Persists an event type and its fields atomically. The field set is
+     * replaced (delete-all then re-insert), so the whole operation runs inside a
+     * single Room transaction — an interrupted save can never leave the event
+     * with a partially-updated or missing set of field definitions.
+     */
+    suspend fun saveEventType(eventType: EventType): Long = db.withTransaction {
         val id = if (eventType.id == 0L) {
             eventTypeDao.insert(eventType.toEntity())
         } else {
@@ -59,7 +68,7 @@ class EventRepository @Inject constructor(
                 field.copy(eventTypeId = id, sortOrder = index).toEntity()
             }
         )
-        return id
+        id
     }
 
     suspend fun deleteEventType(id: Long) {

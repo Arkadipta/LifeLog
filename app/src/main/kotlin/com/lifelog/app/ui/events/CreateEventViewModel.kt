@@ -24,7 +24,9 @@ data class CreateEventUiState(
     val fields: List<EventField> = emptyList(),
     val isLoading: Boolean = false,
     val isSaved: Boolean = false,
-    val nameError: String? = null
+    val nameError: String? = null,
+    /** True while the field-type-change confirmation dialog should be shown. */
+    val showTypeChangeWarning: Boolean = false
 )
 
 @HiltViewModel
@@ -36,11 +38,19 @@ class CreateEventViewModel @Inject constructor(
     private val _state = MutableStateFlow(CreateEventUiState())
     val state: StateFlow<CreateEventUiState> = _state.asStateFlow()
 
+    /** Declared types of the fields as originally loaded, keyed by field id. */
+    private var originalFieldTypes: Map<Long, FieldType> = emptyMap()
+
+    /** Number of entries the event had when loaded — gates the type-change warning. */
+    private var entryCount: Int = 0
+
     fun loadEvent(eventId: Long) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             val event = repository.getEventType(eventId)
             if (event != null) {
+                originalFieldTypes = event.fields.associate { it.id to it.type }
+                entryCount = event.entryCount
                 _state.update {
                     it.copy(
                         name = event.name,
@@ -105,11 +115,39 @@ class CreateEventViewModel @Inject constructor(
             _state.update { it.copy(nameError = "Name is required") }
             return
         }
+        // Editing an existing event that already has entries, where a previously
+        // existing field's type was changed: warn first. Existing values are not
+        // converted and become legacy mismatches, so the user must opt in.
+        if (existingId != 0L && entryCount > 0 && hasChangedFieldTypes()) {
+            _state.update { it.copy(showTypeChangeWarning = true) }
+            return
+        }
+        persist(existingId)
+    }
+
+    /** Proceed with the save after the user acknowledged the type-change warning. */
+    fun confirmTypeChangeAndSave(existingId: Long) {
+        _state.update { it.copy(showTypeChangeWarning = false) }
+        persist(existingId)
+    }
+
+    fun dismissTypeChangeWarning() = _state.update { it.copy(showTypeChangeWarning = false) }
+
+    /**
+     * True when at least one field that existed before this edit (matched by id)
+     * now has a different declared type. Brand-new fields (id == 0) are ignored.
+     */
+    private fun hasChangedFieldTypes(): Boolean =
+        _state.value.fields.any { field ->
+            field.id != 0L && originalFieldTypes[field.id].let { it != null && it != field.type }
+        }
+
+    private fun persist(existingId: Long) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             val eventType = EventType(
                 id = existingId,
-                name = name,
+                name = _state.value.name.trim(),
                 description = _state.value.description.trim(),
                 category = _state.value.category.trim(),
                 colorArgb = _state.value.colorArgb,

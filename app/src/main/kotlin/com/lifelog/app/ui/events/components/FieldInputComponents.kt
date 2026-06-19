@@ -5,16 +5,20 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.domain.model.FieldValue
+import com.lifelog.app.domain.model.LegacyValueMismatch
+import com.lifelog.app.domain.model.legacyMismatchOf
 
 @Composable
 fun FieldInput(
@@ -34,13 +38,97 @@ fun FieldInput(
             }
         }
 
-        when (field.type) {
-            FieldType.NUMERIC -> NumericInput(field, value as? FieldValue.Numeric, onValueChange)
-            FieldType.TEXT -> TextInput(field, value as? FieldValue.Text, onValueChange)
-            FieldType.BOOLEAN -> BooleanInput(value as? FieldValue.Bool, onValueChange)
-            FieldType.CHOICE -> ChoiceInput(field, value as? FieldValue.Choice, onValueChange)
-            FieldType.MULTI_SELECT -> MultiSelectInput(field, value as? FieldValue.MultiSelect, onValueChange)
+        // A value stored under a different type (the field's type was changed
+        // after this entry was saved) is shown read-only instead of as an empty
+        // input, so it can't be silently overwritten. The user must explicitly
+        // clear it to enter a new value of the current type.
+        val mismatch = legacyMismatchOf(field.type, value)
+        if (mismatch != null) {
+            LegacyValueCard(mismatch = mismatch, onClear = { onValueChange(null) })
+        } else {
+            when (field.type) {
+                FieldType.NUMERIC -> NumericInput(field, value as? FieldValue.Numeric, onValueChange)
+                FieldType.TEXT -> TextInput(field, value as? FieldValue.Text, onValueChange)
+                FieldType.BOOLEAN -> BooleanInput(value as? FieldValue.Bool, onValueChange)
+                FieldType.CHOICE -> ChoiceInput(field, value as? FieldValue.Choice, onValueChange)
+                FieldType.MULTI_SELECT -> MultiSelectInput(field, value as? FieldValue.MultiSelect, onValueChange)
+            }
         }
+    }
+}
+
+/**
+ * Read-only presentation of a legacy value whose stored type no longer matches
+ * the field's current type. Shows the human-readable value plus both the type it
+ * was stored as and the field's current type, and offers an explicit "Clear
+ * value" action — the only way to discard it and unlock the normal editor. The
+ * original value is never converted or overwritten implicitly.
+ */
+@Composable
+private fun LegacyValueCard(
+    mismatch: LegacyValueMismatch,
+    onClear: () -> Unit
+) {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    Icons.Rounded.WarningAmber,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    "Legacy value detected",
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+            LegacyDetailRow("Value", mismatch.displayValue)
+            LegacyDetailRow("Stored as", mismatch.storedType.displayName)
+            LegacyDetailRow("Current field type", mismatch.declaredType.displayName)
+            Text(
+                "This value was saved before the field type changed, so it can't be " +
+                    "edited as ${mismatch.declaredType.displayName}. It is kept as-is. " +
+                    "Clear it to enter a new ${mismatch.declaredType.displayName} value.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TextButton(
+                onClick = onClear,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                ),
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text("Clear value")
+            }
+        }
+    }
+}
+
+@Composable
+private fun LegacyDetailRow(label: String, value: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            "$label:",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
 
