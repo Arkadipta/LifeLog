@@ -63,6 +63,7 @@ import java.util.Locale
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
+    onNavigateToImport: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val prefs by viewModel.prefs.collectAsStateWithLifecycle()
@@ -207,6 +208,11 @@ fun SettingsScreen(
             item { SettingsSectionLabel("Import") }
             item {
                 SettingsGroup {
+                    SettingsClickItem(
+                        title = "Import Event from CSV",
+                        subtitle = "Create a new event and its entries from a CSV file",
+                        onClick = onNavigateToImport
+                    )
                     SettingsClickItem(
                         title = "Restore from SQLite Database",
                         subtitle = "Replace all current data with an exported .db backup",

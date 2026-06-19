@@ -33,6 +33,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
@@ -54,6 +55,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -102,12 +104,18 @@ import kotlin.math.sin
 fun CreateEventScreen(
     eventId: Long = 0L,
     onNavigateBack: () -> Unit,
-    viewModel: CreateEventViewModel = hiltViewModel()
+    viewModel: CreateEventViewModel = hiltViewModel(),
+    draftConfig: EventDraftConfig? = null
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val isDraft = draftConfig != null
 
     LaunchedEffect(eventId) {
         if (eventId != 0L) viewModel.loadEvent(eventId)
+    }
+
+    LaunchedEffect(draftConfig) {
+        if (draftConfig != null) viewModel.seedDraftOnce(draftConfig)
     }
 
     LaunchedEffect(state.isSaved) {
@@ -121,7 +129,13 @@ fun CreateEventScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(if (eventId == 0L) "New Event" else "Edit Event")
+                    Text(
+                        when {
+                            isDraft -> "Configure Event"
+                            eventId == 0L -> "New Event"
+                            else -> "Edit Event"
+                        }
+                    )
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
@@ -129,18 +143,30 @@ fun CreateEventScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { viewModel.save(eventId) },
-                        enabled = !state.isLoading
-                    ) {
-                        if (state.isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onSurface
+                    if (isDraft) {
+                        TextButton(onClick = { viewModel.confirmDraft(draftConfig.onConfirm) }) {
+                            Text("Next")
+                            Spacer(Modifier.width(Spacing.xs))
+                            Icon(
+                                Icons.AutoMirrored.Rounded.ArrowForward,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
                             )
-                        } else {
-                            Icon(Icons.Rounded.Check, "Save")
+                        }
+                    } else {
+                        IconButton(
+                            onClick = { viewModel.save(eventId) },
+                            enabled = !state.isLoading
+                        ) {
+                            if (state.isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            } else {
+                                Icon(Icons.Rounded.Check, "Save")
+                            }
                         }
                     }
                 }
@@ -196,31 +222,43 @@ fun CreateEventScreen(
                 )
             }
 
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    SectionHeader("Fields")
-                    FilledTonalButton(onClick = { showAddFieldSheet = true }) {
-                        Icon(Icons.Rounded.Add, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(Spacing.xs))
-                        Text("Add Field")
+            // In draft mode (CSV import) fields come from the spreadsheet columns and
+            // are reviewed in a later step, so the manual Fields editor is hidden.
+            if (isDraft) {
+                item {
+                    Text(
+                        "Fields will be created from the columns in your CSV file in the next steps.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SectionHeader("Fields")
+                        FilledTonalButton(onClick = { showAddFieldSheet = true }) {
+                            Icon(Icons.Rounded.Add, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(Spacing.xs))
+                            Text("Add Field")
+                        }
                     }
                 }
-            }
 
-            itemsIndexed(state.fields) { index, field ->
-                FieldConfigCard(
-                    field = field,
-                    index = index,
-                    totalCount = state.fields.size,
-                    onEdit = { editingFieldIndex = index },
-                    onDelete = { viewModel.removeField(index) },
-                    onMoveUp = { viewModel.moveFieldUp(index) },
-                    onMoveDown = { viewModel.moveFieldDown(index) }
-                )
+                itemsIndexed(state.fields) { index, field ->
+                    FieldConfigCard(
+                        field = field,
+                        index = index,
+                        totalCount = state.fields.size,
+                        onEdit = { editingFieldIndex = index },
+                        onDelete = { viewModel.removeField(index) },
+                        onMoveUp = { viewModel.moveFieldUp(index) },
+                        onMoveDown = { viewModel.moveFieldDown(index) }
+                    )
+                }
             }
 
             item { Spacer(Modifier.height(Spacing.fabClearance - Spacing.screenEdge)) }
