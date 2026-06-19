@@ -151,8 +151,7 @@ fun AppNavigation() {
                 EventsScreen(
                     onNavigateToCreate = { navController.navigate(Screen.CreateEvent.route) },
                     onNavigateToEvent = { id -> navController.navigate(Screen.EventDetail.route(id)) },
-                    onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
-                    onNavigateToImport = { navController.navigate(Screen.ImportCsv.route) }
+                    onNavigateToSettings = { navController.navigate(Screen.Settings.route) }
                 )
             }
 
@@ -227,7 +226,10 @@ fun AppNavigation() {
             }
 
             composable(Screen.Settings.route) {
-                SettingsScreen(onNavigateBack = { navController.popBackStack() })
+                SettingsScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToImport = { navController.navigate(Screen.ImportCsv.route) }
+                )
             }
         }
     }
