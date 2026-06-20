@@ -2,6 +2,7 @@ package com.lifelog.app.domain
 
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventFilterState
+import com.lifelog.app.domain.model.EventSortOption
 import com.lifelog.app.domain.model.EventType
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -43,6 +44,26 @@ class EventFilterUseCase @Inject constructor() {
                 et.category.contains(query, ignoreCase = true)
             }
         }
+
+    /**
+     * Orders event types for display. Name comparisons are case-insensitive.
+     * For [EventSortOption.RECENT_ACTIVITY], types with no entries (null
+     * [EventType.lastEntryAt]) sort to the bottom, then alphabetically among
+     * themselves for a stable, predictable order.
+     */
+    fun sortEventTypes(
+        types: List<EventType>,
+        sortOption: EventSortOption
+    ): List<EventType> = when (sortOption) {
+        EventSortOption.NAME_ASC -> types.sortedBy { it.name.lowercase() }
+        EventSortOption.NAME_DESC -> types.sortedByDescending { it.name.lowercase() }
+        EventSortOption.CREATED_NEWEST -> types.sortedByDescending { it.createdAt }
+        EventSortOption.CREATED_OLDEST -> types.sortedBy { it.createdAt }
+        EventSortOption.RECENT_ACTIVITY -> types.sortedWith(
+            compareByDescending<EventType> { it.lastEntryAt ?: Long.MIN_VALUE }
+                .thenBy { it.name.lowercase() }
+        )
+    }
 
     fun extractTags(eventTypes: List<EventType>): List<String> =
         eventTypes.mapNotNull { it.category.takeIf { c -> c.isNotBlank() } }

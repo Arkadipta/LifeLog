@@ -14,6 +14,12 @@ data class EntryCountByType(
     val count: Int
 )
 
+/** Projection for [EventTypeDao.observeLatestEntryTimes]: most recent entry time per type that has entries. */
+data class LatestEntryByType(
+    val eventTypeId: Long,
+    val latestAt: Long
+)
+
 @Dao
 interface EventTypeDao {
 
@@ -46,6 +52,15 @@ interface EventTypeDao {
      */
     @Query("SELECT eventTypeId, COUNT(*) AS count FROM event_entries GROUP BY eventTypeId")
     fun observeEntryCounts(): Flow<List<EntryCountByType>>
+
+    /**
+     * Observable most-recent entry time per type. Like [observeEntryCounts] this
+     * reads `event_entries`, so Room re-emits when an entry is added, edited, or
+     * deleted — keeping "Recent activity" sorting on [EventsScreen] live. Types
+     * with zero entries are absent (GROUP BY), so callers default missing ids to null.
+     */
+    @Query("SELECT eventTypeId, MAX(createdAt) AS latestAt FROM event_entries GROUP BY eventTypeId")
+    fun observeLatestEntryTimes(): Flow<List<LatestEntryByType>>
 
     @Query("SELECT * FROM event_types ORDER BY id ASC")
     suspend fun getAll(): List<EventTypeEntity>

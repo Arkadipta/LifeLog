@@ -3,8 +3,10 @@ package com.lifelog.app.ui.events
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
+import com.lifelog.app.data.repository.UserPreferencesRepository
 import com.lifelog.app.domain.EventFilterUseCase
 import com.lifelog.app.domain.model.EventFilterState
+import com.lifelog.app.domain.model.EventSortOption
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,6 +24,7 @@ import javax.inject.Inject
 class EventsViewModel @Inject constructor(
     private val repository: EventRepository,
     private val filterUseCase: EventFilterUseCase,
+    private val prefsRepo: UserPreferencesRepository,
     private val widgetUpdater: WidgetUpdater
 ) : ViewModel() {
 
@@ -31,6 +34,10 @@ class EventsViewModel @Inject constructor(
     private val _filterState = MutableStateFlow(EventFilterState())
     val filterState: StateFlow<EventFilterState> = _filterState.asStateFlow()
 
+    val sortOption: StateFlow<EventSortOption> = prefsRepo.userPreferences
+        .map { it.eventSortOption }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EventSortOption.DEFAULT)
+
     val availableTags: StateFlow<List<String>> =
         repository.observeAllEventTypes()
             .map { filterUseCase.extractTags(it) }
@@ -39,14 +46,20 @@ class EventsViewModel @Inject constructor(
     val eventTypes: StateFlow<List<EventType>> = combine(
         repository.observeAllEventTypes(),
         _searchQuery,
-        _filterState
-    ) { types, query, state ->
-        filterUseCase.filterEventTypes(types, query, state)
+        _filterState,
+        sortOption
+    ) { types, query, state, sort ->
+        val filtered = filterUseCase.filterEventTypes(types, query, state)
+        filterUseCase.sortEventTypes(filtered, sort)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun setSearchQuery(q: String) { _searchQuery.value = q }
 
     fun updateFilter(state: EventFilterState) { _filterState.value = state }
+
+    fun setSortOption(option: EventSortOption) {
+        viewModelScope.launch { prefsRepo.setEventSortOption(option) }
+    }
 
     fun deleteEventType(id: Long) {
         viewModelScope.launch {

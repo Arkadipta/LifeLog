@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.lifelog.app.domain.model.EventSortOption
 import com.lifelog.app.export.BackupFrequency
 import com.lifelog.app.export.ExportFormat
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -21,7 +22,8 @@ data class UserPreferences(
     val useDynamicColor: Boolean = false,
     val backupFrequency: BackupFrequency = BackupFrequency.OFF,
     val backupFormat: ExportFormat = ExportFormat.SQLITE,
-    val lastBackupAt: Long = 0L
+    val lastBackupAt: Long = 0L,
+    val eventSortOption: EventSortOption = EventSortOption.DEFAULT
 )
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "user_preferences")
@@ -36,6 +38,7 @@ class UserPreferencesRepository @Inject constructor(
         val BACKUP_FREQUENCY = stringPreferencesKey("backup_frequency")
         val BACKUP_FORMAT = stringPreferencesKey("backup_format")
         val LAST_BACKUP_AT = longPreferencesKey("last_backup_at")
+        val EVENT_SORT_OPTION = stringPreferencesKey("event_sort_option")
     }
 
     val userPreferences: Flow<UserPreferences> = context.dataStore.data.map { prefs ->
@@ -48,7 +51,10 @@ class UserPreferencesRepository @Inject constructor(
             backupFormat = prefs[Keys.BACKUP_FORMAT]
                 ?.let { runCatching { ExportFormat.valueOf(it) }.getOrNull() }
                 ?: ExportFormat.SQLITE,
-            lastBackupAt = prefs[Keys.LAST_BACKUP_AT] ?: 0L
+            lastBackupAt = prefs[Keys.LAST_BACKUP_AT] ?: 0L,
+            eventSortOption = prefs[Keys.EVENT_SORT_OPTION]
+                ?.let { runCatching { EventSortOption.valueOf(it) }.getOrNull() }
+                ?: EventSortOption.DEFAULT
         )
     }
 
@@ -70,5 +76,9 @@ class UserPreferencesRepository @Inject constructor(
 
     suspend fun setLastBackupAt(timestamp: Long) {
         context.dataStore.edit { it[Keys.LAST_BACKUP_AT] = timestamp }
+    }
+
+    suspend fun setEventSortOption(option: EventSortOption) {
+        context.dataStore.edit { it[Keys.EVENT_SORT_OPTION] = option.name }
     }
 }
