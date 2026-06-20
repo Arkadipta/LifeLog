@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -55,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.FieldValue
+import com.lifelog.app.domain.model.legacyMismatchOf
 import com.lifelog.app.ui.components.LifeLogCard
 import com.lifelog.app.ui.components.SwipeActionBackground
 import com.lifelog.app.ui.theme.accentTileColors
@@ -284,6 +286,12 @@ fun EntryCard(
     // text/icon directly on the card surface (raw, they wash out in light mode).
     val accentOnSurface = rememberAccentOnSurface(accent)
     val orderedFields = fields.filter { entry.fieldValues.containsKey(it.id) }
+    // Any value whose stored subtype no longer matches its field's declared type
+    // (the field was retyped after this entry was saved) flags the card so the
+    // legacy data is obvious before opening the editor.
+    val hasLegacyValues = orderedFields.any {
+        legacyMismatchOf(it.type, entry.fieldValues[it.id]) != null
+    }
     val preview = orderedFields.take(PREVIEW_FIELD_COUNT)
     val hasMore = orderedFields.size > PREVIEW_FIELD_COUNT ||
         entry.note.likelyTruncatedAt(NOTE_PREVIEW_FIT) ||
@@ -356,11 +364,24 @@ fun EntryCard(
                 }
                 Spacer(Modifier.width(Spacing.sm))
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        entry.createdAt.relativeTimeLabel(),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (hasLegacyValues) {
+                            Icon(
+                                Icons.Rounded.WarningAmber,
+                                contentDescription = "Contains legacy values",
+                                tint = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        Text(
+                            entry.createdAt.relativeTimeLabel(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     if (showFullDate) {
                         Text(
                             entry.createdAt.toDisplayDate(),

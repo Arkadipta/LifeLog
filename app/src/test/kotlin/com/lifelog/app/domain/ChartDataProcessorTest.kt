@@ -118,6 +118,50 @@ class ChartDataProcessorTest {
         assertEquals(ChartData.InsufficientData, data)
     }
 
+    // ── Stale configurations ──────────────────────────────────────────────────
+
+    @Test
+    fun `field retyped away from numeric makes the chart stale`() {
+        val entries = listOf(entry(NOW - DAY, 70.0), entry(NOW - 2 * DAY, 71.0))
+        val retyped = listOf(
+            EventField(id = WEIGHT, name = "Weight", type = FieldType.TEXT),
+            EventField(id = MEAL, name = "Meal", type = FieldType.CHOICE)
+        )
+        // Legacy numeric values still exist, but the field is no longer numeric —
+        // staleness takes precedence over rendering the deprecated data.
+        val data = ChartDataProcessor.process(config(), entries, retyped, NOW)
+
+        assertEquals(ChartData.StaleConfig, data)
+    }
+
+    @Test
+    fun `chart referencing a missing field is stale`() {
+        val entries = listOf(entry(NOW - DAY, 70.0))
+        val data = ChartDataProcessor.process(config(fieldIds = listOf(999L)), entries, fields, NOW)
+
+        assertEquals(ChartData.StaleConfig, data)
+    }
+
+    @Test
+    fun `pie chart with a non-categorical group field is stale`() {
+        val entries = listOf(entry(NOW - DAY, 70.0, meal = "Lunch"))
+        // group-by points at the numeric Weight field, not a choice/multi-select.
+        val data = ChartDataProcessor.process(
+            config(type = ChartType.PIE, fieldIds = listOf(WEIGHT), groupBy = WEIGHT),
+            entries, fields, NOW
+        )
+
+        assertEquals(ChartData.StaleConfig, data)
+    }
+
+    @Test
+    fun `valid numeric config is not stale`() {
+        val entries = listOf(entry(NOW - DAY, 70.0))
+        val data = ChartDataProcessor.process(config(), entries, fields, NOW)
+
+        assertTrue("expected a rendered chart, was $data", data is ChartData.Cartesian)
+    }
+
     @Test
     fun `year view anchors to latest entry month`() {
         val latest = Calendar.getInstance().apply {
@@ -195,11 +239,13 @@ class ChartDataProcessorTest {
     }
 
     @Test
-    fun `field missing from event definition yields empty chart`() {
+    fun `field missing from event definition is stale`() {
         val entries = listOf(entry(NOW - DAY).copy(fieldValues = mapOf(MISSING to FieldValue.Numeric(1.0))))
         val data = ChartDataProcessor.process(config(fieldIds = listOf(MISSING)), entries, fields, NOW)
 
-        assertEquals(ChartData.Empty, data)
+        // A config pointing at a field that no longer exists is a stale config,
+        // surfaced so the user can edit/delete it (previously a silent Empty).
+        assertEquals(ChartData.StaleConfig, data)
     }
 
     @Test

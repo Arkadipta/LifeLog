@@ -27,7 +27,8 @@ fun ChartCarousel(
     onAddChart: () -> Unit,
     onEditChart: (ChartConfig) -> Unit,
     onDeleteChart: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showAddCard: Boolean = true
 ) {
     val eventAccentColor = eventType?.let { Color(it.colorArgb) } ?: MaterialTheme.colorScheme.primary
 
@@ -52,8 +53,10 @@ fun ChartCarousel(
                         .animateItem()
                 )
             }
-            item(key = "add_chart") {
-                AddChartCard(onClick = onAddChart)
+            if (showAddCard) {
+                item(key = "add_chart") {
+                    AddChartCard(onClick = onAddChart)
+                }
             }
         }
     }

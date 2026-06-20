@@ -41,6 +41,8 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -286,6 +288,39 @@ fun CreateEventScreen(
                 }
             )
         }
+    }
+
+    if (state.showTypeChangeWarning) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissTypeChangeWarning() },
+            icon = {
+                Icon(
+                    Icons.Rounded.WarningAmber,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.tertiary
+                )
+            },
+            title = { Text("Field type changed") },
+            text = {
+                Text(
+                    "This field already contains data.\n\n" +
+                        "Existing values will not be converted automatically. Legacy " +
+                        "values may behave differently in editing screens, charts, " +
+                        "filters, and sorting.\n\n" +
+                        "Continue anyway?"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.confirmTypeChangeAndSave(eventId) }) {
+                    Text("Continue")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissTypeChangeWarning() }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
