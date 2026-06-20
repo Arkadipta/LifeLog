@@ -22,7 +22,8 @@ val appJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
 fun EventTypeEntity.toDomain(
     fields: List<EventField> = emptyList(),
-    entryCount: Int = 0
+    entryCount: Int = 0,
+    lastEntryAt: Long? = null
 ) = EventType(
     id = id,
     name = name,
@@ -33,7 +34,8 @@ fun EventTypeEntity.toDomain(
     fields = fields,
     createdAt = createdAt,
     updatedAt = updatedAt,
-    entryCount = entryCount
+    entryCount = entryCount,
+    lastEntryAt = lastEntryAt
 )
 
 fun EventType.toEntity() = EventTypeEntity(

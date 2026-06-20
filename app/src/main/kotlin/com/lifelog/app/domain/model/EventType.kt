@@ -10,7 +10,9 @@ data class EventType(
     val fields: List<EventField> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val entryCount: Int = 0
+    val entryCount: Int = 0,
+    /** Most recent entry timestamp for this type, or null when it has no entries. */
+    val lastEntryAt: Long? = null
 ) {
     companion object {
         // Soft Blue — the first swatch in EventColors. Keep these in sync.

@@ -30,12 +30,15 @@ class EventRepository @Inject constructor(
             eventTypeDao.observeAll(),
             // Observed (not a one-shot getEntryCount) so adding/importing/deleting an
             // entry re-emits the list with a fresh count without an event-type edit.
-            eventTypeDao.observeEntryCounts()
-        ) { entities, counts ->
+            eventTypeDao.observeEntryCounts(),
+            // Drives "Recent activity" sorting; re-emits on any entry change too.
+            eventTypeDao.observeLatestEntryTimes()
+        ) { entities, counts, latestTimes ->
             val countByType = counts.associate { it.eventTypeId to it.count }
+            val latestByType = latestTimes.associate { it.eventTypeId to it.latestAt }
             entities.map { entity ->
                 val fields = eventFieldDao.getByEventType(entity.id).map { it.toDomain() }
-                entity.toDomain(fields, countByType[entity.id] ?: 0)
+                entity.toDomain(fields, countByType[entity.id] ?: 0, latestByType[entity.id])
             }
         }
 

@@ -13,10 +13,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.List
+import androidx.compose.material.icons.automirrored.rounded.Sort
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.DockedSearchBar
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -28,6 +32,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -36,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lifelog.app.domain.model.EventSortOption
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
 import com.lifelog.app.ui.components.IconTile
@@ -61,6 +69,7 @@ fun EventsScreen(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val filterState by viewModel.filterState.collectAsStateWithLifecycle()
     val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
+    val sortOption by viewModel.sortOption.collectAsStateWithLifecycle()
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -69,6 +78,10 @@ fun EventsScreen(
             LargeTopAppBar(
                 title = { Text("Events") },
                 actions = {
+                    EventSortAction(
+                        selected = sortOption,
+                        onSelect = viewModel::setSortOption
+                    )
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(Icons.Rounded.Settings, "Settings")
                     }
@@ -167,6 +180,44 @@ fun EventsScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * App-bar sort control: a sort icon opening a single-choice dropdown of
+ * [EventSortOption]s. The active option carries a trailing check. Selecting an
+ * option persists it (see [EventsViewModel.setSortOption]) and reorders the list.
+ */
+@Composable
+private fun EventSortAction(
+    selected: EventSortOption,
+    onSelect: (EventSortOption) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(Icons.AutoMirrored.Rounded.Sort, "Sort events")
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            EventSortOption.entries.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.label) },
+                    onClick = {
+                        onSelect(option)
+                        expanded = false
+                    },
+                    trailingIcon = {
+                        if (option == selected) {
+                            Icon(Icons.Rounded.Check, null)
+                        }
+                    }
+                )
             }
         }
     }
