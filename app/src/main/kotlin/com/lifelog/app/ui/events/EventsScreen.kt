@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.List
-import androidx.compose.material.icons.automirrored.rounded.NoteAdd
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -44,6 +43,7 @@ import com.lifelog.app.ui.components.LabelChip
 import com.lifelog.app.ui.components.LifeLogCard
 import com.lifelog.app.ui.components.LifeLogFab
 import com.lifelog.app.ui.components.TagFilterRow
+import com.lifelog.app.ui.icons.LifeLogIcons
 import com.lifelog.app.ui.theme.Sizing
 import com.lifelog.app.ui.theme.Spacing
 import com.lifelog.app.util.formatEntryCount
@@ -83,7 +83,7 @@ fun EventsScreen(
         floatingActionButton = {
             LifeLogFab(
                 onClick = onNavigateToCreate,
-                icon = Icons.AutoMirrored.Rounded.NoteAdd,
+                icon = LifeLogIcons.ListAltAdd,
                 contentDescription = "New Event"
             )
         },
