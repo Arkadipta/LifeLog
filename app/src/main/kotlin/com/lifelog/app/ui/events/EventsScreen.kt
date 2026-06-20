@@ -13,7 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.List
-import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.automirrored.rounded.NoteAdd
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -83,8 +83,8 @@ fun EventsScreen(
         floatingActionButton = {
             LifeLogFab(
                 onClick = onNavigateToCreate,
-                icon = Icons.Rounded.Add,
-                text = "New Event"
+                icon = Icons.AutoMirrored.Rounded.NoteAdd,
+                contentDescription = "New Event"
             )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)

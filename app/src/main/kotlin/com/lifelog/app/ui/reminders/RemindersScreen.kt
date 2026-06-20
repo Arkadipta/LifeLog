@@ -16,8 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.NotificationAdd
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -105,8 +105,8 @@ fun RemindersScreen(
         floatingActionButton = {
             LifeLogFab(
                 onClick = onNavigateToCreate,
-                icon = Icons.Rounded.Add,
-                text = "New Reminder"
+                icon = Icons.Rounded.NotificationAdd,
+                contentDescription = "New Reminder"
             )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection)
