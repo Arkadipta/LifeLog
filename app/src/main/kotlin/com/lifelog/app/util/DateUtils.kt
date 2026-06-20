@@ -21,11 +21,21 @@ private val iso8601Format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.get
 private val clock12Format = simpleDateFormat("h:mm")
 private val clock24Format = SimpleDateFormat("HH:mm", Locale.getDefault())
 private val meridiemFormat = simpleDateFormat("a")
+private val widgetStamp12Format = simpleDateFormat("d MMM yyyy, hh:mm a")
+private val widgetStamp24Format = SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault())
 
 fun Long.toDisplayDateTime(): String = dateTimeFormat.format(Date(this))
 fun Long.toDisplayDate(): String = dateFormat.format(Date(this))
 fun Long.toDisplayTime(): String = timeFormat.format(Date(this))
 fun Long.toIso8601(): String = iso8601Format.format(Date(this))
+
+/**
+ * The exact timestamp shown as the primary value on timeline-widget entries —
+ * "20 Jun 2026, 09:14 AM", or "20 Jun 2026, 21:14" where the device prefers
+ * 24-hour time. [is24Hour] comes from DateFormat.is24HourFormat(context).
+ */
+fun Long.toWidgetTimestamp(is24Hour: Boolean): String =
+    (if (is24Hour) widgetStamp24Format else widgetStamp12Format).format(Date(this))
 
 /**
  * Clock reading split for the entry time tile: "14:32" to null in 24-hour
