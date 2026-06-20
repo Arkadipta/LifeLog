@@ -234,6 +234,19 @@ private fun accentContent(accent: Color): ColorProvider =
 private fun accentTile(accent: Color): ColorProvider =
     ColorProvider(accent.copy(alpha = 0.16f))
 
+/**
+ * How strongly each entry card is tinted with its source event's color. Every
+ * card carries its event color (in all scopes) so an entry's source is obvious at
+ * a glance; the tint is kept low so the card still reads as "mostly surface" and
+ * the standard onSurface / onSurfaceVariant text stays well above contrast minimums
+ * over it, in both light and dark.
+ */
+private const val ENTRY_TINT_ALPHA = 0.12f
+
+/** The event-colored background of an entry card. */
+private fun entryCardTint(accent: Color): ColorProvider =
+    ColorProvider(accent.copy(alpha = ENTRY_TINT_ALPHA))
+
 /** Field value with its unit appended for numeric fields ("120 mmHg"). */
 private fun widgetFieldValue(field: EventField, value: FieldValue): String {
     val display = value.displayString()
@@ -417,34 +430,47 @@ private fun QuickAddButton(context: Context, eventId: Long, eventName: String, a
     }
 }
 
-/** A rounded, faintly accent-tinted tile holding the tinted event icon. */
+/**
+ * A rounded tile holding the event icon. [filled] = true paints a solid accent
+ * chip with a black/white icon (used as the per-entry source marker, so it stays
+ * distinct on top of the event-tinted card); [filled] = false is the faint tile
+ * used in the single-event header, where it sits on the plain widget surface.
+ */
 @Composable
-private fun WidgetIconTile(iconName: String, accent: Color, tileSize: Dp, iconSize: Dp) {
+private fun WidgetIconTile(
+    iconName: String,
+    accent: Color,
+    tileSize: Dp,
+    iconSize: Dp,
+    filled: Boolean = false
+) {
     val context = LocalContext.current
     val px = (iconSize.value * context.resources.displayMetrics.density).toInt()
+    val tileBg = if (filled) ColorProvider(accent) else accentTile(accent)
+    val iconTint = if (filled) ColorProvider(accent.bestContentColor()) else accentContent(accent)
     Box(
         modifier = GlanceModifier
             .size(tileSize)
-            .background(accentTile(accent))
+            .background(tileBg)
             .cornerRadius(10.dp),
         contentAlignment = Alignment.Center
     ) {
         Image(
             provider = ImageProvider(widgetIconMask(iconName, px)),
             contentDescription = null,
-            colorFilter = ColorFilter.tint(accentContent(accent)),
+            colorFilter = ColorFilter.tint(iconTint),
             modifier = GlanceModifier.size(iconSize)
         )
     }
 }
 
 /**
- * One logged entry, rendered as an activity-feed card. The exact timestamp is the
- * primary value with the relative age as quiet metadata beside it; every field is
- * listed in full below. On tag / all-event widgets the card is prefixed with the
- * source event's icon and name (and its tag, on all-event widgets) so each entry
- * is clearly attributable; single-event widgets omit that — the header owns it —
- * and tint the card with the event accent instead.
+ * One logged entry, rendered as an activity-feed card tinted with its source
+ * event's color (in every scope), so an entry's origin reads at a glance. The
+ * exact timestamp is the primary value with the relative age as quiet metadata
+ * beside it; every field is listed in full below. On tag / all-event widgets the
+ * card is also prefixed with the event's icon chip and name (and its tag, on
+ * all-event widgets); single-event widgets omit that — the header owns it.
  */
 @Composable
 private fun EntryCard(
@@ -459,8 +485,7 @@ private fun EntryCard(
     val showTag = filterMode == TimelineWidget.FILTER_ALL
     val accent = Color(entry.eventTypeColor)
 
-    val cardBg = if (isEvent) ColorProvider(accent.copy(alpha = 0.10f))
-                 else GlanceTheme.colors.surfaceVariant
+    val cardBg = entryCardTint(accent)
 
     val orderedFields = fields.filter { entry.fieldValues.containsKey(it.id) }
     val fieldFontSize = if (isCompact) 11.sp else 12.sp
@@ -483,7 +508,8 @@ private fun EntryCard(
                         iconName = entry.eventTypeIcon,
                         accent = accent,
                         tileSize = 28.dp,
-                        iconSize = 16.dp
+                        iconSize = 16.dp,
+                        filled = true
                     )
                     Spacer(GlanceModifier.width(8.dp))
                     Text(
