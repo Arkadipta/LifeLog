@@ -1,11 +1,13 @@
 package com.lifelog.app.widget
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.app.NotificationManagerCompat
+import com.lifelog.app.MainActivity
 import com.lifelog.app.data.repository.UserPreferences
 import com.lifelog.app.data.repository.UserPreferencesRepository
 import com.lifelog.app.ui.events.EntryFormSheet
@@ -43,6 +45,23 @@ class QuickAddActivity : ComponentActivity() {
                         if (notificationId != -1) {
                             NotificationManagerCompat.from(this).cancel(notificationId)
                         }
+                        finish()
+                    },
+                    onViewHistory = { id ->
+                        if (notificationId != -1) {
+                            NotificationManagerCompat.from(this).cancel(notificationId)
+                        }
+                        // Leave the transient overlay and open the full app on the
+                        // event's detail screen so past entries can be reviewed.
+                        startActivity(
+                            Intent(this, MainActivity::class.java).apply {
+                                putExtra(MainActivity.EXTRA_OPEN_EVENT_ID, id)
+                                addFlags(
+                                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                )
+                            }
+                        )
                         finish()
                     }
                 )

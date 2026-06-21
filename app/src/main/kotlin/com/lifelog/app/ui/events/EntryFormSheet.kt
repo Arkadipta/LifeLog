@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -37,16 +39,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.ui.components.IconTile
 import com.lifelog.app.ui.components.LifeLogTimePickerDialog
 import com.lifelog.app.ui.components.SectionHeader
 import com.lifelog.app.ui.components.SheetHeader
 import com.lifelog.app.ui.events.components.FieldInput
 import com.lifelog.app.ui.theme.Sizing
 import com.lifelog.app.ui.theme.Spacing
+import com.lifelog.app.ui.theme.rememberAccentOnSurface
+import com.lifelog.app.util.iconForName
 import com.lifelog.app.util.toDisplayDate
 import com.lifelog.app.util.toDisplayTime
 import java.util.Calendar
@@ -57,6 +65,7 @@ fun EntryFormSheet(
     eventTypeId: Long,
     editingEntryId: Long?,
     onDismiss: () -> Unit,
+    onViewHistory: ((eventTypeId: Long) -> Unit)? = null,
     viewModel: EntryViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -89,6 +98,17 @@ fun EntryFormSheet(
                 title = if (editingEntryId != null) "Edit Entry" else "New Entry",
                 onClose = onDismiss
             )
+
+            // Event context — confirms which event this entry belongs to and
+            // offers a shortcut to its history. Pinned above the scrolling form
+            // so the event stays identifiable while data is being entered.
+            state.eventType?.let { eventType ->
+                EventContextBar(
+                    eventType = eventType,
+                    onViewHistory = onViewHistory?.let { navigate -> { navigate(eventType.id) } },
+                    modifier = Modifier.padding(bottom = Spacing.xs)
+                )
+            }
 
             Column(
                 modifier = Modifier
@@ -209,6 +229,52 @@ fun EntryFormSheet(
                 showTimePicker = false
             }
         )
+    }
+}
+
+/**
+ * Event-identity strip at the top of the entry form: the event's icon tile and
+ * name (in its accent color) so the user can confirm what they are logging
+ * against, plus an optional shortcut into the event's full history.
+ */
+@Composable
+private fun EventContextBar(
+    eventType: EventType,
+    onViewHistory: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    val accent = Color(eventType.colorArgb)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.sheetEdge),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+    ) {
+        IconTile(
+            icon = iconForName(eventType.iconName),
+            tint = accent,
+            size = Sizing.iconTileSmall
+        )
+        Text(
+            text = eventType.name,
+            style = MaterialTheme.typography.titleMedium,
+            color = rememberAccentOnSurface(accent),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        if (onViewHistory != null) {
+            TextButton(onClick = onViewHistory) {
+                Icon(
+                    Icons.Rounded.History,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(Spacing.xs))
+                Text("History")
+            }
+        }
     }
 }
 

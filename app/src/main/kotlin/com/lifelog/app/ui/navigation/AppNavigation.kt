@@ -95,8 +95,20 @@ private val bottomNavItems = listOf(
 )
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(
+    openEventId: Long? = null,
+    onEventOpened: () -> Unit = {}
+) {
     val navController = rememberNavController()
+
+    // An event id handed in from outside (e.g. the quick-add widget's "History"
+    // shortcut) routes straight to that event's detail screen, once.
+    LaunchedEffect(openEventId) {
+        if (openEventId != null) {
+            navController.navigate(Screen.EventDetail.route(openEventId))
+            onEventOpened()
+        }
+    }
 
     // Surface the result of a database restore that completed on the last launch.
     val context = LocalContext.current
@@ -198,7 +210,9 @@ fun AppNavigation() {
             }
 
             composable(Screen.Timeline.route) {
-                TimelineScreen()
+                TimelineScreen(
+                    onNavigateToEvent = { id -> navController.navigate(Screen.EventDetail.route(id)) }
+                )
             }
 
             composable(Screen.Reminders.route) {
