@@ -13,7 +13,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -22,12 +21,9 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
-import androidx.glance.Image
-import androidx.glance.ImageProvider
 import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.clickable
@@ -40,7 +36,6 @@ import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
-import androidx.glance.color.ColorProvider as dayNightColor
 import androidx.glance.background
 import androidx.glance.currentState
 import androidx.glance.layout.Alignment
@@ -72,7 +67,6 @@ import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.ui.theme.DarkColorScheme
 import com.lifelog.app.ui.theme.LightColorScheme
 import com.lifelog.app.ui.theme.bestContentColor
-import com.lifelog.app.ui.theme.onAccentTile
 import com.lifelog.app.util.relativeTimeLabel
 import com.lifelog.app.util.toWidgetTimestamp
 import dagger.hilt.EntryPoint
@@ -221,31 +215,9 @@ class TimelineWidget : GlanceAppWidget() {
 }
 
 // --- Theming helpers -------------------------------------------------------
-// Plain (non-composable) builders so they work inside the Glance tree. Each
-// accent ColorProvider carries day/night variants that mirror the in-app
-// rememberAccentOnSurface correction, so bright pastel accents stay legible in
-// both light and dark.
-
-/** The accent drawn as content (icon/text) over a surface, corrected per theme. */
-private fun accentContent(accent: Color): ColorProvider =
-    dayNightColor(day = accent.onAccentTile(false), night = accent.onAccentTile(true))
-
-/** The faint accent tint behind an icon tile — a translucent wash over the surface. */
-private fun accentTile(accent: Color): ColorProvider =
-    ColorProvider(accent.copy(alpha = 0.16f))
-
-/**
- * How strongly each entry card is tinted with its source event's color. Every
- * card carries its event color (in all scopes) so an entry's source is obvious at
- * a glance; the tint is kept low so the card still reads as "mostly surface" and
- * the standard onSurface / onSurfaceVariant text stays well above contrast minimums
- * over it, in both light and dark.
- */
-private const val ENTRY_TINT_ALPHA = 0.12f
-
-/** The event-colored background of an entry card. */
-private fun entryCardTint(accent: Color): ColorProvider =
-    ColorProvider(accent.copy(alpha = ENTRY_TINT_ALPHA))
+// The shared widget design tokens (accentContent, accentTile, entryCardTint,
+// WidgetIconTile) live in WidgetTheme.kt so the Timeline and Quick Add widgets
+// render from one design system. Only Timeline-specific helpers remain here.
 
 /** Field value with its unit appended for numeric fields ("120 mmHg"). */
 private fun widgetFieldValue(field: EventField, value: FieldValue): String {
@@ -426,40 +398,6 @@ private fun QuickAddButton(context: Context, eventId: Long, eventName: String, a
                 fontWeight = FontWeight.Bold,
                 color = ColorProvider(accent.bestContentColor())
             )
-        )
-    }
-}
-
-/**
- * A rounded tile holding the event icon. [filled] = true paints a solid accent
- * chip with a black/white icon (used as the per-entry source marker, so it stays
- * distinct on top of the event-tinted card); [filled] = false is the faint tile
- * used in the single-event header, where it sits on the plain widget surface.
- */
-@Composable
-private fun WidgetIconTile(
-    iconName: String,
-    accent: Color,
-    tileSize: Dp,
-    iconSize: Dp,
-    filled: Boolean = false
-) {
-    val context = LocalContext.current
-    val px = (iconSize.value * context.resources.displayMetrics.density).toInt()
-    val tileBg = if (filled) ColorProvider(accent) else accentTile(accent)
-    val iconTint = if (filled) ColorProvider(accent.bestContentColor()) else accentContent(accent)
-    Box(
-        modifier = GlanceModifier
-            .size(tileSize)
-            .background(tileBg)
-            .cornerRadius(10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Image(
-            provider = ImageProvider(widgetIconMask(iconName, px)),
-            contentDescription = null,
-            colorFilter = ColorFilter.tint(iconTint),
-            modifier = GlanceModifier.size(iconSize)
         )
     }
 }
