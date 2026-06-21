@@ -87,7 +87,7 @@ class TimelineWidgetConfigActivity : ComponentActivity() {
         setContent {
             LifeLogTheme {
                 TimelineConfigScreen(
-                    onConfigured = { filterMode, eventTypeId, eventName, tag ->
+                    onConfigured = { filterMode, eventTypeId, eventName, tag, eventColor, eventIcon ->
                         lifecycleScope.launch {
                             val manager = GlanceAppWidgetManager(this@TimelineWidgetConfigActivity)
                             // getGlanceIdBy() creates a state entry for this appWidgetId even on
@@ -121,6 +121,8 @@ class TimelineWidgetConfigActivity : ComponentActivity() {
                                     this[TimelineWidget.PREF_EVENT_ID]    = eventTypeId
                                     this[TimelineWidget.PREF_EVENT_NAME]  = eventName
                                     this[TimelineWidget.PREF_TAG]         = tag
+                                    this[TimelineWidget.PREF_EVENT_COLOR] = eventColor
+                                    this[TimelineWidget.PREF_EVENT_ICON]  = eventIcon
                                 }
                             }
                             Log.d(TAG, "onConfigured: state written, triggering update ts=${System.currentTimeMillis()}")
@@ -149,7 +151,14 @@ private enum class ConfigStep { FILTER_MODE, PICK_EVENT, PICK_TAG }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TimelineConfigScreen(
-    onConfigured: (filterMode: String, eventTypeId: Long, eventName: String, tag: String) -> Unit,
+    onConfigured: (
+        filterMode: String,
+        eventTypeId: Long,
+        eventName: String,
+        tag: String,
+        eventColor: Int,
+        eventIcon: String
+    ) -> Unit,
     onCancel: () -> Unit,
     viewModel: TimelineWidgetConfigViewModel = hiltViewModel()
 ) {
@@ -187,7 +196,9 @@ private fun TimelineConfigScreen(
                 onModeSelected = { mode ->
                     selectedMode = mode
                     when (mode) {
-                        TimelineWidget.FILTER_ALL -> onConfigured(mode, 0L, "", "")
+                        TimelineWidget.FILTER_ALL -> onConfigured(
+                            mode, 0L, "", "", EventType.DEFAULT_COLOR, "star"
+                        )
                         TimelineWidget.FILTER_EVENT -> step = ConfigStep.PICK_EVENT
                         TimelineWidget.FILTER_TAG -> step = ConfigStep.PICK_TAG
                     }
@@ -198,7 +209,7 @@ private fun TimelineConfigScreen(
                 modifier = Modifier.padding(padding),
                 eventTypes = eventTypes,
                 onEventSelected = { et ->
-                    onConfigured(selectedMode, et.id, et.name, "")
+                    onConfigured(selectedMode, et.id, et.name, "", et.colorArgb, et.iconName)
                 }
             )
 
@@ -206,7 +217,7 @@ private fun TimelineConfigScreen(
                 modifier = Modifier.padding(padding),
                 categories = categories,
                 onTagSelected = { tag ->
-                    onConfigured(selectedMode, 0L, "", tag)
+                    onConfigured(selectedMode, 0L, "", tag, EventType.DEFAULT_COLOR, "star")
                 }
             )
         }

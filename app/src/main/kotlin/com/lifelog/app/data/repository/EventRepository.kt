@@ -8,6 +8,7 @@ import com.lifelog.app.data.db.dao.EventEntryDao
 import com.lifelog.app.data.db.dao.EventFieldDao
 import com.lifelog.app.data.db.dao.EventTypeDao
 import com.lifelog.app.domain.model.EventEntry
+import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventType
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -202,6 +203,17 @@ class EventRepository @Inject constructor(
             )
         }
     }
+
+    /**
+     * Field definitions for the given event types, keyed by event-type id with
+     * each list ordered by sortOrder. The timeline widget needs these to label
+     * every stored value — an [EventEntry] only carries field id → value, so the
+     * names ("Systolic", "Pulse", …) and units live on the field definitions.
+     */
+    suspend fun getFieldsByEventType(eventTypeIds: List<Long>): Map<Long, List<EventField>> =
+        eventTypeIds.distinct().associateWith { id ->
+            eventFieldDao.getByEventType(id).map { it.toDomain() }
+        }
 
     suspend fun getAllCategories(): List<String> =
         eventTypeDao.getAll()
