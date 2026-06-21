@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -22,6 +23,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -49,7 +51,6 @@ import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.components.IconTile
 import com.lifelog.app.ui.components.LifeLogTimePickerDialog
 import com.lifelog.app.ui.components.SectionHeader
-import com.lifelog.app.ui.components.SheetHeader
 import com.lifelog.app.ui.events.components.FieldInput
 import com.lifelog.app.ui.theme.Sizing
 import com.lifelog.app.ui.theme.Spacing
@@ -94,21 +95,15 @@ fun EntryFormSheet(
                 .fillMaxWidth()
                 .navigationBarsPadding()
         ) {
-            SheetHeader(
-                title = if (editingEntryId != null) "Edit Entry" else "New Entry",
+            // The event itself is the header — its icon and name identify what
+            // is being logged, so no redundant "New Entry" label is needed. The
+            // history shortcut and close action trail it on the same row,
+            // reclaiming the vertical space a separate title would take.
+            EntrySheetHeader(
+                eventType = state.eventType,
+                onViewHistory = onViewHistory,
                 onClose = onDismiss
             )
-
-            // Event context — confirms which event this entry belongs to and
-            // offers a shortcut to its history. Pinned above the scrolling form
-            // so the event stays identifiable while data is being entered.
-            state.eventType?.let { eventType ->
-                EventContextBar(
-                    eventType = eventType,
-                    onViewHistory = onViewHistory?.let { navigate -> { navigate(eventType.id) } },
-                    modifier = Modifier.padding(bottom = Spacing.xs)
-                )
-            }
 
             Column(
                 modifier = Modifier
@@ -233,47 +228,50 @@ fun EntryFormSheet(
 }
 
 /**
- * Event-identity strip at the top of the entry form: the event's icon tile and
- * name (in its accent color) so the user can confirm what they are logging
- * against, plus an optional shortcut into the event's full history.
+ * The entry sheet's header. The event's icon tile and name (in its accent color)
+ * stand in for a generic title, so the user sees what they are logging without a
+ * redundant label; the optional history shortcut and the close action trail on
+ * the same row. Before the event resolves, only the close affordance shows.
  */
 @Composable
-private fun EventContextBar(
-    eventType: EventType,
-    onViewHistory: (() -> Unit)?,
+private fun EntrySheetHeader(
+    eventType: EventType?,
+    onViewHistory: ((eventTypeId: Long) -> Unit)?,
+    onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val accent = Color(eventType.colorArgb)
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = Spacing.sheetEdge),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.md)
+            .padding(start = Spacing.sheetEdge, end = Spacing.sm, bottom = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        IconTile(
-            icon = iconForName(eventType.iconName),
-            tint = accent,
-            size = Sizing.iconTileSmall
-        )
-        Text(
-            text = eventType.name,
-            style = MaterialTheme.typography.titleMedium,
-            color = rememberAccentOnSurface(accent),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
-        if (onViewHistory != null) {
-            TextButton(onClick = onViewHistory) {
-                Icon(
-                    Icons.Rounded.History,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(Spacing.xs))
-                Text("History")
+        if (eventType != null) {
+            val accent = Color(eventType.colorArgb)
+            IconTile(
+                icon = iconForName(eventType.iconName),
+                tint = accent,
+                size = Sizing.iconTileSmall
+            )
+            Spacer(Modifier.width(Spacing.md))
+            Text(
+                text = eventType.name,
+                style = MaterialTheme.typography.titleLarge,
+                color = rememberAccentOnSurface(accent),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            if (onViewHistory != null) {
+                IconButton(onClick = { onViewHistory(eventType.id) }) {
+                    Icon(Icons.Rounded.History, contentDescription = "View entry history")
+                }
             }
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        IconButton(onClick = onClose) {
+            Icon(Icons.Rounded.Close, contentDescription = "Close")
         }
     }
 }
