@@ -9,17 +9,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccessTime
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -37,16 +41,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.ui.components.IconTile
 import com.lifelog.app.ui.components.LifeLogTimePickerDialog
 import com.lifelog.app.ui.components.SectionHeader
-import com.lifelog.app.ui.components.SheetHeader
 import com.lifelog.app.ui.events.components.FieldInput
 import com.lifelog.app.ui.theme.Sizing
 import com.lifelog.app.ui.theme.Spacing
+import com.lifelog.app.ui.theme.rememberAccentOnSurface
+import com.lifelog.app.util.iconForName
 import com.lifelog.app.util.toDisplayDate
 import com.lifelog.app.util.toDisplayTime
 import java.util.Calendar
@@ -57,6 +66,7 @@ fun EntryFormSheet(
     eventTypeId: Long,
     editingEntryId: Long?,
     onDismiss: () -> Unit,
+    onViewHistory: ((eventTypeId: Long) -> Unit)? = null,
     viewModel: EntryViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -85,8 +95,13 @@ fun EntryFormSheet(
                 .fillMaxWidth()
                 .navigationBarsPadding()
         ) {
-            SheetHeader(
-                title = if (editingEntryId != null) "Edit Entry" else "New Entry",
+            // The event itself is the header — its icon and name identify what
+            // is being logged, so no redundant "New Entry" label is needed. The
+            // history shortcut and close action trail it on the same row,
+            // reclaiming the vertical space a separate title would take.
+            EntrySheetHeader(
+                eventType = state.eventType,
+                onViewHistory = onViewHistory,
                 onClose = onDismiss
             )
 
@@ -209,6 +224,55 @@ fun EntryFormSheet(
                 showTimePicker = false
             }
         )
+    }
+}
+
+/**
+ * The entry sheet's header. The event's icon tile and name (in its accent color)
+ * stand in for a generic title, so the user sees what they are logging without a
+ * redundant label; the optional history shortcut and the close action trail on
+ * the same row. Before the event resolves, only the close affordance shows.
+ */
+@Composable
+private fun EntrySheetHeader(
+    eventType: EventType?,
+    onViewHistory: ((eventTypeId: Long) -> Unit)?,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = Spacing.sheetEdge, end = Spacing.sm, bottom = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (eventType != null) {
+            val accent = Color(eventType.colorArgb)
+            IconTile(
+                icon = iconForName(eventType.iconName),
+                tint = accent,
+                size = Sizing.iconTileSmall
+            )
+            Spacer(Modifier.width(Spacing.md))
+            Text(
+                text = eventType.name,
+                style = MaterialTheme.typography.titleLarge,
+                color = rememberAccentOnSurface(accent),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            if (onViewHistory != null) {
+                IconButton(onClick = { onViewHistory(eventType.id) }) {
+                    Icon(Icons.Rounded.History, contentDescription = "View entry history")
+                }
+            }
+        } else {
+            Spacer(Modifier.weight(1f))
+        }
+        IconButton(onClick = onClose) {
+            Icon(Icons.Rounded.Close, contentDescription = "Close")
+        }
     }
 }
 

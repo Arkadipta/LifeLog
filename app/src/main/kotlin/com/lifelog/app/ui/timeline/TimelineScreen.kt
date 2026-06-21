@@ -47,6 +47,7 @@ import com.lifelog.app.ui.theme.Spacing
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TimelineScreen(
+    onNavigateToEvent: (Long) -> Unit,
     viewModel: TimelineViewModel = hiltViewModel()
 ) {
     val entries by viewModel.entries.collectAsStateWithLifecycle()
@@ -171,7 +172,11 @@ fun TimelineScreen(
         EntryFormSheet(
             eventTypeId = 0L,
             editingEntryId = entryId,
-            onDismiss = { editingEntryId = null }
+            onDismiss = { editingEntryId = null },
+            onViewHistory = { eventId ->
+                editingEntryId = null
+                onNavigateToEvent(eventId)
+            }
         )
     }
 
