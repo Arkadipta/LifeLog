@@ -52,7 +52,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.lifelog.app.data.repository.UserPreferences
 import com.lifelog.app.data.repository.UserPreferencesRepository
+import com.lifelog.app.domain.model.Reminder
 import com.lifelog.app.ui.theme.LifeLogTheme
+import com.lifelog.app.util.snoozeShortLabel
 import com.lifelog.app.widget.QuickAddActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
@@ -81,6 +83,7 @@ class AlarmDismissActivity : ComponentActivity() {
         val message       = intent.getStringExtra(EXTRA_MESSAGE) ?: ""
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, reminderId.toInt())
         val eventTypeId   = intent.getLongExtra(EXTRA_EVENT_TYPE_ID, -1L).takeIf { it != -1L }
+        val snoozeMinutes = intent.getIntExtra(EXTRA_SNOOZE_MINUTES, Reminder.DEFAULT_SNOOZE_MINUTES)
 
         // The notification stays in the shade (owned by AlarmService) as the recovery path while the
         // alarm rings; it sits behind this full-screen UI and is removed when the service stops.
@@ -101,6 +104,7 @@ class AlarmDismissActivity : ComponentActivity() {
                     title        = title,
                     message      = message,
                     nextTriggerAt = nextTrigger,
+                    snoozeMinutes = snoozeMinutes,
                     onDismiss = {
                         AlarmService.stop(this@AlarmDismissActivity)
                         finish()
@@ -160,6 +164,7 @@ class AlarmDismissActivity : ComponentActivity() {
         const val EXTRA_MESSAGE        = "message"
         const val EXTRA_NOTIFICATION_ID = "notification_id"
         const val EXTRA_EVENT_TYPE_ID  = "event_type_id"
+        const val EXTRA_SNOOZE_MINUTES = "snooze_minutes"
 
         /**
          * Single source of truth for the launch Intent, shared by the full-screen-intent
@@ -174,7 +179,8 @@ class AlarmDismissActivity : ComponentActivity() {
             title: String,
             message: String,
             notificationId: Int,
-            eventTypeId: Long?
+            eventTypeId: Long?,
+            snoozeMinutes: Int = Reminder.DEFAULT_SNOOZE_MINUTES
         ): Intent = Intent(context, AlarmDismissActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION
             putExtra(EXTRA_REMINDER_ID, reminderId)
@@ -182,6 +188,7 @@ class AlarmDismissActivity : ComponentActivity() {
             putExtra(EXTRA_MESSAGE, message)
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
             putExtra(EXTRA_EVENT_TYPE_ID, eventTypeId ?: -1L)
+            putExtra(EXTRA_SNOOZE_MINUTES, snoozeMinutes)
         }
     }
 }
@@ -193,6 +200,7 @@ private fun AlarmScreen(
     title: String,
     message: String,
     nextTriggerAt: Long?,
+    snoozeMinutes: Int,
     onDismiss: () -> Unit,
     onSnooze: () -> Unit,
     onAddEntry: (() -> Unit)?
@@ -332,7 +340,7 @@ private fun AlarmScreen(
                     ) {
                         Icon(Icons.Rounded.Snooze, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
-                        Text("Snooze ${ReminderReceiver.SNOOZE_MINUTES}m")
+                        Text("Snooze ${snoozeShortLabel(snoozeMinutes)}")
                     }
 
                     FilledTonalButton(

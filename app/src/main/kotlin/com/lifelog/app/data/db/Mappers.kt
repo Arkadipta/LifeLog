@@ -117,6 +117,7 @@ fun ReminderEntity.toDomain(eventTypeName: String? = null): Reminder {
         message = message,
         deliveryType = runCatching { DeliveryType.valueOf(deliveryType) }.getOrDefault(DeliveryType.NOTIFICATION),
         recurrenceRule = rule,
+        snoozeMinutes = snoozeMinutes,
         nextTriggerAt = nextTriggerAt,
         isActive = isActive
     )
@@ -157,6 +158,7 @@ fun Reminder.toEntity() = ReminderEntity(
     deliveryType = deliveryType.name,
     recurrenceType = recurrenceRule.type.name,
     recurrenceRuleJson = appJson.encodeToString(recurrenceRule),
+    snoozeMinutes = snoozeMinutes,
     nextTriggerAt = nextTriggerAt,
     isActive = isActive
 )

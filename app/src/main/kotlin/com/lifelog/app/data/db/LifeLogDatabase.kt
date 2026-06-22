@@ -21,7 +21,7 @@ import com.lifelog.app.data.db.entity.ReminderEntity
         ReminderEntity::class,
         ChartConfigEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class LifeLogDatabase : RoomDatabase() {
@@ -35,6 +35,6 @@ abstract class LifeLogDatabase : RoomDatabase() {
         const val DATABASE_NAME = "lifelog.db"
 
         /** Current Room schema version. MUST equal the `version` in @Database above. */
-        const val SCHEMA_VERSION = 3
+        const val SCHEMA_VERSION = 4
     }
 }

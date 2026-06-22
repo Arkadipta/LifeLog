@@ -18,6 +18,8 @@ data class ReminderEntity(
     val deliveryType: String = "NOTIFICATION",
     val recurrenceType: String = "DAILY",      // top-level copy for SQL queries
     val recurrenceRuleJson: String = "",        // full RecurrenceRule JSON (empty → migrate from legacy)
+    // ── v4 column ─────────────────────────────────────────────────────────────
+    val snoozeMinutes: Int = 10,                 // per-reminder snooze duration (pre-v4 rows → 10)
     // ─────────────────────────────────────────────────────────────────────────
     val nextTriggerAt: Long = System.currentTimeMillis(),
     val isActive: Boolean = true
