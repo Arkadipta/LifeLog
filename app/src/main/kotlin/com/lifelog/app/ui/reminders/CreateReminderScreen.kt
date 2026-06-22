@@ -54,12 +54,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.DeliveryType
 import com.lifelog.app.domain.model.RecurrenceType
-import com.lifelog.app.ui.components.DialogOption
 import com.lifelog.app.ui.components.IconTile
 import com.lifelog.app.ui.components.LifeLogCard
 import com.lifelog.app.ui.components.LifeLogTimePickerDialog
 import com.lifelog.app.ui.components.SectionHeader
-import com.lifelog.app.ui.components.SingleChoiceDialog
 import com.lifelog.app.ui.theme.Sizing
 import com.lifelog.app.ui.theme.Spacing
 import com.lifelog.app.util.SNOOZE_PRESETS_MINUTES
@@ -354,22 +352,13 @@ fun CreateReminderScreen(
         )
     }
 
-    // ── Event picker dialog ────────────────────────────────────────────────────
+    // ── Event picker sheet ─────────────────────────────────────────────────────
     if (showEventPicker) {
-        val options = listOf(DialogOption("All Events (Global)")) +
-            state.eventTypes.map { DialogOption(it.name) }
-        val selectedIndex = if (state.eventTypeName == null) 0
-            else state.eventTypes.indexOfFirst { it.name == state.eventTypeName } + 1
-        SingleChoiceDialog(
-            title = "Link to Event",
-            options = options,
-            selectedIndex = selectedIndex,
-            onDismiss = { showEventPicker = false },
-            onSelect = { idx ->
-                if (idx == 0) viewModel.setEventType(null, null)
-                else state.eventTypes.getOrNull(idx - 1)?.let { viewModel.setEventType(it.id, it.name) }
-                showEventPicker = false
-            }
+        EventPickerSheet(
+            eventTypes = state.eventTypes,
+            selectedEventTypeId = state.eventTypeId,
+            onSelect = { eventType -> viewModel.setEventType(eventType?.id, eventType?.name) },
+            onDismiss = { showEventPicker = false }
         )
     }
 
