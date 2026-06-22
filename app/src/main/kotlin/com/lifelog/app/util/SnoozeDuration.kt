@@ -48,12 +48,15 @@ fun snoozeLongLabel(minutes: Int): String {
 private fun pluralize(value: Int, unit: String): String =
     "$value $unit${if (value == 1) "" else "s"}"
 
-/** Unit options for the editor's custom snooze input, ordered shortest → longest. */
+/**
+ * Unit options for the editor's custom snooze input, ordered shortest → longest. Labels are kept
+ * short (Min/Hr/Day/Wk) so all four fit on one line in the segmented selector on small screens.
+ */
 enum class SnoozeUnit(val displayName: String, val minutes: Int) {
     MINUTES("Min", 1),
-    HOURS("Hours", MIN_PER_HOUR),
-    DAYS("Days", MIN_PER_DAY),
-    WEEKS("Weeks", MIN_PER_WEEK)
+    HOURS("Hr", MIN_PER_HOUR),
+    DAYS("Day", MIN_PER_DAY),
+    WEEKS("Wk", MIN_PER_WEEK)
 }
 
 /**

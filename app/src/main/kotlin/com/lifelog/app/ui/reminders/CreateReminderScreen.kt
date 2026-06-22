@@ -2,8 +2,6 @@ package com.lifelog.app.ui.reminders
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -424,7 +422,7 @@ private fun PickerCard(
  * value/unit input spanning 1 minute … 1 week. Chips and the custom controls share one source of
  * truth so they always agree; the ViewModel clamps the final value to the allowed range.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SnoozeDurationSheet(
     currentMinutes: Int,
@@ -465,8 +463,10 @@ private fun SnoozeDurationSheet(
                 )
             }
 
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                SNOOZE_PRESETS_MINUTES.forEach { preset ->
+            // Horizontally scrollable — same pattern as the "Repeat" chips above, so the row never
+            // wraps regardless of screen width. The custom control below covers any other value.
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                items(SNOOZE_PRESETS_MINUTES) { preset ->
                     FilterChip(
                         selected = customMinutes == preset,
                         onClick = {
@@ -499,7 +499,7 @@ private fun SnoozeDurationSheet(
                             selected = unit == u,
                             onClick = { commit(valueText, u) },
                             shape = SegmentedButtonDefaults.itemShape(index = idx, count = SnoozeUnit.entries.size)
-                        ) { Text(u.displayName) }
+                        ) { Text(u.displayName, maxLines = 1, softWrap = false) }
                     }
                 }
             }
