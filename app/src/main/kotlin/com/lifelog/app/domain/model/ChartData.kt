@@ -29,6 +29,48 @@ sealed class ChartData {
         data class Slice(val label: String, val value: Double, val colorArgb: Int)
     }
 
+    /**
+     * GitHub-style contribution heatmap. Entries are aggregated into one value
+     * per calendar day, then laid out into week columns (GitHub layout: each
+     * column is a week, each row a day of the week). The grid is built here so
+     * the renderer stays presentation-only; cell color is derived at draw time
+     * from [minValue]/[maxValue]/[diverging] against the Material 3 palette.
+     */
+    data class Heatmap(
+        /** Week columns, oldest first. Each holds exactly 7 day slots (row 0 = first weekday). */
+        val columns: List<Week>,
+        /** Month names to print above the grid, keyed by the column they start over. */
+        val monthLabels: List<MonthLabel>,
+        /** Day-of-week label for each of the 7 rows (e.g. "Mon"), in row order. */
+        val weekdayLabels: List<String>,
+        val minValue: Double,
+        val maxValue: Double,
+        /** True when any day aggregates to a negative value → use a diverging scale. */
+        val diverging: Boolean,
+        /** Number of days that actually have data, for accessibility/summary. */
+        val daysWithData: Int,
+        val unit: String = "",
+        val fieldName: String = "",
+        val aggregation: AggregationStrategy = AggregationStrategy.MEAN,
+        /** Non-null when the window ends at the latest entry instead of now. */
+        val anchoredEndMs: Long? = null
+    ) : ChartData() {
+        /** One week column. A null slot is padding outside the grid range (e.g. future days). */
+        data class Week(val days: List<Day?>)
+
+        /**
+         * A single day cell. [value] is null when no entry exists that day (a
+         * "missing" cell, rendered neutrally and distinctly from a zero value).
+         */
+        data class Day(
+            val dateMs: Long,
+            val value: Double?,
+            val entryCount: Int
+        )
+
+        data class MonthLabel(val columnIndex: Int, val label: String)
+    }
+
     data object Empty : ChartData()
     data object InsufficientData : ChartData()
 

@@ -9,7 +9,10 @@ import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.domain.model.TimeRange
+import java.text.DateFormatSymbols
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Locale
 
 object ChartDataProcessor {
 
@@ -44,6 +47,7 @@ object ChartDataProcessor {
             ChartType.LINE, ChartType.BAR ->
                 buildCartesianData(config, windowed, fields, anchorMs, anchoredEndMs)
             ChartType.PIE -> buildPieData(config, windowed, fields, anchoredEndMs)
+            ChartType.HEATMAP -> buildHeatmapData(config, windowed, fields, anchorMs, anchoredEndMs)
         }
     }
 
@@ -59,6 +63,12 @@ object ChartDataProcessor {
                 val group = entry.fieldValues[groupId]
                 numeric != null && numeric > 0 &&
                     (group is FieldValue.Choice || group is FieldValue.MultiSelect)
+            }
+            // Heatmaps accept a single Numeric or Yes/No field (Yes=1, No=0).
+            ChartType.HEATMAP -> {
+                val id = config.numericFieldIds.firstOrNull() ?: return false
+                val v = entry.fieldValues[id]
+                v is FieldValue.Numeric || v is FieldValue.Bool
             }
             else -> config.numericFieldIds.any { entry.fieldValues[it] is FieldValue.Numeric }
         }
@@ -243,6 +253,127 @@ object ChartDataProcessor {
         return ChartData.Pie(slices, anchoredEndMs, unit)
     }
 
+    // ── Heatmap builder ───────────────────────────────────────────────────────
+
+    /**
+     * Aggregates entries into one value per calendar day, then lays the days out
+     * into GitHub-style week columns. Heatmaps always bucket daily regardless of
+     * the selected lookback — the lookback only sets how far back the grid runs.
+     */
+    private fun buildHeatmapData(
+        config: ChartConfig,
+        entries: List<EventEntry>,
+        fields: List<EventField>,
+        anchorMs: Long,
+        anchoredEndMs: Long?
+    ): ChartData {
+        val fieldId = config.numericFieldIds.firstOrNull() ?: return ChartData.Empty
+        val field = fields.firstOrNull { it.id == fieldId } ?: return ChartData.Empty
+        val isBoolean = field.type == FieldType.BOOLEAN
+
+        // Collect the day's values in chronological order so LATEST resolves to
+        // the last entry of the day.
+        val perDayValues = linkedMapOf<Long, MutableList<Double>>()
+        for (entry in entries.sortedBy { it.createdAt }) {
+            val value = heatmapValue(entry.fieldValues[fieldId], isBoolean) ?: continue
+            val day = midnightOf(entry.createdAt)
+            perDayValues.getOrPut(day) { mutableListOf() }.add(value)
+        }
+        if (perDayValues.isEmpty()) return ChartData.InsufficientData
+
+        val perDayAggregated = perDayValues.mapValues { aggregate(it.value, config.aggregation) }
+
+        // Grid runs from the window start (or earliest data for ALL) to the end
+        // day, with the start backed up to the first day of its week so every
+        // column is a full Sun–Sat (locale-aware) stack. ALL ends at the latest
+        // entry — mirroring the cartesian ALL range — to avoid an empty tail when
+        // the newest data is old; fixed windows end at the anchor (today, or the
+        // latest entry when the now-anchored window would be empty).
+        val firstDataDay = perDayValues.keys.min()
+        val lastDay = if (config.timeRangeDays == null) midnightOf(perDayValues.keys.max())
+                      else midnightOf(anchorMs)
+        val windowStartDay = if (config.timeRangeDays == null) firstDataDay
+                             else addDays(lastDay, -(config.timeRangeDays - 1))
+        val firstWeekday = Calendar.getInstance().firstDayOfWeek
+        val gridStart = startOfWeek(minOf(windowStartDay, lastDay), firstWeekday)
+
+        val columns = mutableListOf<ChartData.Heatmap.Week>()
+        var week = arrayOfNulls<ChartData.Heatmap.Day>(7)
+        var cursor = gridStart
+        while (cursor <= lastDay) {
+            val row = weekdayRow(cursor, firstWeekday)
+            week[row] = ChartData.Heatmap.Day(
+                dateMs = cursor,
+                value = perDayAggregated[cursor],
+                entryCount = perDayValues[cursor]?.size ?: 0
+            )
+            if (row == 6) {
+                columns.add(ChartData.Heatmap.Week(week.toList()))
+                week = arrayOfNulls(7)
+            }
+            cursor = addDays(cursor, 1)
+        }
+        if (week.any { it != null }) columns.add(ChartData.Heatmap.Week(week.toList()))
+
+        val dayValues = perDayAggregated.values
+        return ChartData.Heatmap(
+            columns = columns,
+            monthLabels = monthLabels(gridStart, columns.size),
+            weekdayLabels = weekdayLabels(firstWeekday),
+            minValue = dayValues.min(),
+            maxValue = dayValues.max(),
+            diverging = dayValues.min() < 0.0,
+            daysWithData = perDayValues.size,
+            unit = if (config.showUnits && !isBoolean) field.unit else "",
+            fieldName = field.name,
+            aggregation = config.aggregation,
+            anchoredEndMs = anchoredEndMs
+        )
+    }
+
+    /** Yes/No → 1/0; numeric passes through; anything else is not heatmap-able. */
+    private fun heatmapValue(value: FieldValue?, isBoolean: Boolean): Double? =
+        if (isBoolean) (value as? FieldValue.Bool)?.let { if (it.value) 1.0 else 0.0 }
+        else (value as? FieldValue.Numeric)?.value
+
+    /** Row index 0..6 for a day, honoring the locale's first day of week. */
+    private fun weekdayRow(dayMs: Long, firstWeekday: Int): Int {
+        val dow = Calendar.getInstance().apply { timeInMillis = dayMs }.get(Calendar.DAY_OF_WEEK)
+        return (dow - firstWeekday + 7) % 7
+    }
+
+    /** Midnight of the first day of [dayMs]'s week. */
+    private fun startOfWeek(dayMs: Long, firstWeekday: Int): Long =
+        addDays(dayMs, -weekdayRow(dayMs, firstWeekday))
+
+    /** DST-safe day arithmetic: shifts a midnight timestamp by whole days. */
+    private fun addDays(dayMs: Long, days: Int): Long = Calendar.getInstance().apply {
+        timeInMillis = dayMs
+        add(Calendar.DAY_OF_YEAR, days)
+    }.timeInMillis
+
+    /** Short weekday names in row order (e.g. Sun..Sat or Mon..Sun by locale). */
+    private fun weekdayLabels(firstWeekday: Int): List<String> {
+        val names = DateFormatSymbols.getInstance().shortWeekdays // [1]=Sun..[7]=Sat
+        return (0 until 7).map { row -> names[(firstWeekday - 1 + row) % 7 + 1] }
+    }
+
+    /** A month label at the first column each calendar month appears over. */
+    private fun monthLabels(gridStart: Long, columnCount: Int): List<ChartData.Heatmap.MonthLabel> {
+        val fmt = SimpleDateFormat("MMM", Locale.getDefault())
+        val labels = mutableListOf<ChartData.Heatmap.MonthLabel>()
+        var lastMonth = -1
+        for (col in 0 until columnCount) {
+            val cal = Calendar.getInstance().apply { timeInMillis = addDays(gridStart, col * 7) }
+            val month = cal.get(Calendar.MONTH)
+            if (month != lastMonth) {
+                labels.add(ChartData.Heatmap.MonthLabel(col, fmt.format(cal.time)))
+                lastMonth = month
+            }
+        }
+        return labels
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /**
@@ -254,6 +385,12 @@ object ChartDataProcessor {
     private fun isStaleConfig(config: ChartConfig, fields: List<EventField>): Boolean {
         val byId = fields.associateBy { it.id }
         if (config.numericFieldIds.isEmpty()) return true
+        // Heatmaps plot exactly one Numeric or Yes/No field, so they have their
+        // own eligibility rule before the numeric-only check below.
+        if (config.type == ChartType.HEATMAP) {
+            val type = config.numericFieldIds.singleOrNull()?.let { byId[it]?.type }
+            return type != FieldType.NUMERIC && type != FieldType.BOOLEAN
+        }
         if (config.numericFieldIds.any { byId[it]?.type != FieldType.NUMERIC }) return true
         if (config.type == ChartType.PIE) {
             val groupType = config.groupByFieldId?.let { byId[it]?.type }

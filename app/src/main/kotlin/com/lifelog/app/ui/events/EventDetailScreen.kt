@@ -130,13 +130,17 @@ fun EventDetailScreen(
     val fabColor = eventType?.let { Color(it.colorArgb) } ?: MaterialTheme.colorScheme.primary
     val fabContentColor = remember(fabColor) { fabColor.bestContentColor() }
 
-    val hasNumericFields = remember(eventType) {
-        eventType?.fields?.any { it.type == FieldType.NUMERIC } == true
+    // Any field that can back a chart: numeric (line/bar/pie/heatmap) or yes/no
+    // (heatmap). Boolean-only events — e.g. habit trackers — can still add a heatmap.
+    val hasChartableFields = remember(eventType) {
+        eventType?.fields?.any {
+            it.type == FieldType.NUMERIC || it.type == FieldType.BOOLEAN
+        } == true
     }
     // Show the carousel whenever any chart config exists — even after a field was
-    // retyped so no numeric fields remain — so stale charts can be discovered and
+    // retyped so no chartable fields remain — so stale charts can be discovered and
     // edited/deleted rather than silently disappearing. Adding new charts still
-    // requires a numeric field (gated separately by hasNumericFields).
+    // requires a chartable field (gated separately by hasChartableFields).
     val showChartCarousel = charts.isNotEmpty()
 
     val listState = rememberLazyListState()
@@ -235,7 +239,7 @@ fun EventDetailScreen(
                                     showDeleteEventDialog = true
                                 }
                             )
-                            if (hasNumericFields) {
+                            if (hasChartableFields) {
                                 DropdownMenuItem(
                                     text = { Text("Add Chart") },
                                     leadingIcon = { Icon(Icons.Rounded.AddChart, null) },
@@ -370,7 +374,7 @@ fun EventDetailScreen(
                                 },
                                 onDeleteChart = viewModel::deleteChart,
                                 modifier = Modifier.padding(top = Spacing.sm, bottom = Spacing.md),
-                                showAddCard = hasNumericFields
+                                showAddCard = hasChartableFields
                             )
                         }
                     }
