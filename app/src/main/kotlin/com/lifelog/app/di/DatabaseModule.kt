@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.lifelog.app.data.db.LifeLogDatabase
 import com.lifelog.app.data.db.MIGRATION_1_2
 import com.lifelog.app.data.db.MIGRATION_2_3
+import com.lifelog.app.data.db.MIGRATION_3_4
 import com.lifelog.app.data.db.dao.ChartConfigDao
 import com.lifelog.app.data.db.dao.EventEntryDao
 import com.lifelog.app.data.db.dao.EventFieldDao
@@ -25,7 +26,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): LifeLogDatabase =
         Room.databaseBuilder(context, LifeLogDatabase::class.java, LifeLogDatabase.DATABASE_NAME)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
 
     @Provides fun provideEventTypeDao(db: LifeLogDatabase): EventTypeDao = db.eventTypeDao()

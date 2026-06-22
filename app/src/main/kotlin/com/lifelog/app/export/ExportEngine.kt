@@ -157,6 +157,6 @@ class ExportEngine @Inject constructor(
     private fun EventTypeEntity.toRow() = EventTypeRow(id, name, description, category, colorArgb, iconName, createdAt, updatedAt)
     private fun EventFieldEntity.toRow() = EventFieldRow(id, eventTypeId, name, type, optionsJson, unit, isRequired, sortOrder)
     private fun EventEntryEntity.toRow() = EventEntryRow(id, eventTypeId, fieldValuesJson, note, createdAt, updatedAt)
-    private fun ReminderEntity.toRow() = ReminderRow(id, eventTypeId, title, message, deliveryType, recurrenceType, recurrenceRuleJson, nextTriggerAt, isActive)
+    private fun ReminderEntity.toRow() = ReminderRow(id, eventTypeId, title, message, deliveryType, recurrenceType, recurrenceRuleJson, snoozeMinutes, nextTriggerAt, isActive)
     private fun ChartConfigEntity.toRow() = ChartConfigRow(id, eventTypeId, configJson, sortOrder, createdAt)
 }

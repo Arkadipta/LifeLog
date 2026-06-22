@@ -31,3 +31,11 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
         db.execSQL("ALTER TABLE reminders ADD COLUMN recurrenceRuleJson TEXT NOT NULL DEFAULT ''")
     }
 }
+
+// Per-reminder snooze duration. DEFAULT 10 migrates every existing reminder to the previous global
+// 10-minute snooze, preserving current behavior.
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE reminders ADD COLUMN snoozeMinutes INTEGER NOT NULL DEFAULT 10")
+    }
+}

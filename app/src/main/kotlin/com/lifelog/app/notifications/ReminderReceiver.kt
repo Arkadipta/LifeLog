@@ -79,7 +79,7 @@ class ReminderReceiver : BroadcastReceiver() {
             // intent notification. Exact alarms (setAlarmClock) get a temporary background-start
             // allowlist when they fire, which holds for the duration of this broadcast (goAsync),
             // so starting the service after the quick DB read above is still allowed.
-            AlarmService.start(context, reminder.id, title, message, notifId, eventTypeId)
+            AlarmService.start(context, reminder.id, title, message, notifId, eventTypeId, reminder.snoozeMinutes)
             // setFullScreenIntent only auto-launches the activity when the screen is locked/off; while
             // the device is unlocked the system shows a heads-up notification instead and waits for a
             // tap. Launch the activity directly so the full-screen alarm appears in BOTH states.
@@ -87,13 +87,13 @@ class ReminderReceiver : BroadcastReceiver() {
             // collapse into one instance.
             try {
                 context.startActivity(
-                    AlarmDismissActivity.createIntent(context, reminder.id, title, message, notifId, eventTypeId)
+                    AlarmDismissActivity.createIntent(context, reminder.id, title, message, notifId, eventTypeId, reminder.snoozeMinutes)
                 )
             } catch (_: Exception) {
                 // Background-activity-launch blocked (rare): the full-screen-intent notification is the fallback.
             }
         } else {
-            NotificationHelper.showReminderNotification(context, notifId, title, message, reminder.id, eventTypeId)
+            NotificationHelper.showReminderNotification(context, notifId, title, message, reminder.id, eventTypeId, reminder.snoozeMinutes)
         }
     }
 
@@ -105,7 +105,10 @@ class ReminderReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val reminder = reminderRepository.getById(reminderId) ?: return@launch
-                val snoozeUntil = System.currentTimeMillis() + SNOOZE_MINUTES * 60_000L
+                // Per-reminder snooze: the configured duration is read straight from the DB row, so a
+                // stale intent extra can never override the user's setting. Snooze stays a transient
+                // one-shot re-arm — the stored nextTriggerAt / recurrence are intentionally untouched.
+                val snoozeUntil = System.currentTimeMillis() + reminder.snoozeMinutes * 60_000L
                 reminderScheduler.schedule(reminder.copy(nextTriggerAt = snoozeUntil))
             } finally {
                 pending.finish()
@@ -143,7 +146,6 @@ class ReminderReceiver : BroadcastReceiver() {
         const val EXTRA_MESSAGE       = "message"
         const val EXTRA_EVENT_TYPE_ID = "event_type_id"
         const val EXTRA_IS_ALARM      = "is_alarm"
-        const val SNOOZE_MINUTES      = 10L
 
         /**
          * The bare component + action that define a scheduled alarm's PendingIntent identity.

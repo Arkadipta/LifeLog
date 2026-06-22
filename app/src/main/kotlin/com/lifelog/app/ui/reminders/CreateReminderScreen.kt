@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -21,12 +22,15 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Snooze
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -34,6 +38,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -57,7 +62,12 @@ import com.lifelog.app.ui.components.SectionHeader
 import com.lifelog.app.ui.components.SingleChoiceDialog
 import com.lifelog.app.ui.theme.Sizing
 import com.lifelog.app.ui.theme.Spacing
+import com.lifelog.app.util.SNOOZE_PRESETS_MINUTES
+import com.lifelog.app.util.SnoozeUnit
+import com.lifelog.app.util.decomposeSnooze
 import com.lifelog.app.util.minutesFromMidnightToLabel
+import com.lifelog.app.util.snoozeLongLabel
+import com.lifelog.app.util.snoozeShortLabel
 import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,6 +88,7 @@ fun CreateReminderScreen(
 
     var showTimePicker by remember { mutableStateOf(false) }
     var showEventPicker by remember { mutableStateOf(false) }
+    var showSnoozeSheet by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -180,6 +191,16 @@ fun CreateReminderScreen(
                         )
                     }
                 }
+            }
+
+            // ── Snooze duration ───────────────────────────────────────────────
+            item {
+                PickerCard(
+                    icon = Icons.Rounded.Snooze,
+                    title = "Snooze duration",
+                    value = snoozeLongLabel(state.snoozeMinutes),
+                    onClick = { showSnoozeSheet = true }
+                )
             }
 
             // ── Recurrence type ───────────────────────────────────────────────
@@ -351,6 +372,15 @@ fun CreateReminderScreen(
             }
         )
     }
+
+    // ── Snooze duration sheet ──────────────────────────────────────────────────
+    if (showSnoozeSheet) {
+        SnoozeDurationSheet(
+            currentMinutes = state.snoozeMinutes,
+            onSelect = viewModel::setSnoozeMinutes,
+            onDismiss = { showSnoozeSheet = false }
+        )
+    }
 }
 
 /** Tappable setting card with a leading icon tile, label, and current value. */
@@ -383,6 +413,102 @@ private fun PickerCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
+    }
+}
+
+/**
+ * Bottom sheet for choosing a reminder's snooze duration: quick-pick preset chips plus a custom
+ * value/unit input spanning 1 minute … 1 week. Chips and the custom controls share one source of
+ * truth so they always agree; the ViewModel clamps the final value to the allowed range.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SnoozeDurationSheet(
+    currentMinutes: Int,
+    onSelect: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val seed = remember { decomposeSnooze(currentMinutes) }
+    var valueText by remember { mutableStateOf(seed.first.toString()) }
+    var unit by remember { mutableStateOf(seed.second) }
+
+    // Minutes currently described by the custom controls (0 when the field is blank/invalid).
+    val customMinutes = (valueText.toIntOrNull() ?: 0) * unit.minutes
+
+    fun commit(text: String, newUnit: SnoozeUnit) {
+        valueText = text
+        unit = newUnit
+        val v = text.toIntOrNull()
+        if (v != null && v >= 1) onSelect(v * newUnit.minutes)   // ViewModel clamps to 1 min … 1 week
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.sheetEdge)
+                .padding(bottom = Spacing.xxl),
+            verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                Text("Snooze duration", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "How long the Snooze action defers this reminder.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // Horizontally scrollable — same pattern as the "Repeat" chips above, so the row never
+            // wraps regardless of screen width. The custom control below covers any other value.
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                items(SNOOZE_PRESETS_MINUTES) { preset ->
+                    FilterChip(
+                        selected = customMinutes == preset,
+                        onClick = {
+                            val (presetValue, presetUnit) = decomposeSnooze(preset)
+                            commit(presetValue.toString(), presetUnit)
+                        },
+                        label = { Text(snoozeShortLabel(preset)) }
+                    )
+                }
+            }
+
+            HorizontalDivider()
+
+            SectionHeader("Custom")
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = valueText,
+                    onValueChange = { commit(it.filter(Char::isDigit).take(5), unit) },
+                    label = { Text("Every") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.width(110.dp)
+                )
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
+                    SnoozeUnit.entries.forEachIndexed { idx, u ->
+                        SegmentedButton(
+                            selected = unit == u,
+                            onClick = { commit(valueText, u) },
+                            shape = SegmentedButtonDefaults.itemShape(index = idx, count = SnoozeUnit.entries.size)
+                        ) { Text(u.displayName, maxLines = 1, softWrap = false) }
+                    }
+                }
+            }
+
+            Text(
+                "Ranges from 1 minute to 1 week.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

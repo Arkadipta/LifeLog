@@ -26,6 +26,7 @@ data class CreateReminderUiState(
     val eventTypeName: String? = null,
     val deliveryType: DeliveryType = DeliveryType.NOTIFICATION,
     val recurrenceRule: RecurrenceRule = RecurrenceRule(type = RecurrenceType.DAILY),
+    val snoozeMinutes: Int = Reminder.DEFAULT_SNOOZE_MINUTES,
     // TIME_SINCE_LAST: optional entry datetime that seeds the initial trigger calculation
     val timeSinceLastEventDateTime: Long? = null,
     val eventTypes: List<EventType> = emptyList(),
@@ -62,7 +63,8 @@ class CreateReminderViewModel @Inject constructor(
                     eventTypeId = reminder.eventTypeId,
                     eventTypeName = reminder.eventTypeName,
                     deliveryType = reminder.deliveryType,
-                    recurrenceRule = reminder.recurrenceRule
+                    recurrenceRule = reminder.recurrenceRule,
+                    snoozeMinutes = reminder.snoozeMinutes
                 )
             }
         }
@@ -80,6 +82,10 @@ class CreateReminderViewModel @Inject constructor(
     }
 
     fun setRecurrenceRule(rule: RecurrenceRule) = _state.update { it.copy(recurrenceRule = rule) }
+
+    fun setSnoozeMinutes(minutes: Int) = _state.update {
+        it.copy(snoozeMinutes = minutes.coerceIn(Reminder.MIN_SNOOZE_MINUTES, Reminder.MAX_SNOOZE_MINUTES))
+    }
 
     fun setTimeOfDay(minutes: Int) = _state.update {
         it.copy(recurrenceRule = it.recurrenceRule.copy(timeOfDayMinutes = minutes))
@@ -125,6 +131,7 @@ class CreateReminderViewModel @Inject constructor(
                 message = current.message.trim(),
                 deliveryType = current.deliveryType,
                 recurrenceRule = current.recurrenceRule,
+                snoozeMinutes = current.snoozeMinutes,
                 nextTriggerAt = nextTrigger,
                 isActive = true
             )

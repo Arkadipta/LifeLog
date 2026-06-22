@@ -14,6 +14,7 @@ import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import com.lifelog.app.domain.model.Reminder
 
 /**
  * Foreground service that owns the alarm's SINGLE audio source (a looping [MediaPlayer]) and the
@@ -56,11 +57,12 @@ class AlarmService : Service() {
         val message        = intent.getStringExtra(EXTRA_MESSAGE) ?: ""
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, reminderId.toInt())
         val eventTypeId    = intent.getLongExtra(EXTRA_EVENT_TYPE_ID, -1L).takeIf { it != -1L }
+        val snoozeMinutes  = intent.getIntExtra(EXTRA_SNOOZE_MINUTES, Reminder.DEFAULT_SNOOZE_MINUTES)
 
         // Enter the foreground with the ongoing alarm notification. specialUse is the catch-all FGS
         // type for use cases (an alarm) not covered by a dedicated type; it must match the manifest.
         val notification = NotificationHelper.buildAlarmNotification(
-            this, notificationId, title, message, reminderId, eventTypeId
+            this, notificationId, title, message, reminderId, eventTypeId, snoozeMinutes
         )
         val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
@@ -140,6 +142,7 @@ class AlarmService : Service() {
         const val EXTRA_MESSAGE         = "message"
         const val EXTRA_NOTIFICATION_ID = "notification_id"
         const val EXTRA_EVENT_TYPE_ID   = "event_type_id"
+        const val EXTRA_SNOOZE_MINUTES  = "snooze_minutes"
 
         private const val WAKELOCK_TAG = "lifelog:alarm"
 
@@ -152,7 +155,8 @@ class AlarmService : Service() {
             title: String,
             message: String,
             notificationId: Int,
-            eventTypeId: Long?
+            eventTypeId: Long?,
+            snoozeMinutes: Int = Reminder.DEFAULT_SNOOZE_MINUTES
         ) {
             val intent = Intent(context, AlarmService::class.java).apply {
                 putExtra(EXTRA_REMINDER_ID, reminderId)
@@ -160,6 +164,7 @@ class AlarmService : Service() {
                 putExtra(EXTRA_MESSAGE, message)
                 putExtra(EXTRA_NOTIFICATION_ID, notificationId)
                 putExtra(EXTRA_EVENT_TYPE_ID, eventTypeId ?: -1L)
+                putExtra(EXTRA_SNOOZE_MINUTES, snoozeMinutes)
             }
             try {
                 ContextCompat.startForegroundService(context, intent)
@@ -168,7 +173,7 @@ class AlarmService : Service() {
                 // notification so the full-screen UI / lock-screen path still works — without looping
                 // audio, since nothing owns a player in this path.
                 NotificationHelper.showAlarmNotification(
-                    context, notificationId, title, message, reminderId, eventTypeId
+                    context, notificationId, title, message, reminderId, eventTypeId, snoozeMinutes
                 )
             }
         }

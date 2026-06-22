@@ -10,6 +10,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.lifelog.app.MainActivity
 import com.lifelog.app.R
+import com.lifelog.app.domain.model.Reminder
+import com.lifelog.app.util.snoozeShortLabel
 import com.lifelog.app.widget.QuickAddActivity
 
 object NotificationHelper {
@@ -67,9 +69,10 @@ object NotificationHelper {
         title: String,
         message: String,
         reminderId: Long,
-        eventTypeId: Long? = null
+        eventTypeId: Long? = null,
+        snoozeMinutes: Int = Reminder.DEFAULT_SNOOZE_MINUTES
     ) {
-        val builder = buildBaseNotification(context, notificationId, title, message, reminderId, REMINDER_CHANNEL_ID)
+        val builder = buildBaseNotification(context, notificationId, title, message, reminderId, REMINDER_CHANNEL_ID, snoozeMinutes)
 
         if (eventTypeId != null) {
             builder.addAction(0, "Add Entry", buildAddEntryIntent(context, notificationId, eventTypeId))
@@ -90,18 +93,19 @@ object NotificationHelper {
         title: String,
         message: String,
         reminderId: Long,
-        eventTypeId: Long? = null
+        eventTypeId: Long? = null,
+        snoozeMinutes: Int = Reminder.DEFAULT_SNOOZE_MINUTES
     ): Notification {
         // Same Intent that ReminderReceiver launches directly — see AlarmDismissActivity.createIntent.
         // Used for both the full-screen intent (lock screen) and the content tap (recovery).
         val alarmPendingIntent = PendingIntent.getActivity(
             context,
             notificationId * 10 + 4,
-            AlarmDismissActivity.createIntent(context, reminderId, title, message, notificationId, eventTypeId),
+            AlarmDismissActivity.createIntent(context, reminderId, title, message, notificationId, eventTypeId, snoozeMinutes),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val builder = buildBaseNotification(context, notificationId, title, message, reminderId, ALARM_CHANNEL_ID)
+        val builder = buildBaseNotification(context, notificationId, title, message, reminderId, ALARM_CHANNEL_ID, snoozeMinutes)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setFullScreenIntent(alarmPendingIntent, true)
@@ -127,12 +131,13 @@ object NotificationHelper {
         title: String,
         message: String,
         reminderId: Long,
-        eventTypeId: Long? = null
+        eventTypeId: Long? = null,
+        snoozeMinutes: Int = Reminder.DEFAULT_SNOOZE_MINUTES
     ) {
         try {
             NotificationManagerCompat.from(context).notify(
                 notificationId,
-                buildAlarmNotification(context, notificationId, title, message, reminderId, eventTypeId)
+                buildAlarmNotification(context, notificationId, title, message, reminderId, eventTypeId, snoozeMinutes)
             )
         } catch (_: SecurityException) {
             // POST_NOTIFICATIONS not granted
@@ -145,7 +150,8 @@ object NotificationHelper {
         title: String,
         message: String,
         reminderId: Long,
-        channelId: String
+        channelId: String,
+        snoozeMinutes: Int
     ): NotificationCompat.Builder {
         val tapPendingIntent = PendingIntent.getActivity(
             context, notificationId,
@@ -182,7 +188,7 @@ object NotificationHelper {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .addAction(0, "Dismiss", dismissPendingIntent)
-            .addAction(0, "Snooze ${ReminderReceiver.SNOOZE_MINUTES}m", snoozePendingIntent)
+            .addAction(0, "Snooze ${snoozeShortLabel(snoozeMinutes)}", snoozePendingIntent)
     }
 
     private fun buildAddEntryIntent(context: Context, notificationId: Int, eventTypeId: Long): PendingIntent =

@@ -64,6 +64,8 @@ data class ReminderRow(
     val deliveryType: String,
     val recurrenceType: String,
     val recurrenceRuleJson: String,
+    // Defaulted so backups written before per-reminder snooze (no field) decode to the legacy 10 min.
+    val snoozeMinutes: Int = 10,
     val nextTriggerAt: Long,
     val isActive: Boolean
 )

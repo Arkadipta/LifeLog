@@ -166,7 +166,8 @@ class ImportEngine @Inject constructor(
     private fun ReminderRow.toEntity() = ReminderEntity(
         id = id, eventTypeId = eventTypeId, title = title, message = message,
         deliveryType = deliveryType, recurrenceType = recurrenceType,
-        recurrenceRuleJson = recurrenceRuleJson, nextTriggerAt = nextTriggerAt, isActive = isActive
+        recurrenceRuleJson = recurrenceRuleJson, snoozeMinutes = snoozeMinutes,
+        nextTriggerAt = nextTriggerAt, isActive = isActive
     )
     private fun ChartConfigRow.toEntity() = ChartConfigEntity(id, eventTypeId, configJson, sortOrder, createdAt)
 }
