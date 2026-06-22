@@ -66,6 +66,7 @@ fun ChartCard(
                 when (data) {
                     is ChartData.Cartesian -> CartesianChartContent(data = data, eventAccentColor = eventAccentColor)
                     is ChartData.Pie -> PieChartContent(data = data)
+                    is ChartData.Heatmap -> HeatmapChartContent(data = data)
                     ChartData.Empty, ChartData.InsufficientData, ChartData.StaleConfig ->
                         ChartEmptyState(data = data)
                 }
@@ -164,6 +165,7 @@ private fun anchoredCaption(data: ChartData): String? {
     val endMs = when (data) {
         is ChartData.Cartesian -> data.anchoredEndMs
         is ChartData.Pie -> data.anchoredEndMs
+        is ChartData.Heatmap -> data.anchoredEndMs
         else -> null
     } ?: return null
     val currentYear = Calendar.getInstance().get(Calendar.YEAR)
@@ -180,6 +182,10 @@ private fun chartContentDescription(config: ChartConfig, data: ChartData): Strin
             "${config.type.displayName} chart of $names$anchored"
         }
         is ChartData.Pie -> "Pie chart with ${data.slices.size} categories"
+        is ChartData.Heatmap -> {
+            val anchored = anchoredCaption(data)?.let { ", $it" } ?: ""
+            "Heatmap of ${data.fieldName} across ${data.daysWithData} days$anchored"
+        }
         ChartData.StaleConfig ->
             "${config.type.displayName} chart references a field that is no longer compatible"
         else -> "${config.type.displayName} chart, no data"

@@ -1,5 +1,6 @@
 package com.lifelog.app.domain
 
+import com.lifelog.app.domain.model.AggregationStrategy
 import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.ChartData
 import com.lifelog.app.domain.model.ChartType
@@ -298,5 +299,210 @@ class ChartDataProcessorTest {
             ChartDataProcessor.process(config(), listOf(entry(latest, 70.0)), fields, NOW)
         )
         assertNotNull(data.bucketTimestamps.find { it in (latest - DAY)..(latest + DAY) })
+    }
+
+    // ── Heatmap ────────────────────────────────────────────────────────────────
+
+    private val HABIT = 3L
+
+    private val heatmapFields = listOf(
+        EventField(id = WEIGHT, name = "Weight", type = FieldType.NUMERIC, unit = "kg"),
+        EventField(id = HABIT, name = "Exercised", type = FieldType.BOOLEAN),
+        EventField(id = MEAL, name = "Meal", type = FieldType.CHOICE)
+    )
+
+    private fun heatmapConfig(
+        fieldIds: List<Long> = listOf(WEIGHT),
+        days: Int? = 365,
+        agg: AggregationStrategy = AggregationStrategy.MEAN,
+        showUnits: Boolean = true
+    ) = ChartConfig(
+        id = "h1",
+        eventTypeId = 1L,
+        type = ChartType.HEATMAP,
+        numericFieldIds = fieldIds,
+        timeRangeDays = days,
+        aggregation = agg,
+        showUnits = showUnits
+    )
+
+    private fun boolEntry(createdAt: Long, value: Boolean) = EventEntry(
+        id = createdAt,
+        eventTypeId = 1L,
+        fieldValues = mapOf(HABIT to FieldValue.Bool(value)),
+        createdAt = createdAt,
+        updatedAt = createdAt
+    )
+
+    private fun heatmap(data: ChartData): ChartData.Heatmap {
+        assertTrue("expected Heatmap, was $data", data is ChartData.Heatmap)
+        return data as ChartData.Heatmap
+    }
+
+    private fun midnight(ms: Long): Long = Calendar.getInstance().apply {
+        timeInMillis = ms
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    private fun ChartData.Heatmap.dayAt(ms: Long): ChartData.Heatmap.Day? {
+        val target = midnight(ms)
+        return columns.flatMap { it.days }.firstOrNull { it != null && it.dateMs == target }
+    }
+
+    @Test
+    fun `heatmap aggregates a day with the chosen strategy`() {
+        val entries = listOf(entry(NOW, 20.0), entry(NOW - 3 * HOUR, 10.0))
+
+        val mean = heatmap(ChartDataProcessor.process(heatmapConfig(), entries, heatmapFields, NOW))
+        assertEquals(15.0, mean.dayAt(NOW)!!.value!!, 0.001)
+
+        val sum = heatmap(
+            ChartDataProcessor.process(
+                heatmapConfig(agg = AggregationStrategy.SUM), entries, heatmapFields, NOW
+            )
+        )
+        assertEquals(30.0, sum.dayAt(NOW)!!.value!!, 0.001)
+    }
+
+    @Test
+    fun `heatmap latest picks the last entry of the day`() {
+        // Earlier value 10 at 09:00, later value 20 at noon — LATEST is 20.
+        val entries = listOf(entry(NOW, 20.0), entry(NOW - 3 * HOUR, 10.0))
+        val data = heatmap(
+            ChartDataProcessor.process(
+                heatmapConfig(agg = AggregationStrategy.LATEST), entries, heatmapFields, NOW
+            )
+        )
+        assertEquals(20.0, data.dayAt(NOW)!!.value!!, 0.001)
+    }
+
+    @Test
+    fun `heatmap counts contributing entries per day`() {
+        val entries = listOf(entry(NOW, 20.0), entry(NOW - 2 * HOUR, 10.0), entry(NOW - 4 * HOUR, 30.0))
+        val data = heatmap(ChartDataProcessor.process(heatmapConfig(), entries, heatmapFields, NOW))
+        assertEquals(3, data.dayAt(NOW)!!.entryCount)
+    }
+
+    @Test
+    fun `heatmap converts yes-no to one and zero before aggregating`() {
+        val entries = listOf(
+            boolEntry(NOW, true), boolEntry(NOW - HOUR, true), boolEntry(NOW - 2 * HOUR, false)
+        )
+        val sum = heatmap(
+            ChartDataProcessor.process(
+                heatmapConfig(fieldIds = listOf(HABIT), agg = AggregationStrategy.SUM),
+                entries, heatmapFields, NOW
+            )
+        )
+        assertEquals(2.0, sum.dayAt(NOW)!!.value!!, 0.001)
+        assertEquals(3, sum.dayAt(NOW)!!.entryCount)
+    }
+
+    @Test
+    fun `heatmap distinguishes a zero value from a missing day`() {
+        // One entry today with value 0; yesterday has no entry at all.
+        val data = heatmap(
+            ChartDataProcessor.process(heatmapConfig(), listOf(entry(NOW, 0.0)), heatmapFields, NOW)
+        )
+        assertEquals(0.0, data.dayAt(NOW)!!.value!!, 0.001) // zero is a real value
+        assertNull(data.dayAt(NOW - DAY)!!.value)           // missing day is null, and in-grid
+    }
+
+    @Test
+    fun `heatmap flags diverging scale only when a day is negative`() {
+        val positive = heatmap(
+            ChartDataProcessor.process(heatmapConfig(), listOf(entry(NOW, 5.0)), heatmapFields, NOW)
+        )
+        assertTrue(!positive.diverging)
+
+        val negative = heatmap(
+            ChartDataProcessor.process(heatmapConfig(), listOf(entry(NOW, -5.0)), heatmapFields, NOW)
+        )
+        assertTrue(negative.diverging)
+    }
+
+    @Test
+    fun `heatmap reports min and max over day values`() {
+        val entries = listOf(entry(NOW, 5.0), entry(NOW - 2 * DAY, -3.0), entry(NOW - 4 * DAY, 9.0))
+        val data = heatmap(ChartDataProcessor.process(heatmapConfig(), entries, heatmapFields, NOW))
+        assertEquals(-3.0, data.minValue, 0.001)
+        assertEquals(9.0, data.maxValue, 0.001)
+        assertEquals(3, data.daysWithData)
+    }
+
+    @Test
+    fun `heatmap columns are always full weeks ending at the anchor day`() {
+        val data = heatmap(
+            ChartDataProcessor.process(heatmapConfig(days = 365), listOf(entry(NOW, 70.0)), heatmapFields, NOW)
+        )
+        // Every column is a 7-slot week.
+        assertTrue(data.columns.all { it.days.size == 7 })
+        // A year of weeks.
+        assertTrue("columns=${data.columns.size}", data.columns.size in 52..54)
+        // The latest in-grid day is the anchor day (today).
+        val lastDay = data.columns.flatMap { it.days }.filterNotNull().maxOf { it.dateMs }
+        assertEquals(midnight(NOW), lastDay)
+        assertEquals(7, data.weekdayLabels.size)
+        assertTrue(data.monthLabels.isNotEmpty())
+    }
+
+    @Test
+    fun `heatmap all-range ends at the latest entry not today`() {
+        val latest = NOW - 100 * DAY
+        val entries = listOf(entry(NOW - 300 * DAY, 70.0), entry(latest, 72.0))
+        val data = heatmap(
+            ChartDataProcessor.process(heatmapConfig(days = null), entries, heatmapFields, NOW)
+        )
+        val lastDay = data.columns.flatMap { it.days }.filterNotNull().maxOf { it.dateMs }
+        assertEquals(midnight(latest), lastDay)
+        assertNotNull(data.dayAt(NOW - 300 * DAY)!!.value)
+        assertNull(data.anchoredEndMs) // ALL spans the data, no "as of" caption
+    }
+
+    @Test
+    fun `heatmap honors the field unit and the show-units toggle`() {
+        val withUnit = heatmap(
+            ChartDataProcessor.process(heatmapConfig(), listOf(entry(NOW, 70.0)), heatmapFields, NOW)
+        )
+        assertEquals("kg", withUnit.unit)
+
+        val hidden = heatmap(
+            ChartDataProcessor.process(
+                heatmapConfig(showUnits = false), listOf(entry(NOW, 70.0)), heatmapFields, NOW
+            )
+        )
+        assertEquals("", hidden.unit)
+
+        // Yes/No fields have no unit even when units are shown.
+        val boolean = heatmap(
+            ChartDataProcessor.process(
+                heatmapConfig(fieldIds = listOf(HABIT)), listOf(boolEntry(NOW, true)), heatmapFields, NOW
+            )
+        )
+        assertEquals("", boolean.unit)
+    }
+
+    @Test
+    fun `heatmap is valid for numeric and yes-no fields`() {
+        assertTrue(
+            ChartDataProcessor.process(heatmapConfig(), listOf(entry(NOW, 70.0)), heatmapFields, NOW)
+                is ChartData.Heatmap
+        )
+        assertTrue(
+            ChartDataProcessor.process(
+                heatmapConfig(fieldIds = listOf(HABIT)), listOf(boolEntry(NOW, true)), heatmapFields, NOW
+            ) is ChartData.Heatmap
+        )
+    }
+
+    @Test
+    fun `heatmap on a text or choice field is stale`() {
+        val choice = ChartDataProcessor.process(
+            heatmapConfig(fieldIds = listOf(MEAL)), listOf(entry(NOW, 70.0, meal = "Lunch")), heatmapFields, NOW
+        )
+        assertEquals(ChartData.StaleConfig, choice)
     }
 }

@@ -69,15 +69,25 @@ fun ChartConfigSheet(
     val categoricalFields = fields.filter {
         it.type == FieldType.CHOICE || it.type == FieldType.MULTI_SELECT
     }
+    // An event with only yes/no fields (e.g. a habit tracker) can only chart a
+    // heatmap, so open straight into it rather than an unusable line config.
+    val defaultType = if (numericFields.isEmpty() && fields.any { it.type == FieldType.BOOLEAN })
+        ChartType.HEATMAP else ChartType.LINE
 
-    var selectedType by remember { mutableStateOf(editing?.type ?: ChartType.LINE) }
+    var selectedType by remember { mutableStateOf(editing?.type ?: defaultType) }
     var title by remember { mutableStateOf(editing?.title ?: "") }
     var selectedNumericIds by remember {
         mutableStateOf(editing?.numericFieldIds?.toSet() ?: emptySet<Long>())
     }
     var selectedGroupId by remember { mutableStateOf(editing?.groupByFieldId) }
     var selectedTimeRange by remember {
-        mutableStateOf(TimeRange.fromDays(editing?.timeRangeDays))
+        mutableStateOf(
+            when {
+                editing != null -> TimeRange.fromDays(editing.timeRangeDays)
+                defaultType == ChartType.HEATMAP -> TimeRange.YEAR
+                else -> TimeRange.ALL
+            }
+        )
     }
     // Per-field color map: key present = explicit color, absent = Auto
     var selectedFieldColors by remember {
@@ -116,13 +126,27 @@ fun ChartConfigSheet(
                         SegmentedButton(
                             selected = selectedType == type,
                             onClick = {
+                                val previous = selectedType
                                 selectedType = type
-                                if (type == ChartType.PIE && selectedNumericIds.size > 1) {
-                                    selectedNumericIds = setOf(selectedNumericIds.first())
+                                // Re-scope the field selection to what the new type allows
+                                // (numeric+yes/no for heatmap, numeric otherwise) and clamp
+                                // single-field types down to one.
+                                val eligible = fields.filter { f ->
+                                    if (type == ChartType.HEATMAP)
+                                        f.type == FieldType.NUMERIC || f.type == FieldType.BOOLEAN
+                                    else f.type == FieldType.NUMERIC
+                                }.map { it.id }.toSet()
+                                selectedNumericIds = selectedNumericIds intersect eligible
+                                if (type == ChartType.PIE || type == ChartType.HEATMAP) {
+                                    selectedNumericIds = selectedNumericIds.take(1).toSet()
+                                }
+                                // Heatmaps default to a yearly calendar and have no single-day view.
+                                if (type == ChartType.HEATMAP && previous != ChartType.HEATMAP) {
+                                    selectedTimeRange = TimeRange.YEAR
                                 }
                             },
                             shape = SegmentedButtonDefaults.itemShape(i, ChartType.entries.size),
-                            label = { Text(type.displayName) }
+                            label = { Text(type.displayName, maxLines = 1) }
                         )
                     }
                 }
@@ -136,7 +160,11 @@ fun ChartConfigSheet(
                     singleLine = true
                 )
 
-                // Time range
+                // Time range. Heatmaps bucket daily, so a single-day window is
+                // meaningless — offer Week and up, defaulting to Year.
+                val timeRangeOptions = if (selectedType == ChartType.HEATMAP)
+                    listOf(TimeRange.WEEK, TimeRange.MONTH, TimeRange.YEAR, TimeRange.ALL)
+                else TimeRange.entries
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     SectionHeader("Time range")
                     Row(
@@ -145,7 +173,7 @@ fun ChartConfigSheet(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
                     ) {
-                        TimeRange.entries.forEach { range ->
+                        timeRangeOptions.forEach { range ->
                             FilterChip(
                                 selected = selectedTimeRange == range,
                                 onClick = { selectedTimeRange = range },
@@ -176,25 +204,36 @@ fun ChartConfigSheet(
                     }
                 }
 
-                // Numeric field selection
+                // Field selection. Heatmaps accept one numeric OR yes/no field;
+                // pie one numeric; line/bar one or more numeric (each colorable).
+                val fieldOptions = if (selectedType == ChartType.HEATMAP)
+                    fields.filter { it.type == FieldType.NUMERIC || it.type == FieldType.BOOLEAN }
+                else numericFields
+                val singleSelect = selectedType == ChartType.PIE || selectedType == ChartType.HEATMAP
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     SectionHeader(
-                        if (selectedType == ChartType.PIE) "Numeric field" else "Numeric fields"
+                        when (selectedType) {
+                            ChartType.HEATMAP -> "Field"
+                            ChartType.PIE -> "Numeric field"
+                            else -> "Numeric fields"
+                        }
                     )
-                    if (numericFields.isEmpty()) {
+                    if (fieldOptions.isEmpty()) {
                         Text(
-                            "No numeric fields in this event.",
+                            if (selectedType == ChartType.HEATMAP)
+                                "No numeric or yes/no fields in this event."
+                            else "No numeric fields in this event.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
-                        numericFields.forEach { field ->
+                        fieldOptions.forEach { field ->
                             val isSelected = field.id in selectedNumericIds
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                if (selectedType == ChartType.PIE) {
+                                if (singleSelect) {
                                     RadioButton(
                                         selected = isSelected,
                                         onClick = { selectedNumericIds = setOf(field.id) }
@@ -215,8 +254,9 @@ fun ChartConfigSheet(
                                     style = MaterialTheme.typography.bodyMedium,
                                     modifier = Modifier.weight(1f)
                                 )
-                                // Color swatch — shown for selected line/bar fields; fixed size, no layout shift
-                                if (selectedType != ChartType.PIE && isSelected) {
+                                // Color swatch — line/bar only; heatmaps use a tonal
+                                // intensity scale and pie uses its own palette.
+                                if ((selectedType == ChartType.LINE || selectedType == ChartType.BAR) && isSelected) {
                                     ColorSwatchButton(
                                         color = selectedFieldColors[field.id]?.let { Color(it) },
                                         onClick = { colorPickerFieldId = field.id }
@@ -293,7 +333,8 @@ fun ChartConfigSheet(
                                 groupByFieldId = if (selectedType == ChartType.PIE) selectedGroupId else null,
                                 timeRangeDays = selectedTimeRange.days,
                                 colorArgb = null,
-                                fieldColors = fieldColors,
+                                // Heatmaps derive color from a tonal scale, not the picker.
+                                fieldColors = if (selectedType == ChartType.HEATMAP) emptyMap() else fieldColors,
                                 sortOrder = editing?.sortOrder ?: 0,
                                 createdAt = editing?.createdAt ?: System.currentTimeMillis(),
                                 aggregation = if (selectedType == ChartType.PIE) AggregationStrategy.SUM
