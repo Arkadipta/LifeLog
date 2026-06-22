@@ -56,6 +56,13 @@ android {
     }
 }
 
+ksp {
+    // Room schema export. The committed app/schemas/<db>/<version>.json is the
+    // canonical baseline, captured from 1.0 onward so every future migration maps
+    // to a schema version that actually shipped to users.
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

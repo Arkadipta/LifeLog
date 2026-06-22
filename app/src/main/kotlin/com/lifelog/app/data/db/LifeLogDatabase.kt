@@ -21,8 +21,8 @@ import com.lifelog.app.data.db.entity.ReminderEntity
         ReminderEntity::class,
         ChartConfigEntity::class
     ],
-    version = 4,
-    exportSchema = false
+    version = 1,
+    exportSchema = true
 )
 abstract class LifeLogDatabase : RoomDatabase() {
     abstract fun eventTypeDao(): EventTypeDao
@@ -35,6 +35,6 @@ abstract class LifeLogDatabase : RoomDatabase() {
         const val DATABASE_NAME = "lifelog.db"
 
         /** Current Room schema version. MUST equal the `version` in @Database above. */
-        const val SCHEMA_VERSION = 4
+        const val SCHEMA_VERSION = 1
     }
 }

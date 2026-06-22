@@ -9,11 +9,6 @@ data class ReminderEntity(
     val eventTypeId: Long? = null,
     val title: String,
     val message: String = "",
-    // ── legacy columns (kept for migration; superseded by recurrenceRuleJson) ──
-    val repeatType: String = "NONE",
-    val repeatIntervalMinutes: Int = 60,
-    val daysOfWeekJson: String = "[]",
-    val timeOfDayMinutes: Int = 8 * 60,
     // ── v3 columns ────────────────────────────────────────────────────────────
     val deliveryType: String = "NOTIFICATION",
     val recurrenceType: String = "DAILY",      // top-level copy for SQL queries
