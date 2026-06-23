@@ -13,7 +13,6 @@ import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.domain.model.RecurrenceRule
-import com.lifelog.app.domain.model.RecurrenceType
 import com.lifelog.app.domain.model.Reminder
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -123,38 +122,15 @@ fun ReminderEntity.toDomain(eventTypeName: String? = null): Reminder {
     )
 }
 
-private fun ReminderEntity.resolveRecurrenceRule(): RecurrenceRule {
-    if (recurrenceRuleJson.isNotBlank()) {
-        runCatching { appJson.decodeFromString<RecurrenceRule>(recurrenceRuleJson) }.getOrNull()
-            ?.let { return it }
-    }
-    // Migrate from legacy columns (pre-v3 rows)
-    return when (runCatching { LegacyRepeatType.valueOf(repeatType) }.getOrDefault(LegacyRepeatType.NONE)) {
-        LegacyRepeatType.NONE -> RecurrenceRule(type = RecurrenceType.NONE, timeOfDayMinutes = timeOfDayMinutes)
-        LegacyRepeatType.DAILY -> RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = timeOfDayMinutes)
-        LegacyRepeatType.WEEKLY -> RecurrenceRule(
-            type = RecurrenceType.WEEKLY,
-            timeOfDayMinutes = timeOfDayMinutes,
-            daysOfWeek = runCatching { appJson.decodeFromString<List<Int>>(daysOfWeekJson) }.getOrDefault(emptyList())
-        )
-        LegacyRepeatType.INTERVAL -> RecurrenceRule(
-            type = RecurrenceType.INTERVAL,
-            intervalMinutes = repeatIntervalMinutes
-        )
-    }
-}
-
-private enum class LegacyRepeatType { NONE, DAILY, WEEKLY, INTERVAL }
+private fun ReminderEntity.resolveRecurrenceRule(): RecurrenceRule =
+    runCatching { appJson.decodeFromString<RecurrenceRule>(recurrenceRuleJson) }
+        .getOrNull() ?: RecurrenceRule()
 
 fun Reminder.toEntity() = ReminderEntity(
     id = id,
     eventTypeId = eventTypeId,
     title = title,
     message = message,
-    repeatType = "NONE",
-    repeatIntervalMinutes = recurrenceRule.intervalMinutes,
-    daysOfWeekJson = "[]",
-    timeOfDayMinutes = recurrenceRule.timeOfDayMinutes,
     deliveryType = deliveryType.name,
     recurrenceType = recurrenceRule.type.name,
     recurrenceRuleJson = appJson.encodeToString(recurrenceRule),
