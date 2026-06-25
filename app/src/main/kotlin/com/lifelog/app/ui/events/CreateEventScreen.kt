@@ -17,16 +17,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -75,7 +70,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -626,7 +620,7 @@ private fun ValueSlider(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun IconPickerSheet(
     selected: String,
@@ -634,50 +628,53 @@ private fun IconPickerSheet(
     onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    // Bound the scrollable grid so it doesn't try to take infinite height inside
-    // the sheet, while still filling most of the screen for easy browsing.
-    val maxGridHeight = (LocalConfiguration.current.screenHeightDp * 0.62f).dp
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(modifier = Modifier.fillMaxWidth()) {
             SheetHeader(title = "Choose Icon", onClose = onDismiss)
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 56.dp),
+            // One verticalScroll container (mirroring ColorPickerSheet) rather than a
+            // LazyVerticalGrid: the sheet's nested-scroll wiring then cooperates with
+            // the scroll, so drags move the icon list and only fall through to dismiss
+            // the sheet when it is already at the top. The bounded LazyVerticalGrid
+            // fought the sheet for the gesture under Material3 1.3.1 — intermittently
+            // freezing upward swipes and dismissing on downward ones. The icon set is
+            // small and fixed (~130), so eager FlowRow layout costs nothing meaningful.
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = maxGridHeight),
-                contentPadding = PaddingValues(
-                    start = Spacing.sheetEdge,
-                    end = Spacing.sheetEdge,
-                    bottom = Spacing.xxl
-                ),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = Spacing.sheetEdge)
+                    .padding(bottom = Spacing.xxl),
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm)
             ) {
                 eventIconCategories.forEach { category ->
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        SectionHeader(
-                            category.title,
-                            modifier = Modifier.padding(top = Spacing.sm, bottom = Spacing.xs)
-                        )
-                    }
-                    gridItems(category.icons, key = { it.first }) { (key, icon) ->
-                        val isSelected = key == selected
-                        Surface(
-                            onClick = { onSelect(key) },
-                            shape = MaterialTheme.shapes.medium,
-                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surfaceContainerHighest,
-                            modifier = Modifier.size(56.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = key,
-                                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(24.dp)
-                                )
+                    SectionHeader(
+                        category.title,
+                        modifier = Modifier.padding(top = Spacing.sm, bottom = Spacing.xs)
+                    )
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+                    ) {
+                        category.icons.forEach { (key, icon) ->
+                            val isSelected = key == selected
+                            Surface(
+                                onClick = { onSelect(key) },
+                                shape = MaterialTheme.shapes.medium,
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surfaceContainerHighest,
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = key,
+                                        tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
                             }
                         }
                     }
