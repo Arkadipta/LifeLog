@@ -224,7 +224,7 @@ private fun ChoiceInput(
             item {
                 AssistChip(
                     onClick = { showAddDialog = true },
-                    label = { Text("+ Add") },
+                    label = { Text("Add") },
                     leadingIcon = { Icon(Icons.Rounded.Add, null, modifier = Modifier.size(16.dp)) }
                 )
             }
@@ -274,7 +274,7 @@ private fun MultiSelectInput(
             item {
                 AssistChip(
                     onClick = { showAddDialog = true },
-                    label = { Text("+ Add") },
+                    label = { Text("Add") },
                     leadingIcon = { Icon(Icons.Rounded.Add, null, modifier = Modifier.size(16.dp)) }
                 )
             }
