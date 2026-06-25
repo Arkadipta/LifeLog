@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -141,7 +142,13 @@ private fun WeekdayGutter(cell: Dp, monthLabelHeight: Dp, labels: List<String>) 
                             text = label,
                             fontSize = 8.sp,
                             maxLines = 1,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            // The 8sp line box can be taller than a cell (small cells,
+                            // large font scales). Let it render full-height, centered,
+                            // overflowing into the empty neighbouring rows rather than
+                            // clipping its descenders — the vertical twin of the month
+                            // label's unbounded width above.
+                            modifier = Modifier.wrapContentHeight(unbounded = true)
                         )
                     }
                 }
