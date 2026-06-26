@@ -10,8 +10,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.EventField
@@ -138,25 +140,74 @@ private fun NumericInput(
     value: FieldValue.Numeric?,
     onValueChange: (FieldValue?) -> Unit
 ) {
-    var text by remember(value) {
-        mutableStateOf(value?.let {
-            if (it.value == it.value.toLong().toDouble()) it.value.toLong().toString()
-            else it.value.toString()
-        } ?: "")
+    // The editable text is the source of truth while the user types. It is kept
+    // decoupled from the parsed model value so that in-progress, not-yet-parseable
+    // states ("-", ".", "-.", "12.") survive recomposition instead of being
+    // snapped back to the canonical formatting of the parsed Double — which is what
+    // broke negative input (typing "-0" became "0", dropping the sign).
+    var textState by remember { mutableStateOf(TextFieldValue(formatNumericForEditing(value))) }
+
+    // Pull external value changes (form reset, value populated from elsewhere) into
+    // the field, but only when the incoming value is a genuinely different number
+    // than what is already typed. Guarding on the parsed value — rather than the raw
+    // text — is what preserves in-progress edits: every keystroke that parses round-
+    // trips through the model, and without this guard the canonical re-formatting
+    // would overwrite the user's text ("-0" -> "0", "1." -> "1") on the next frame.
+    LaunchedEffect(value) {
+        if (value?.value != textState.text.toDoubleOrNull()) {
+            val formatted = formatNumericForEditing(value)
+            textState = TextFieldValue(formatted, TextRange(formatted.length))
+        }
     }
 
     OutlinedTextField(
-        value = text,
+        value = textState,
         onValueChange = { raw ->
-            text = raw
-            val d = raw.toDoubleOrNull()
-            onValueChange(if (d != null) FieldValue.Numeric(d) else null)
+            val sanitized = sanitizeNumericInput(raw)
+            textState = sanitized
+            onValueChange(sanitized.text.toDoubleOrNull()?.let { FieldValue.Numeric(it) })
         },
         modifier = Modifier.fillMaxWidth(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         suffix = if (field.unit.isNotBlank()) ({ Text(field.unit) }) else null,
         singleLine = true
     )
+}
+
+/** Formats a stored numeric value for display in the editor, dropping a trailing
+ *  ".0" for whole numbers (so 5.0 shows as "5", not "5.0"). Null becomes empty. */
+private fun formatNumericForEditing(value: FieldValue.Numeric?): String {
+    val d = value?.value ?: return ""
+    return if (d == d.toLong().toDouble()) d.toLong().toString() else d.toString()
+}
+
+/**
+ * Filters [raw] down to characters that can form a (possibly in-progress) decimal
+ * number — an optional leading minus sign, the digits, and a single decimal point —
+ * while keeping the caret anchored to the same logical position. A comma is accepted
+ * as a decimal separator and normalized to a point. Returning a [TextFieldValue]
+ * (rather than a plain String) lets the field drive the caret explicitly, so it
+ * doesn't jump to the end whenever a keystroke is sanitized.
+ */
+private fun sanitizeNumericInput(raw: TextFieldValue): TextFieldValue {
+    val builder = StringBuilder()
+    val caret = raw.selection.start
+    var newCaret = 0
+    raw.text.forEachIndexed { index, c ->
+        val normalized = if (c == ',') '.' else c
+        val keep = when {
+            normalized.isDigit() -> true
+            normalized == '-' -> builder.isEmpty()       // only as a leading sign
+            normalized == '.' -> !builder.contains('.')  // at most one point
+            else -> false
+        }
+        if (keep) {
+            builder.append(normalized)
+            if (index < caret) newCaret++
+        }
+    }
+    val text = builder.toString()
+    return TextFieldValue(text, TextRange(newCaret.coerceIn(0, text.length)))
 }
 
 @Composable
