@@ -11,6 +11,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -57,6 +59,7 @@ import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.domain.model.legacyMismatchOf
+import com.lifelog.app.ui.components.LabelChip
 import com.lifelog.app.ui.components.LifeLogCard
 import com.lifelog.app.ui.components.SwipeActionBackground
 import com.lifelog.app.ui.theme.accentTileColors
@@ -97,6 +100,20 @@ private fun String.likelyTruncatedAt(fit: Int): Boolean = length > fit || contai
 private fun fieldDisplayValue(field: EventField, value: FieldValue): String {
     val display = value.displayString()
     return if (value is FieldValue.Numeric && field.unit.isNotBlank()) "$display ${field.unit}" else display
+}
+
+/**
+ * The selected options of a choice value, ready to render as chips: a single
+ * element for [FieldValue.Choice], one per selection for [FieldValue.MultiSelect].
+ * Returns null for every other value type (rendered as text instead) and for an
+ * empty multi-select, so it falls back to the text line rather than an empty chip
+ * row. Keys on the stored subtype, not the field's declared type, so a value
+ * retyped after saving still renders as the data it actually holds.
+ */
+private fun choiceValuesOf(value: FieldValue): List<String>? = when (value) {
+    is FieldValue.Choice -> listOf(value.value)
+    is FieldValue.MultiSelect -> value.values.ifEmpty { null }
+    else -> null
 }
 
 /**
@@ -296,9 +313,11 @@ fun EntryCard(
     val hasMore = orderedFields.size > PREVIEW_FIELD_COUNT ||
         entry.note.likelyTruncatedAt(NOTE_PREVIEW_FIT) ||
         preview.any { field ->
-            entry.fieldValues[field.id]?.let { fv ->
+            val fv = entry.fieldValues[field.id] ?: return@any false
+            // Collapsed multi-selects show only the first selection + "+N", so the
+            // rest are reachable only by expanding — always offer it past one value.
+            (fv is FieldValue.MultiSelect && fv.values.size > 1) ||
                 "${field.name} ${fieldDisplayValue(field, fv)}".likelyTruncatedAt(FIELD_PREVIEW_FIT)
-            } == true
         }
 
     LifeLogCard(
@@ -347,7 +366,7 @@ fun EntryCard(
                         ) {
                             preview.forEach { field ->
                                 entry.fieldValues[field.id]?.let { fv ->
-                                    FieldPreviewLine(field.name, fieldDisplayValue(field, fv))
+                                    FieldPreviewLine(field, fv, accent)
                                 }
                             }
                             if (entry.note.isNotBlank()) {
@@ -418,7 +437,12 @@ fun EntryCard(
                 Column(modifier = Modifier.padding(top = Spacing.sm)) {
                     orderedFields.forEach { field ->
                         entry.fieldValues[field.id]?.let { fv ->
-                            FieldValueRow(field.name, fieldDisplayValue(field, fv))
+                            val choices = choiceValuesOf(fv)
+                            if (choices != null) {
+                                FieldValueChipsRow(field.name, choices, accent)
+                            } else {
+                                FieldValueRow(field.name, fieldDisplayValue(field, fv))
+                            }
                         }
                     }
                     if (entry.note.isNotBlank()) {
@@ -471,17 +495,42 @@ private fun TimeTile(timestamp: Long, accent: Color) {
     }
 }
 
-/** Collapsed preview: muted field name and emphasized value on one line. */
+/**
+ * Collapsed preview: muted field name then the value on one line. Choice and
+ * multi-select values read in the event accent so categorical fields are
+ * recognizable at a glance without the weight of a chip; a multi-select shows
+ * only its first selection plus a muted "+N", keeping the line stable however
+ * many tags it holds (the rest appear on expand). Every other type keeps the
+ * emphasized neutral value.
+ */
 @Composable
-private fun FieldPreviewLine(fieldName: String, value: String) {
+private fun FieldPreviewLine(field: EventField, value: FieldValue, accent: Color) {
+    val accentText = rememberAccentOnSurface(accent)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Text(
         buildAnnotatedString {
-            withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) {
-                append(fieldName)
+            withStyle(SpanStyle(color = muted)) {
+                append(field.name)
                 append("  ")
             }
-            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
-                append(value)
+            when (value) {
+                is FieldValue.Choice ->
+                    withStyle(SpanStyle(color = accentText, fontWeight = FontWeight.SemiBold)) {
+                        append(value.value)
+                    }
+                is FieldValue.MultiSelect -> {
+                    withStyle(SpanStyle(color = accentText, fontWeight = FontWeight.SemiBold)) {
+                        append(value.values.firstOrNull().orEmpty())
+                    }
+                    val extra = value.values.size - 1
+                    if (extra > 0) {
+                        withStyle(SpanStyle(color = muted)) { append("  +$extra") }
+                    }
+                }
+                else ->
+                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
+                        append(fieldDisplayValue(field, value))
+                    }
             }
         },
         style = MaterialTheme.typography.bodySmall,
@@ -510,5 +559,42 @@ private fun FieldValueRow(fieldName: String, value: String) {
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.SemiBold
         )
+    }
+}
+
+/**
+ * Expanded view for choice fields: the value column becomes wrapping tonal
+ * chips tinted with the entry's event accent — the same faint-container /
+ * luminance-corrected-content pairing the leading [TimeTile] uses, so chips
+ * read as part of the card's color system. One chip per selection. Chips only
+ * appear here, where the expanded card has room for them to breathe.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FieldValueChipsRow(fieldName: String, values: List<String>, accent: Color) {
+    val tile = accentTileColors(accent)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+    ) {
+        Text(
+            fieldName,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .widthIn(min = 80.dp)
+                .padding(top = 3.dp)
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+            modifier = Modifier.weight(1f)
+        ) {
+            values.forEach { option ->
+                LabelChip(option, containerColor = tile.container, contentColor = tile.content)
+            }
+        }
     }
 }
