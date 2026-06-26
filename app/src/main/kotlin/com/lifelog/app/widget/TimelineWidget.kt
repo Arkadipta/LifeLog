@@ -188,7 +188,10 @@ class TimelineWidget : GlanceAppWidget() {
                         tag = currentTag,
                         eventId = currentEventId,
                         eventColor = currentEventColor,
-                        eventIcon = currentEventIcon
+                        eventIcon = currentEventIcon,
+                        // At capacity the fetch may have hit older entries it didn't
+                        // return; disclose that with a trailing "show more" row.
+                        atCapacity = data.entries.size >= MAX_ENTRIES
                     )
                 }
             }
@@ -209,8 +212,12 @@ class TimelineWidget : GlanceAppWidget() {
         const val FILTER_EVENT = "EVENT"
         const val FILTER_TAG   = "TAG"
 
-        // Max rows fetched per update; display is limited by widget height via LazyColumn.
-        private const val MAX_ENTRIES = 10
+        // Upper bound on rows fed to the scrolling LazyColumn. Sized to comfortably
+        // fill a tall / resized widget while staying well under the RemoteViews
+        // collection limits (the list is serialized across a Binder transaction to
+        // the launcher). When a fetch fills to this many rows, the content appends a
+        // "show more" row so the ceiling is disclosed rather than a silent truncation.
+        const val MAX_ENTRIES = 50
     }
 }
 
@@ -259,7 +266,8 @@ private fun TimelineWidgetContent(
     tag: String,
     eventId: Long,
     eventColor: Int,
-    eventIcon: String
+    eventIcon: String,
+    atCapacity: Boolean
 ) {
     val context = LocalContext.current
     val size = LocalSize.current
@@ -311,6 +319,11 @@ private fun TimelineWidgetContent(
                         is24Hour = is24Hour,
                         isCompact = isCompact
                     )
+                }
+                if (atCapacity) {
+                    item {
+                        ShowMoreRow(context = context, isCompact = isCompact)
+                    }
                 }
             }
         }
@@ -547,6 +560,34 @@ private fun FieldLine(name: String, value: String, fontSize: TextUnit) {
                 color = GlanceTheme.colors.onSurface
             ),
             modifier = GlanceModifier.defaultWeight()
+        )
+    }
+}
+
+/**
+ * Trailing row shown when the timeline fetch fills to [TimelineWidget.MAX_ENTRIES],
+ * disclosing that older entries exist beyond the widget's cap. Tapping it opens the
+ * full history in the app rather than growing the widget's RemoteViews collection.
+ */
+@Composable
+private fun ShowMoreRow(context: Context, isCompact: Boolean) {
+    Row(
+        modifier = GlanceModifier
+            .fillMaxWidth()
+            .padding(vertical = if (isCompact) 4.dp else 6.dp)
+            .clickable(actionStartActivity(mainActivityIntent(context)))
+            .semantics { contentDescription = "Show more entries in LifeLog" },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            "Show more in app",
+            style = TextStyle(
+                fontSize = if (isCompact) 11.sp else 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = GlanceTheme.colors.primary
+            ),
+            maxLines = 1
         )
     }
 }
