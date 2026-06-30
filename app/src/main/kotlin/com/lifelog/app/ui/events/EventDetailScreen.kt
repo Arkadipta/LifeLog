@@ -54,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -159,12 +160,18 @@ fun EventDetailScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text(eventType?.name ?: "")
+                        Text(
+                            eventType?.name ?: "",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                         if (eventType?.category?.isNotBlank() == true) {
                             Text(
                                 eventType!!.category,
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }

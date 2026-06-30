@@ -65,6 +65,60 @@ internal class ExplicitTickItemPlacer(private val xValues: List<Double>) :
 }
 
 /**
+ * Y-axis item placer that draws labels, ticks, and guidelines at an explicit set
+ * of values, instead of deriving them from the range. Line charts use this so
+ * the axis lands on the "nice" round values [com.lifelog.app.domain.LineChartAxisScale]
+ * picked for the fitted range, keeping the count capped and label widths uniform.
+ */
+internal class ExplicitYTickItemPlacer(private val yValues: List<Double>) :
+    VerticalAxis.ItemPlacer {
+
+    override fun getShiftTopLines(context: CartesianDrawingContext): Boolean = false
+
+    override fun getLabelValues(
+        context: CartesianDrawingContext,
+        axisHeight: Float,
+        maxLabelHeight: Float,
+        position: Axis.Position.Vertical,
+    ): List<Double> = yValues
+
+    override fun getWidthMeasurementLabelValues(
+        context: CartesianMeasuringContext,
+        axisHeight: Float,
+        maxLabelHeight: Float,
+        position: Axis.Position.Vertical,
+    ): List<Double> = yValues
+
+    override fun getHeightMeasurementLabelValues(
+        context: CartesianMeasuringContext,
+        position: Axis.Position.Vertical,
+    ): List<Double> = yValues
+
+    override fun getLineValues(
+        context: CartesianDrawingContext,
+        axisHeight: Float,
+        maxLabelHeight: Float,
+        position: Axis.Position.Vertical,
+    ): List<Double> = yValues
+
+    // Reserve half a label at each end so the top and bottom labels (which sit
+    // inside the range, not on its edges) are never clipped.
+    override fun getTopVerticalAxisInset(
+        context: CartesianMeasuringContext,
+        verticalLabelPosition: VerticalAxis.VerticalLabelPosition,
+        maxLabelHeight: Float,
+        maxLineThickness: Float,
+    ): Float = maxLabelHeight / 2f + maxLineThickness
+
+    override fun getBottomVerticalAxisInset(
+        context: CartesianMeasuringContext,
+        verticalLabelPosition: VerticalAxis.VerticalLabelPosition,
+        maxLabelHeight: Float,
+        maxLineThickness: Float,
+    ): Float = maxLabelHeight / 2f + maxLineThickness
+}
+
+/**
  * Y-axis item placer that caps labels at 4 for normal data, but falls back to a single
  * tick at the constant value when the y-range is zero (flat / single-value series).
  * This prevents both overlapping duplicate labels and invisible axes.

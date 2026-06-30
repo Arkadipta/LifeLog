@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.ChartTickGenerator
+import com.lifelog.app.domain.LineChartAxisScale
 import com.lifelog.app.domain.model.ChartData
 import com.lifelog.app.domain.model.ChartType
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
@@ -32,12 +33,14 @@ import com.patrykandpatrick.vico.core.cartesian.axis.HorizontalAxis
 import com.patrykandpatrick.vico.core.cartesian.axis.VerticalAxis
 import com.patrykandpatrick.vico.core.cartesian.data.CartesianChartModelProducer
 import com.patrykandpatrick.vico.core.cartesian.data.CartesianLayerRangeProvider
+import com.patrykandpatrick.vico.core.cartesian.data.CartesianValueFormatter
 import com.patrykandpatrick.vico.core.cartesian.data.columnSeries
 import com.patrykandpatrick.vico.core.cartesian.data.lineSeries
 import com.patrykandpatrick.vico.core.cartesian.layer.ColumnCartesianLayer
 import com.patrykandpatrick.vico.core.cartesian.layer.LineCartesianLayer
 import com.patrykandpatrick.vico.core.common.data.ExtraStore
 import com.patrykandpatrick.vico.core.common.shape.CorneredShape
+import java.util.Locale
 import kotlin.math.roundToInt
 
 @Composable
@@ -71,9 +74,20 @@ fun CartesianChartContent(data: ChartData.Cartesian, eventAccentColor: Color, mo
 
     val seriesColors = resolveSeriesColors(data.series, eventAccentColor)
     val bucketCount = data.bucketTimestamps.size
+    // Line charts fit the y-axis to the data (across all series) so variation
+    // is visible; bar charts keep auto scaling, which anchors them at zero.
+    val yScale = remember(data) {
+        if (data.type == ChartType.BAR) null
+        else {
+            val values = data.series.flatMap { s -> s.points.map { it.value } }
+            val lo = values.minOrNull()
+            val hi = values.maxOrNull()
+            if (lo == null || hi == null) null else LineChartAxisScale.compute(lo, hi)
+        }
+    }
     // The x-range always spans every bucket in the selected window, so the
     // axis stays meaningful even when only a few buckets contain data.
-    val rangeProvider = remember(bucketCount) { fullSpanRangeProvider(bucketCount) }
+    val rangeProvider = remember(bucketCount, yScale) { fullSpanRangeProvider(bucketCount, yScale) }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val maxTicks = (maxWidth / 56.dp).toInt().coerceIn(3, 6)
@@ -119,7 +133,20 @@ fun CartesianChartContent(data: ChartData.Cartesian, eventAccentColor: Color, mo
                 layer,
                 startAxis = VerticalAxis.rememberStart(
                     label = axisLabel, line = axisLine, tick = axisTick, guideline = guideline,
-                    itemPlacer = RobustCountItemPlacer
+                    itemPlacer = if (yScale != null) {
+                        remember(yScale.ticks) { ExplicitYTickItemPlacer(yScale.ticks) }
+                    } else {
+                        RobustCountItemPlacer
+                    },
+                    valueFormatter = if (yScale != null) {
+                        remember(yScale.decimals) {
+                            CartesianValueFormatter { _, value, _ ->
+                                String.format(Locale.US, "%.${yScale.decimals}f", value)
+                            }
+                        }
+                    } else {
+                        CartesianValueFormatter.decimal()
+                    }
                 ),
                 bottomAxis = HorizontalAxis.rememberBottom(
                     label = axisLabel, line = axisLine, tick = axisTick, guideline = null,
@@ -155,8 +182,15 @@ private fun columnThickness(bucketCount: Int, seriesCount: Int): Dp {
     return (perBucket / seriesCount.coerceAtLeast(1)).coerceAtLeast(3.dp)
 }
 
-/** Fixed x-range covering all buckets; y stays on Vico's auto scaling. */
-private fun fullSpanRangeProvider(bucketCount: Int): CartesianLayerRangeProvider =
+/**
+ * Fixed x-range covering all buckets. When [yScale] is non-null (line charts),
+ * the y-range is fit to the data; otherwise (bar charts) it stays on Vico's auto
+ * scaling, which anchors the axis at zero.
+ */
+private fun fullSpanRangeProvider(
+    bucketCount: Int,
+    yScale: LineChartAxisScale.Scale?,
+): CartesianLayerRangeProvider =
     object : CartesianLayerRangeProvider {
         private val autoY = CartesianLayerRangeProvider.auto()
         private val padHalf = bucketCount <= 1
@@ -168,8 +202,8 @@ private fun fullSpanRangeProvider(bucketCount: Int): CartesianLayerRangeProvider
             if (padHalf) 0.5 else (bucketCount - 1).toDouble()
 
         override fun getMinY(minY: Double, maxY: Double, extraStore: ExtraStore) =
-            autoY.getMinY(minY, maxY, extraStore)
+            yScale?.min ?: autoY.getMinY(minY, maxY, extraStore)
 
         override fun getMaxY(minY: Double, maxY: Double, extraStore: ExtraStore) =
-            autoY.getMaxY(minY, maxY, extraStore)
+            yScale?.max ?: autoY.getMaxY(minY, maxY, extraStore)
     }
