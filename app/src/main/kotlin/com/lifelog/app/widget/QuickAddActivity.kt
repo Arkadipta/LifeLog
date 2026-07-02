@@ -2,6 +2,7 @@ package com.lifelog.app.widget
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
@@ -10,6 +11,7 @@ import androidx.core.app.NotificationManagerCompat
 import com.lifelog.app.MainActivity
 import com.lifelog.app.data.repository.UserPreferences
 import com.lifelog.app.data.repository.UserPreferencesRepository
+import com.lifelog.app.ui.events.EntryFormMode
 import com.lifelog.app.ui.events.EntryFormSheet
 import com.lifelog.app.ui.theme.LifeLogTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -24,11 +26,14 @@ class QuickAddActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val eventId = intent.getLongExtra(EXTRA_EVENT_ID, 0L)
+        val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1)
         if (eventId == 0L) {
-            finish()
+            // A widget whose event was deleted (its state is cleared to id 0) or a
+            // malformed intent — nothing can be logged, so say why instead of a
+            // silent no-op tap.
+            finishMissingEvent(notificationId)
             return
         }
-        val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1)
 
         setContent {
             val prefs by userPreferencesRepository.userPreferences.collectAsState(
@@ -39,14 +44,16 @@ class QuickAddActivity : ComponentActivity() {
                 dynamicColor = prefs.useDynamicColor
             ) {
                 EntryFormSheet(
-                    eventTypeId = eventId,
-                    editingEntryId = null,
+                    mode = EntryFormMode.New(eventId),
                     onDismiss = {
                         if (notificationId != -1) {
                             NotificationManagerCompat.from(this).cancel(notificationId)
                         }
                         finish()
                     },
+                    // The event was deleted after this widget/notification was
+                    // created — explain rather than flash an unusable form.
+                    onEventMissing = { finishMissingEvent(notificationId) },
                     onViewHistory = { id ->
                         if (notificationId != -1) {
                             NotificationManagerCompat.from(this).cancel(notificationId)
@@ -67,6 +74,14 @@ class QuickAddActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    private fun finishMissingEvent(notificationId: Int) {
+        if (notificationId != -1) {
+            NotificationManagerCompat.from(this).cancel(notificationId)
+        }
+        Toast.makeText(this, "This event no longer exists", Toast.LENGTH_SHORT).show()
+        finish()
     }
 
     companion object {

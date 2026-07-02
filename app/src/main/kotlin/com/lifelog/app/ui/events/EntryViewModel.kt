@@ -26,8 +26,28 @@ data class EntryFormState(
     val note: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     val isLoading: Boolean = false,
-    val existingEntryId: Long = 0L
+    val existingEntryId: Long = 0L,
+    /** The event type (or the entry being edited) no longer exists — the form cannot save. */
+    val eventTypeMissing: Boolean = false,
+    val errorMessage: String? = null
 )
+
+/**
+ * The entry this form would save, or null when it must not save: the event type
+ * is resolved from the loaded state — never from a caller-supplied id — so an
+ * edited entry always keeps the type it was loaded with, and a form whose event
+ * type failed to load (deleted event, stale widget) cannot insert a dead FK.
+ */
+fun EntryFormState.toEventEntry(): EventEntry? {
+    val typeId = eventType?.id ?: return null
+    return EventEntry(
+        id = existingEntryId,
+        eventTypeId = typeId,
+        fieldValues = fieldValues,
+        note = note,
+        createdAt = createdAt
+    )
+}
 
 @HiltViewModel
 class EntryViewModel @Inject constructor(
@@ -47,7 +67,7 @@ class EntryViewModel @Inject constructor(
         _state.value = EntryFormState()
         viewModelScope.launch {
             val eventType = repository.getEventType(eventTypeId)
-            _state.update { it.copy(eventType = eventType) }
+            _state.update { it.copy(eventType = eventType, eventTypeMissing = eventType == null) }
         }
     }
 
@@ -55,8 +75,8 @@ class EntryViewModel @Inject constructor(
         _state.value = EntryFormState(isLoading = true)
         viewModelScope.launch {
             val entry = repository.getEntry(entryId)
-            if (entry != null) {
-                val eventType = repository.getEventType(entry.eventTypeId)
+            val eventType = entry?.let { repository.getEventType(it.eventTypeId) }
+            if (entry != null && eventType != null) {
                 _state.update {
                     it.copy(
                         eventType = eventType,
@@ -68,7 +88,7 @@ class EntryViewModel @Inject constructor(
                     )
                 }
             } else {
-                _state.update { it.copy(isLoading = false) }
+                _state.update { it.copy(isLoading = false, eventTypeMissing = true) }
             }
         }
     }
@@ -84,22 +104,29 @@ class EntryViewModel @Inject constructor(
     fun setNote(note: String) = _state.update { it.copy(note = note) }
     fun setCreatedAt(time: Long) = _state.update { it.copy(createdAt = time) }
 
-    fun save(eventTypeId: Long) {
+    fun save() {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true) }
+            _state.update { it.copy(isLoading = true, errorMessage = null) }
             val current = _state.value
-            val entry = EventEntry(
-                id = current.existingEntryId,
-                eventTypeId = eventTypeId,
-                fieldValues = current.fieldValues,
-                note = current.note,
-                createdAt = current.createdAt
-            )
-            repository.saveEntry(entry)
+            val entry = current.toEventEntry()
+            if (entry == null) {
+                // No loaded event type — saving would insert a dead foreign key.
+                _state.update {
+                    it.copy(isLoading = false, errorMessage = "This event no longer exists")
+                }
+                return@launch
+            }
+            val saved = runCatching { repository.saveEntry(entry) }
+            if (saved.isFailure) {
+                _state.update {
+                    it.copy(isLoading = false, errorMessage = "Couldn't save the entry")
+                }
+                return@launch
+            }
 
             // Reschedule any TIME_SINCE_LAST reminders linked to this event type
             reminderRepository.rescheduleTimeSinceLast(
-                eventTypeId = eventTypeId,
+                eventTypeId = entry.eventTypeId,
                 entryAt = current.createdAt,
                 schedule = { reminder -> reminderScheduler.schedule(reminder) }
             )

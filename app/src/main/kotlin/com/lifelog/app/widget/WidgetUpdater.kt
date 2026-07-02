@@ -3,6 +3,7 @@ package com.lifelog.app.widget
 import android.content.Context
 import android.util.Log
 import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.state.PreferencesGlanceStateDefinition
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -92,6 +93,43 @@ class WidgetUpdater @Inject constructor(
             }
         } catch (e: Exception) {
             Log.e(TAG, "refreshTimeline: failed", e)
+        }
+    }
+
+    /**
+     * Unbinds any QuickAddWidget configured for the given event type. Called when an
+     * event type is deleted: a refresh alone re-renders the widget from its stored
+     * prefs, so it would keep the dead event's identity and keep launching Quick Add
+     * with an id that can no longer resolve. Clearing the id (and relabeling) turns
+     * the widget into an inert "Event removed" card instead.
+     */
+    suspend fun clearQuickAddForEvent(eventTypeId: Long) {
+        try {
+            val manager = GlanceAppWidgetManager(context)
+            val staleIds = withContext(Dispatchers.IO) {
+                manager.getGlanceIds(QuickAddWidget::class.java).filter { id ->
+                    getAppWidgetState(context, PreferencesGlanceStateDefinition, id)
+                        .get(QuickAddWidget.PREF_EVENT_ID) == eventTypeId
+                }
+            }
+            Log.d(TAG, "clearQuickAddForEvent: ${staleIds.size} widget(s) bound to eventTypeId=$eventTypeId")
+            staleIds.forEach { id ->
+                updateAppWidgetState(context, PreferencesGlanceStateDefinition, id) { prefs ->
+                    prefs.toMutablePreferences().apply {
+                        remove(QuickAddWidget.PREF_EVENT_ID)
+                        remove(QuickAddWidget.PREF_EVENT_COLOR)
+                        remove(QuickAddWidget.PREF_EVENT_ICON)
+                        this[QuickAddWidget.PREF_EVENT_NAME] = "Event removed"
+                    }
+                }
+            }
+            withContext(Dispatchers.Main) {
+                staleIds.forEach { id ->
+                    QuickAddWidget().update(context, id)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "clearQuickAddForEvent: failed for eventTypeId=$eventTypeId", e)
         }
     }
 

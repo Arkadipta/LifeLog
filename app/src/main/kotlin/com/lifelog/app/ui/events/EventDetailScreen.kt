@@ -442,8 +442,7 @@ fun EventDetailScreen(
 
     if (showEntrySheet) {
         EntryFormSheet(
-            eventTypeId = eventId,
-            editingEntryId = editingEntryId,
+            mode = editingEntryId?.let { EntryFormMode.Edit(it) } ?: EntryFormMode.New(eventId),
             onDismiss = { showEntrySheet = false }
         )
     }

@@ -63,24 +63,30 @@ import java.util.Calendar
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EntryFormSheet(
-    eventTypeId: Long,
-    editingEntryId: Long?,
+    mode: EntryFormMode,
     onDismiss: () -> Unit,
     onViewHistory: ((eventTypeId: Long) -> Unit)? = null,
+    onEventMissing: () -> Unit = onDismiss,
     viewModel: EntryViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    LaunchedEffect(eventTypeId, editingEntryId) {
-        if (editingEntryId != null && editingEntryId != 0L) {
-            viewModel.loadEntry(editingEntryId)
-        } else {
-            viewModel.loadEventType(eventTypeId)
+    LaunchedEffect(mode) {
+        when (mode) {
+            is EntryFormMode.Edit -> viewModel.loadEntry(mode.entryId)
+            is EntryFormMode.New -> viewModel.loadEventType(mode.eventTypeId)
         }
     }
 
     LaunchedEffect(Unit) {
         viewModel.dismiss.collect { onDismiss() }
+    }
+
+    // The event type (or the entry being edited) is gone — e.g. a stale widget or
+    // notification pointing at a deleted event. Close instead of offering a form
+    // whose save could never succeed.
+    LaunchedEffect(state.eventTypeMissing) {
+        if (state.eventTypeMissing) onEventMissing()
     }
 
     var showDatePicker by remember { mutableStateOf(false) }
@@ -151,13 +157,22 @@ fun EntryFormSheet(
                     maxLines = 3
                 )
 
-                // Save button
+                state.errorMessage?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                // Save button — disabled until the event type resolves so an entry
+                // can never be saved without a valid type to attach it to.
                 Button(
-                    onClick = { viewModel.save(eventTypeId) },
+                    onClick = { viewModel.save() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(Sizing.cta),
-                    enabled = !state.isLoading
+                    enabled = !state.isLoading && state.eventType != null
                 ) {
                     if (state.isLoading) {
                         CircularProgressIndicator(

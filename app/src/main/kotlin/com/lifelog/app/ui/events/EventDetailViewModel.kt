@@ -94,6 +94,9 @@ class EventDetailViewModel @Inject constructor(
     fun deleteEventType(id: Long) {
         viewModelScope.launch {
             repository.deleteEventType(id)
+            // Unbind any QuickAddWidget for this event (it re-renders as part of
+            // the clear), then refresh timelines that showed its entries.
+            widgetUpdater.clearQuickAddForEvent(id)
             widgetUpdater.refreshTimeline()
         }
     }

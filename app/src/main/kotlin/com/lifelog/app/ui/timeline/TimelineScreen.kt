@@ -38,6 +38,7 @@ import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.ui.components.DeleteConfirmDialog
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
 import com.lifelog.app.ui.components.TagFilterRow
+import com.lifelog.app.ui.events.EntryFormMode
 import com.lifelog.app.ui.events.EntryFormSheet
 import com.lifelog.app.ui.events.JumpToDateDialog
 import com.lifelog.app.ui.events.entryCardItems
@@ -170,8 +171,7 @@ fun TimelineScreen(
 
     editingEntryId?.let { entryId ->
         EntryFormSheet(
-            eventTypeId = 0L,
-            editingEntryId = entryId,
+            mode = EntryFormMode.Edit(entryId),
             onDismiss = { editingEntryId = null },
             onViewHistory = { eventId ->
                 editingEntryId = null

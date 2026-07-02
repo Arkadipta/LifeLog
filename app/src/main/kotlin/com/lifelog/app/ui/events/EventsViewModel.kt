@@ -64,8 +64,9 @@ class EventsViewModel @Inject constructor(
     fun deleteEventType(id: Long) {
         viewModelScope.launch {
             repository.deleteEventType(id)
-            // Deleting an event type removes its entries from the timeline and may
-            // leave a QuickAddWidget pointing at a now-deleted event — refresh all.
+            // Deleting an event type removes its entries from the timeline and
+            // orphans any QuickAddWidget bound to it — unbind those, then refresh.
+            widgetUpdater.clearQuickAddForEvent(id)
             widgetUpdater.refreshAll()
         }
     }
