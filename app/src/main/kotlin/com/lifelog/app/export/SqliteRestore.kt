@@ -163,13 +163,6 @@ object SqliteRestore {
             if (c.moveToFirst()) c.getInt(0) else 0
         }
 
-    /** Delete this file's SQLite sidecars (-wal/-shm/-journal), if present. */
-    private fun File.deleteSidecars() {
-        File("$path-wal").delete()
-        File("$path-shm").delete()
-        File("$path-journal").delete()
-    }
-
     /**
      * Delete this SQLite file together with its sidecars. Validation opens files
      * read-only, which can still spawn -wal/-shm next to them, so plain delete()
@@ -177,7 +170,7 @@ object SqliteRestore {
      */
     private fun File.deleteWithSidecars() {
         delete()
-        deleteSidecars()
+        deleteSqliteSidecars()
     }
 
     // ── Apply (startup) ─────────────────────────────────────────────────────────
@@ -219,7 +212,7 @@ object SqliteRestore {
 
             // Stale WAL/SHM sidecars belong to the OLD database; replaying them
             // onto the restored file would corrupt it, so they must be removed.
-            live.deleteSidecars()
+            live.deleteSqliteSidecars()
 
             staged.copyTo(live, overwrite = true)
 
@@ -275,4 +268,15 @@ object SqliteRestore {
         }
         Runtime.getRuntime().exit(0)
     }
+}
+
+/**
+ * Delete this file's SQLite sidecars (-wal/-shm/-journal), if present — without
+ * touching the file itself. [SqliteRestore.validate] opens files read-only,
+ * which can still spawn -wal/-shm next to them.
+ */
+internal fun File.deleteSqliteSidecars() {
+    File("$path-wal").delete()
+    File("$path-shm").delete()
+    File("$path-journal").delete()
 }

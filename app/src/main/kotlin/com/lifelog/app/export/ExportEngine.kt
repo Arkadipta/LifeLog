@@ -69,35 +69,36 @@ class ExportEngine @Inject constructor(
 
     // ── Auto-backup to internal storage (no SAF needed) ───────────────────────
 
-    suspend fun createAutoBackup(format: ExportFormat): File = withContext(Dispatchers.IO) {
-        val backupDir = File(context.filesDir, "backups").also { it.mkdirs() }
-        rotateBackups(backupDir, maxKeep = 7)
+    /** An on-device auto-backup, restorable via Settings → Restore from Auto-Backup. */
+    data class AutoBackup(val file: File, val modifiedAt: Long, val sizeBytes: Long)
 
+    /**
+     * Write a new auto-backup. Always a SQLite copy: it is the only format the
+     * in-app restore pipeline accepts, and these files live in private storage
+     * where nothing else could consume them.
+     */
+    suspend fun createAutoBackup(): File = withContext(Dispatchers.IO) {
+        val backupDir = autoBackupDir().also { it.mkdirs() }
         val ts = fileTimestampFormat.format(Date())
-        val file = File(backupDir, "lifelog_backup_$ts.${format.extension}")
+        val file = File(backupDir, "$AUTO_BACKUP_PREFIX$ts.db")
 
-        when (format) {
-            ExportFormat.SQLITE -> {
-                checkpointWal()
-                context.getDatabasePath(LifeLogDatabase.DATABASE_NAME).copyTo(file)
-            }
-            ExportFormat.JSON -> {
-                val data = buildExportData()
-                file.writeText(json.encodeToString(ExportData.serializer(), data), Charsets.UTF_8)
-            }
-            ExportFormat.ZIP_CSV -> {
-                file.outputStream().use { os -> writeZipCsv(BufferedOutputStream(os)) }
-            }
+        try {
+            checkpointWal()
+            context.getDatabasePath(LifeLogDatabase.DATABASE_NAME).copyTo(file)
+        } catch (e: Exception) {
+            file.delete() // never leave a partial backup behind, or rotate good ones for it
+            throw e
         }
+        rotateAutoBackups(backupDir, maxKeep = AUTO_BACKUP_MAX_KEEP)
         file
     }
 
-    fun listAutoBackups(): List<File> =
-        File(context.filesDir, "backups")
-            .takeIf { it.exists() }
-            ?.listFiles { f -> f.isFile && f.name.startsWith("lifelog_backup_") }
-            ?.sortedByDescending { it.lastModified() }
-            ?: emptyList()
+    suspend fun listAutoBackups(): List<AutoBackup> = withContext(Dispatchers.IO) {
+        restorableAutoBackupsIn(autoBackupDir())
+            .map { AutoBackup(it, it.lastModified(), it.length()) }
+    }
+
+    private fun autoBackupDir() = File(context.filesDir, "backups")
 
     // ── Core data gathering ───────────────────────────────────────────────────
 
@@ -145,13 +146,6 @@ class ExportEngine @Inject constructor(
         runCatching { db.openHelper.writableDatabase.execSQL("PRAGMA wal_checkpoint(TRUNCATE)") }
     }
 
-    private fun rotateBackups(dir: File, maxKeep: Int) {
-        dir.listFiles { f -> f.isFile && f.name.startsWith("lifelog_backup_") }
-            ?.sortedByDescending { it.lastModified() }
-            ?.drop(maxKeep)
-            ?.forEach { it.delete() }
-    }
-
     // ── Entity → Row mappers ──────────────────────────────────────────────────
 
     private fun EventTypeEntity.toRow() = EventTypeRow(id, name, description, category, colorArgb, iconName, createdAt, updatedAt)
@@ -159,4 +153,30 @@ class ExportEngine @Inject constructor(
     private fun EventEntryEntity.toRow() = EventEntryRow(id, eventTypeId, fieldValuesJson, note, createdAt, updatedAt)
     private fun ReminderEntity.toRow() = ReminderRow(id, eventTypeId, title, message, deliveryType, recurrenceType, recurrenceRuleJson, snoozeMinutes, nextTriggerAt, isActive)
     private fun ChartConfigEntity.toRow() = ChartConfigRow(id, eventTypeId, configJson, sortOrder, createdAt)
+}
+
+// ── Auto-backup file management (top-level for unit testing) ──────────────────
+
+internal const val AUTO_BACKUP_PREFIX = "lifelog_backup_"
+internal const val AUTO_BACKUP_MAX_KEEP = 7
+
+/**
+ * The auto-backup files in [dir] the restore flow can offer, newest first.
+ * Only `.db` files qualify: pre-1.0 builds could also write `.json`/`.zip`
+ * auto-backups, which nothing can import anymore.
+ */
+internal fun restorableAutoBackupsIn(dir: File): List<File> =
+    dir.listFiles { f -> f.isFile && f.name.startsWith(AUTO_BACKUP_PREFIX) && f.name.endsWith(".db") }
+        ?.sortedByDescending { it.lastModified() }
+        ?: emptyList()
+
+/**
+ * Delete all but the newest [maxKeep] auto-backups in [dir]. Deliberately
+ * matches any extension so legacy `.json`/`.zip` backups age out too.
+ */
+internal fun rotateAutoBackups(dir: File, maxKeep: Int) {
+    dir.listFiles { f -> f.isFile && f.name.startsWith(AUTO_BACKUP_PREFIX) }
+        ?.sortedByDescending { it.lastModified() }
+        ?.drop(maxKeep)
+        ?.forEach { it.delete() }
 }

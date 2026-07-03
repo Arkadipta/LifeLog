@@ -138,7 +138,7 @@ LifeLog is built so that your information stays with you.
 | **JSON**   | Portability and inspection                | A structured, human-readable snapshot of everything    |
 | **CSV**    | Spreadsheets and external analysis        | One file per tracker, with a column for each field     |
 
-You can also **restore** from a SQLite backup, schedule **automatic local backups**, and **import** existing records by mapping a CSV file into a new tracker.
+You can also **restore** from a SQLite backup, schedule **automatic local backups** (the last 7 are kept on-device and restorable straight from Settings), and **import** existing records by mapping a CSV file into a new tracker.
 
 <br/>
 

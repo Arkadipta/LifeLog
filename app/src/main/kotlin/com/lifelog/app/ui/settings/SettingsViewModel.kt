@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 import javax.inject.Inject
 
 data class ExportUiState(
@@ -55,6 +56,10 @@ class SettingsViewModel @Inject constructor(
     private val _restoreState = MutableStateFlow(RestoreUiState())
     val restoreState: StateFlow<RestoreUiState> = _restoreState.asStateFlow()
 
+    /** Auto-backups offered by the picker dialog; null while the dialog is hidden. */
+    private val _autoBackups = MutableStateFlow<List<ExportEngine.AutoBackup>?>(null)
+    val autoBackups: StateFlow<List<ExportEngine.AutoBackup>?> = _autoBackups.asStateFlow()
+
     fun setAmoledBlack(v: Boolean) = viewModelScope.launch { prefsRepo.setAmoledBlack(v) }
     fun setDynamicColor(v: Boolean) = viewModelScope.launch { prefsRepo.setDynamicColor(v) }
 
@@ -62,15 +67,6 @@ class SettingsViewModel @Inject constructor(
         prefsRepo.setBackupFrequency(freq)
         val wm = WorkManager.getInstance(context)
         AutoBackupWorker.schedule(wm, freq)
-    }
-
-    fun setBackupFormat(format: ExportFormat) = viewModelScope.launch {
-        prefsRepo.setBackupFormat(format)
-        // Re-schedule if an active backup is running so it picks up the new format
-        val freq = prefs.value.backupFrequency
-        if (freq != BackupFrequency.OFF) {
-            AutoBackupWorker.schedule(WorkManager.getInstance(context), freq)
-        }
     }
 
     fun exportNow(uri: Uri, format: ExportFormat) = viewModelScope.launch {
@@ -92,24 +88,40 @@ class SettingsViewModel @Inject constructor(
         _exportState.update { it.copy(lastExportError = null, exportSuccess = false) }
     }
 
+    /** Load the on-device auto-backups and open the picker dialog. */
+    fun showAutoBackupPicker() = viewModelScope.launch {
+        _autoBackups.value = exportEngine.listAutoBackups()
+    }
+
+    fun dismissAutoBackupPicker() {
+        _autoBackups.value = null
+    }
+
     /**
      * Validate, stage, and (on success) apply a full restore from the chosen
      * SQLite database. On success the app is relaunched so Room re-opens the
      * restored database in a fresh process; the success message is shown after
      * the restart. On failure the current database is left untouched.
      */
-    fun restoreFromSqlite(uri: Uri) = viewModelScope.launch {
-        _restoreState.update { it.copy(isRestoring = true, error = null) }
-        when (val result = importEngine.restoreFromSqlite(uri)) {
-            is ImportEngine.RestoreResult.Error ->
-                _restoreState.update { it.copy(isRestoring = false, error = result.message) }
-            is ImportEngine.RestoreResult.Success -> {
-                _restoreState.update { it.copy(isRestoring = false, isRestarting = true) }
-                delay(1200) // let the "restarting" dialog register before the process dies
-                SqliteRestore.triggerRestart(context)
+    fun restoreFromSqlite(uri: Uri) = launchRestore { importEngine.restoreFromSqlite(uri) }
+
+    /** Same flow as [restoreFromSqlite], sourced from an on-device auto-backup. */
+    fun restoreFromAutoBackup(backup: ExportEngine.AutoBackup) =
+        launchRestore { importEngine.restoreFromFile(backup.file) }
+
+    private fun launchRestore(perform: suspend () -> ImportEngine.RestoreResult) =
+        viewModelScope.launch {
+            _restoreState.update { it.copy(isRestoring = true, error = null) }
+            when (val result = perform()) {
+                is ImportEngine.RestoreResult.Error ->
+                    _restoreState.update { it.copy(isRestoring = false, error = result.message) }
+                is ImportEngine.RestoreResult.Success -> {
+                    _restoreState.update { it.copy(isRestoring = false, isRestarting = true) }
+                    delay(1200) // let the "restarting" dialog register before the process dies
+                    SqliteRestore.triggerRestart(context)
+                }
             }
         }
-    }
 
     fun clearRestoreError() {
         _restoreState.update { it.copy(error = null) }

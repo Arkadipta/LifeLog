@@ -65,10 +65,37 @@ class ImportEngine @Inject constructor(
             // to it; remove the candidate together with any sidecars.
             runCatching {
                 temp.delete()
-                File(temp.path + "-wal").delete()
-                File(temp.path + "-shm").delete()
-                File(temp.path + "-journal").delete()
+                temp.deleteSqliteSidecars()
             }
+        }
+    }
+
+    /**
+     * Validate and stage a full restore from an on-device auto-backup [file]
+     * (see [ExportEngine.listAutoBackups]). Same two-phase flow as
+     * [restoreFromSqlite], minus the SAF copy — the backup file itself is only
+     * ever read, so a failed validation leaves both the live database and the
+     * backup intact.
+     */
+    suspend fun restoreFromFile(file: File): RestoreResult = withContext(Dispatchers.IO) {
+        try {
+            if (!file.isFile) {
+                return@withContext RestoreResult.Error(
+                    "This backup no longer exists. It may have been rotated out by a newer backup."
+                )
+            }
+            when (val v = SqliteRestore.validate(file)) {
+                is SqliteRestore.Validation.Invalid -> RestoreResult.Error(v.reason)
+                is SqliteRestore.Validation.Valid -> runCatching {
+                    file.copyTo(SqliteRestore.stagedFile(context), overwrite = true)
+                }.fold(
+                    onSuccess = { RestoreResult.Success(v.counts) },
+                    onFailure = { RestoreResult.Error("Could not prepare the restore: ${it.message}") }
+                )
+            }
+        } finally {
+            // Drop any sidecars validation spawned, but keep the backup itself.
+            runCatching { file.deleteSqliteSidecars() }
         }
     }
 }

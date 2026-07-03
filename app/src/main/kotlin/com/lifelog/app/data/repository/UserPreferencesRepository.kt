@@ -10,7 +10,6 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.lifelog.app.domain.model.EventSortOption
 import com.lifelog.app.export.BackupFrequency
-import com.lifelog.app.export.ExportFormat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -21,7 +20,6 @@ data class UserPreferences(
     val useAmoledBlack: Boolean = false,
     val useDynamicColor: Boolean = false,
     val backupFrequency: BackupFrequency = BackupFrequency.OFF,
-    val backupFormat: ExportFormat = ExportFormat.SQLITE,
     val lastBackupAt: Long = 0L,
     val eventSortOption: EventSortOption = EventSortOption.DEFAULT
 )
@@ -36,7 +34,6 @@ class UserPreferencesRepository @Inject constructor(
         val AMOLED_BLACK = booleanPreferencesKey("amoled_black")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val BACKUP_FREQUENCY = stringPreferencesKey("backup_frequency")
-        val BACKUP_FORMAT = stringPreferencesKey("backup_format")
         val LAST_BACKUP_AT = longPreferencesKey("last_backup_at")
         val EVENT_SORT_OPTION = stringPreferencesKey("event_sort_option")
     }
@@ -48,9 +45,6 @@ class UserPreferencesRepository @Inject constructor(
             backupFrequency = prefs[Keys.BACKUP_FREQUENCY]
                 ?.let { runCatching { BackupFrequency.valueOf(it) }.getOrNull() }
                 ?: BackupFrequency.OFF,
-            backupFormat = prefs[Keys.BACKUP_FORMAT]
-                ?.let { runCatching { ExportFormat.valueOf(it) }.getOrNull() }
-                ?: ExportFormat.SQLITE,
             lastBackupAt = prefs[Keys.LAST_BACKUP_AT] ?: 0L,
             eventSortOption = prefs[Keys.EVENT_SORT_OPTION]
                 ?.let { runCatching { EventSortOption.valueOf(it) }.getOrNull() }
@@ -68,10 +62,6 @@ class UserPreferencesRepository @Inject constructor(
 
     suspend fun setBackupFrequency(freq: BackupFrequency) {
         context.dataStore.edit { it[Keys.BACKUP_FREQUENCY] = freq.name }
-    }
-
-    suspend fun setBackupFormat(format: ExportFormat) {
-        context.dataStore.edit { it[Keys.BACKUP_FORMAT] = format.name }
     }
 
     suspend fun setLastBackupAt(timestamp: Long) {
