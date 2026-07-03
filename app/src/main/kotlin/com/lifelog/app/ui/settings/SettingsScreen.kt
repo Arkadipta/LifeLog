@@ -234,7 +234,7 @@ fun SettingsScreen(
                     label = format.displayName,
                     description = when (format) {
                         ExportFormat.SQLITE -> "Best for full restore. Exact database copy."
-                        ExportFormat.JSON -> "Version-aware structured text. Importable."
+                        ExportFormat.JSON -> "Structured text for other apps. Cannot be re-imported."
                         ExportFormat.ZIP_CSV -> "Human-readable. One CSV per event type."
                     }
                 )
