@@ -76,6 +76,34 @@ object RecurrenceCalculator {
             ?: nextTimeOfDayOccurrence(now, rule.timeOfDayMinutes)
     }
 
+    /**
+     * Compute the trigger to arm when every reminder is re-armed in bulk — boot, app update,
+     * database restore, app-start recovery, or a timezone / wall-clock change.
+     *
+     * A stored trigger that is still ahead is kept, unless [clockChanged] is set and the rule
+     * is wall-clock based (DAILY/WEEKLY/MONTHLY/YEARLY): that epoch was derived under the old
+     * clock and no longer lands on the intended local time, so it is re-anchored from the rule.
+     * An elapsed trigger is recomputed from [now] instead of re-armed — arming stale epochs
+     * would fire every missed reminder at once; INTERVAL and TIME_SINCE_LAST restart their
+     * countdowns, matching [computeReactivationTrigger].
+     *
+     * One-shots (NONE) keep their stored epoch in every case: the rule holds only a time-of-day,
+     * so the epoch is the sole record of the chosen date. A missed one-shot therefore fires
+     * once, late, and then deactivates in the receiver — better a late nudge than a silent skip.
+     */
+    fun computeRescheduleTrigger(
+        rule: RecurrenceRule,
+        storedNextTriggerAt: Long,
+        now: Long = System.currentTimeMillis(),
+        clockChanged: Boolean = false
+    ): Long {
+        if (rule.type == RecurrenceType.NONE) return storedNextTriggerAt
+        val reAnchor = clockChanged && rule.type.isWallClock
+        if (storedNextTriggerAt > now && !reAnchor) return storedNextTriggerAt
+        return computeNextTrigger(rule, after = now)
+            ?: nextTimeOfDayOccurrence(now, rule.timeOfDayMinutes)
+    }
+
     // ── Time-since-last ──────────────────────────────────────────────────────
 
     private fun timeSinceLastTrigger(rule: RecurrenceRule, now: Long, lastEntryAt: Long?): Long? {
@@ -192,6 +220,14 @@ object RecurrenceCalculator {
     }
 
     // ── Utilities ────────────────────────────────────────────────────────────
+
+    /** Rules whose trigger encodes an intended local wall-clock time rather than an elapsed duration. */
+    private val RecurrenceType.isWallClock: Boolean
+        get() = when (this) {
+            RecurrenceType.DAILY, RecurrenceType.WEEKLY,
+            RecurrenceType.MONTHLY, RecurrenceType.YEARLY -> true
+            RecurrenceType.NONE, RecurrenceType.INTERVAL, RecurrenceType.TIME_SINCE_LAST -> false
+        }
 
     /** [base]'s day at [timeOfDayMinutes] if that is still ahead, else the same time a day later. */
     private fun nextTimeOfDayOccurrence(base: Long, timeOfDayMinutes: Int): Long {

@@ -333,6 +333,82 @@ class RecurrenceCalculatorTest {
         assertEquals(Calendar.MONDAY, calGet(trigger, Calendar.DAY_OF_WEEK))
     }
 
+    // ── computeRescheduleTrigger (bulk re-arm: boot, restore, clock changes) ─
+
+    @Test fun `reschedule keeps a future trigger when the clock is unchanged`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val stored = now + 3600_000L
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        assertEquals(stored, RecurrenceCalculator.computeRescheduleTrigger(rule, stored, now))
+    }
+
+    @Test fun `reschedule recomputes an elapsed DAILY trigger instead of arming the past`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val stored = now - 26 * 3600_000L   // missed yesterday's 8:00 while powered off
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        val trigger = RecurrenceCalculator.computeRescheduleTrigger(rule, stored, now)
+        assertTrue(trigger > now)
+        assertEquals(11, calGet(trigger, Calendar.DAY_OF_MONTH)) // tomorrow 8 AM, no boot blast
+        assertEquals(8, calGet(trigger, Calendar.HOUR_OF_DAY))
+    }
+
+    @Test fun `reschedule re-anchors a future wall-clock trigger after a clock change`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        // Epoch armed under the old zone: still ahead, but landing on 5:00 local instead of 8:00.
+        val stored = calOf(2025, Calendar.JUNE, 11, 5, 0)
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        val trigger = RecurrenceCalculator.computeRescheduleTrigger(rule, stored, now, clockChanged = true)
+        assertEquals(11, calGet(trigger, Calendar.DAY_OF_MONTH))
+        assertEquals(8, calGet(trigger, Calendar.HOUR_OF_DAY))
+    }
+
+    @Test fun `reschedule keeps a future INTERVAL trigger across a clock change`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val stored = now + 45 * 60_000L   // elapsed-duration rule: the epoch stays valid
+        val rule = RecurrenceRule(type = RecurrenceType.INTERVAL, intervalMinutes = 90)
+        assertEquals(stored, RecurrenceCalculator.computeRescheduleTrigger(rule, stored, now, clockChanged = true))
+    }
+
+    @Test fun `reschedule keeps a future TIME_SINCE_LAST trigger across a clock change`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val stored = now + 2 * 3600_000L
+        val rule = RecurrenceRule(type = RecurrenceType.TIME_SINCE_LAST, timeSinceLastMinutes = 4 * 60)
+        assertEquals(stored, RecurrenceCalculator.computeRescheduleTrigger(rule, stored, now, clockChanged = true))
+    }
+
+    @Test fun `reschedule restarts an elapsed INTERVAL from now`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val rule = RecurrenceRule(type = RecurrenceType.INTERVAL, intervalMinutes = 120)
+        assertEquals(now + 120 * 60_000L, RecurrenceCalculator.computeRescheduleTrigger(rule, now - 1, now))
+    }
+
+    @Test fun `reschedule restarts an elapsed TIME_SINCE_LAST countdown from now`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val rule = RecurrenceRule(type = RecurrenceType.TIME_SINCE_LAST, timeSinceLastMinutes = 4 * 60)
+        assertEquals(now + 4 * 3600_000L, RecurrenceCalculator.computeRescheduleTrigger(rule, now - 5_000, now))
+    }
+
+    @Test fun `reschedule treats a stored trigger equal to now as elapsed`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val rule = RecurrenceRule(type = RecurrenceType.INTERVAL, intervalMinutes = 90)
+        assertEquals(now + 90 * 60_000L, RecurrenceCalculator.computeRescheduleTrigger(rule, now, now))
+    }
+
+    @Test fun `reschedule keeps an elapsed one-shot so it fires once, late`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val stored = now - 3600_000L
+        val rule = RecurrenceRule(type = RecurrenceType.NONE, timeOfDayMinutes = 9 * 60)
+        assertEquals(stored, RecurrenceCalculator.computeRescheduleTrigger(rule, stored, now))
+    }
+
+    @Test fun `reschedule keeps a future one-shot across a clock change`() {
+        // The rule stores only a time-of-day; the epoch is the sole record of the chosen date.
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val stored = now + 86_400_000L
+        val rule = RecurrenceRule(type = RecurrenceType.NONE, timeOfDayMinutes = 9 * 60)
+        assertEquals(stored, RecurrenceCalculator.computeRescheduleTrigger(rule, stored, now, clockChanged = true))
+    }
+
     // ── describeRule ─────────────────────────────────────────────────────────
 
     @Test fun `describeRule WEEKLY correctly formats days`() {

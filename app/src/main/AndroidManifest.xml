@@ -125,6 +125,10 @@
                 <action android:name="com.lifelog.app.ACTION_DISMISS" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <!-- Both are exempt from the API 26+ implicit-broadcast restrictions, listed for
+                     exactly this use case: re-anchoring alarms after the clock or zone moves. -->
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
             </intent-filter>
         </receiver>
 

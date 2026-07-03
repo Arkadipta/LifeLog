@@ -19,12 +19,18 @@ class ReminderReceiver : BroadcastReceiver() {
 
     @Inject lateinit var reminderRepository: ReminderRepository
     @Inject lateinit var reminderScheduler: ReminderScheduler
+    @Inject lateinit var reminderCoordinator: ReminderCoordinator
 
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_MY_PACKAGE_REPLACED,
-            ACTION_RESCHEDULE_ALL -> rescheduleAll()
+            ACTION_RESCHEDULE_ALL -> rescheduleAll(clockChanged = false)
+            // Armed alarms are absolute RTC epochs; when the zone or the wall clock moves
+            // underneath them, wall-clock rules must be re-anchored to the new local time or
+            // they keep firing at the old zone's instant (wrong local time until the next fire).
+            Intent.ACTION_TIMEZONE_CHANGED,
+            Intent.ACTION_TIME_CHANGED -> rescheduleAll(clockChanged = true)
             ACTION_REMINDER -> handleReminder(context, intent)
             ACTION_SNOOZE   -> handleSnooze(context, intent)
             ACTION_DISMISS  -> handleDismiss(context, intent)
@@ -122,12 +128,11 @@ class ReminderReceiver : BroadcastReceiver() {
         NotificationHelper.cancelNotification(context, reminderId.toInt())
     }
 
-    private fun rescheduleAll() {
+    private fun rescheduleAll(clockChanged: Boolean) {
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val reminders = reminderRepository.getAllActive()
-                reminderScheduler.rescheduleAll(reminders)
+                reminderCoordinator.rescheduleAll(clockChanged)
             } finally {
                 pending.finish()
             }

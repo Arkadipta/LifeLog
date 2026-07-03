@@ -69,7 +69,17 @@ class ReminderScheduler @Inject constructor(
         pendingIntent.cancel()
     }
 
-    fun rescheduleAll(reminders: List<Reminder>) {
-        reminders.filter { it.isActive }.forEach { schedule(it) }
-    }
+    /**
+     * True while the OS still holds the alarm PendingIntent that [schedule] created for this
+     * reminder. Delivery alone does not remove the token, but [cancel], a force-stop, a reboot,
+     * and a backup restore onto a fresh install all do — so a missing token for an active
+     * reminder means the system lost our alarms and everything must be re-armed.
+     */
+    fun hasAlarmToken(reminderId: Long): Boolean =
+        PendingIntent.getBroadcast(
+            context,
+            reminderId.toInt(),
+            ReminderReceiver.alarmIntent(context),
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        ) != null
 }
