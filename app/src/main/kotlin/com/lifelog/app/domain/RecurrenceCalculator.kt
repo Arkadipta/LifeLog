@@ -42,10 +42,7 @@ object RecurrenceCalculator {
         now: Long = System.currentTimeMillis(),
         eventDateTime: Long? = null
     ): Long? = when (rule.type) {
-        RecurrenceType.NONE -> {
-            val candidate = calAtTime(now, rule.timeOfDayMinutes)
-            if (candidate > now) candidate else calAtTime(now, rule.timeOfDayMinutes, dayOffset = 1)
-        }
+        RecurrenceType.NONE -> nextTimeOfDayOccurrence(now, rule.timeOfDayMinutes)
         RecurrenceType.DAILY, RecurrenceType.WEEKLY,
         RecurrenceType.MONTHLY, RecurrenceType.YEARLY -> {
             val candidate = calAtTime(now, rule.timeOfDayMinutes)
@@ -57,6 +54,26 @@ object RecurrenceCalculator {
             val trigger = base + rule.timeSinceLastMinutes * 60_000L
             if (trigger > now) trigger else null
         }
+    }
+
+    /**
+     * Compute the trigger to arm when a disabled reminder is re-enabled.
+     *
+     * The stored [storedNextTriggerAt] is kept while it is still ahead, so briefly toggling a
+     * reminder off and back on preserves its original schedule. Once it has elapsed, the rule
+     * is re-evaluated from [now] instead — arming a past trigger would make the alarm fire the
+     * moment the switch is flipped. A one-shot (NONE) re-arms for the next occurrence of its
+     * time-of-day; TIME_SINCE_LAST restarts its countdown from [now] (the next logged entry
+     * resets it anyway).
+     */
+    fun computeReactivationTrigger(
+        rule: RecurrenceRule,
+        storedNextTriggerAt: Long,
+        now: Long = System.currentTimeMillis()
+    ): Long {
+        if (storedNextTriggerAt > now) return storedNextTriggerAt
+        return computeNextTrigger(rule, after = now)
+            ?: nextTimeOfDayOccurrence(now, rule.timeOfDayMinutes)
     }
 
     // ── Time-since-last ──────────────────────────────────────────────────────
@@ -71,8 +88,7 @@ object RecurrenceCalculator {
 
     private fun nextWeeklyTrigger(rule: RecurrenceRule, after: Long): Long {
         if (rule.daysOfWeek.isEmpty()) {
-            val t = calAtTime(after, rule.timeOfDayMinutes)
-            return if (t > after) t else calAtTime(after, rule.timeOfDayMinutes, dayOffset = 1)
+            return nextTimeOfDayOccurrence(after, rule.timeOfDayMinutes)
         }
         val h = rule.timeOfDayMinutes / 60
         val m = rule.timeOfDayMinutes % 60
@@ -88,8 +104,7 @@ object RecurrenceCalculator {
             val dow = cal.get(Calendar.DAY_OF_WEEK) - 1 // 0=Sun..6=Sat
             if (dow in rule.daysOfWeek && cal.timeInMillis > after) return cal.timeInMillis
         }
-        val t = calAtTime(after, rule.timeOfDayMinutes)
-        return if (t > after) t else calAtTime(after, rule.timeOfDayMinutes, dayOffset = 1)
+        return nextTimeOfDayOccurrence(after, rule.timeOfDayMinutes)
     }
 
     // ── Monthly ──────────────────────────────────────────────────────────────
@@ -177,6 +192,12 @@ object RecurrenceCalculator {
     }
 
     // ── Utilities ────────────────────────────────────────────────────────────
+
+    /** [base]'s day at [timeOfDayMinutes] if that is still ahead, else the same time a day later. */
+    private fun nextTimeOfDayOccurrence(base: Long, timeOfDayMinutes: Int): Long {
+        val candidate = calAtTime(base, timeOfDayMinutes)
+        return if (candidate > base) candidate else calAtTime(base, timeOfDayMinutes, dayOffset = 1)
+    }
 
     private fun calAtTime(base: Long, timeOfDayMinutes: Int, dayOffset: Int = 0): Long =
         Calendar.getInstance().apply {

@@ -265,6 +265,74 @@ class RecurrenceCalculatorTest {
         assertEquals(15, calGet(trigger, Calendar.DAY_OF_MONTH))
     }
 
+    // ── computeReactivationTrigger (re-enabling a disabled reminder) ─────────
+
+    @Test fun `reactivation keeps stored trigger that is still in the future`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val stored = now + 3600_000L
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        assertEquals(stored, RecurrenceCalculator.computeReactivationTrigger(rule, stored, now))
+    }
+
+    @Test fun `reactivation recomputes elapsed DAILY trigger instead of arming the past`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)   // 10:00, past the 8:00 slot
+        val stored = now - 2 * 3600_000L
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        val trigger = RecurrenceCalculator.computeReactivationTrigger(rule, stored, now)
+        assertTrue(trigger > now)
+        assertEquals(11, calGet(trigger, Calendar.DAY_OF_MONTH)) // tomorrow 8 AM
+        assertEquals(8, calGet(trigger, Calendar.HOUR_OF_DAY))
+    }
+
+    @Test fun `reactivation treats stored trigger equal to now as elapsed`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val rule = RecurrenceRule(type = RecurrenceType.INTERVAL, intervalMinutes = 90)
+        assertEquals(now + 90 * 60_000L, RecurrenceCalculator.computeReactivationTrigger(rule, now, now))
+    }
+
+    @Test fun `reactivation restarts INTERVAL countdown from now`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val rule = RecurrenceRule(type = RecurrenceType.INTERVAL, intervalMinutes = 120)
+        val trigger = RecurrenceCalculator.computeReactivationTrigger(rule, now - 1, now)
+        assertEquals(now + 120 * 60_000L, trigger)
+    }
+
+    @Test fun `reactivation restarts TIME_SINCE_LAST countdown from now`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val rule = RecurrenceRule(type = RecurrenceType.TIME_SINCE_LAST, timeSinceLastMinutes = 4 * 60)
+        val trigger = RecurrenceCalculator.computeReactivationTrigger(rule, now - 5_000, now)
+        assertEquals(now + 4 * 3600_000L, trigger)
+    }
+
+    @Test fun `reactivation re-arms elapsed one-shot for next time-of-day occurrence`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)   // 10:00, past the 9:00 slot
+        val rule = RecurrenceRule(type = RecurrenceType.NONE, timeOfDayMinutes = 9 * 60)
+        val trigger = RecurrenceCalculator.computeReactivationTrigger(rule, now - 3600_000L, now)
+        assertEquals(11, calGet(trigger, Calendar.DAY_OF_MONTH)) // tomorrow 9 AM
+        assertEquals(9, calGet(trigger, Calendar.HOUR_OF_DAY))
+    }
+
+    @Test fun `reactivation elapsed one-shot stays today when its time is still ahead`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 7, 0)    // 07:00, before the 9:00 slot
+        val rule = RecurrenceRule(type = RecurrenceType.NONE, timeOfDayMinutes = 9 * 60)
+        val trigger = RecurrenceCalculator.computeReactivationTrigger(rule, now - 3600_000L, now)
+        assertEquals(10, calGet(trigger, Calendar.DAY_OF_MONTH)) // today 9 AM
+        assertEquals(9, calGet(trigger, Calendar.HOUR_OF_DAY))
+    }
+
+    @Test fun `reactivation recomputes elapsed WEEKLY trigger to next matching day`() {
+        // 2025-06-12 is a Thursday; rule fires Mondays at 9:00
+        val thursday = calOf(2025, Calendar.JUNE, 12, 20, 0)
+        val rule = RecurrenceRule(
+            type = RecurrenceType.WEEKLY,
+            timeOfDayMinutes = 9 * 60,
+            daysOfWeek = listOf(1) // Monday
+        )
+        val trigger = RecurrenceCalculator.computeReactivationTrigger(rule, thursday - 7 * 86_400_000L, thursday)
+        assertEquals(16, calGet(trigger, Calendar.DAY_OF_MONTH)) // Monday June 16
+        assertEquals(Calendar.MONDAY, calGet(trigger, Calendar.DAY_OF_WEEK))
+    }
+
     // ── describeRule ─────────────────────────────────────────────────────────
 
     @Test fun `describeRule WEEKLY correctly formats days`() {

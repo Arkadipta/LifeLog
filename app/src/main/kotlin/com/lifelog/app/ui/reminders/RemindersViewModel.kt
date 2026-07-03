@@ -23,12 +23,16 @@ class RemindersViewModel @Inject constructor(
 
     fun toggleActive(reminder: Reminder) {
         viewModelScope.launch {
-            val newActive = !reminder.isActive
-            repository.setActive(reminder.id, newActive)
-            if (newActive) {
-                scheduler.schedule(reminder)
-            } else {
+            if (reminder.isActive) {
+                repository.setActive(reminder.id, false)
                 scheduler.cancel(reminder.id)
+            } else {
+                // Persist the recomputed trigger and active flag before arming: the receiver
+                // re-reads the row when the alarm fires and stays silent if it looks inactive.
+                val armed = reminder.reactivated()
+                repository.updateNextTrigger(armed.id, armed.nextTriggerAt)
+                repository.setActive(armed.id, true)
+                scheduler.schedule(armed)
             }
         }
     }
