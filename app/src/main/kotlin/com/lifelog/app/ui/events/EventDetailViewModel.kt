@@ -12,6 +12,7 @@ import com.lifelog.app.domain.model.ChartData
 import com.lifelog.app.domain.EntryQueryEngine
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.domain.model.StoredChartConfig
 import com.lifelog.app.domain.query.EntryQuery
 import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -59,17 +60,17 @@ class EventDetailViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val charts: StateFlow<List<ChartConfig>> = eventIdFlow
+    val charts: StateFlow<List<StoredChartConfig>> = eventIdFlow
         .filter { it != 0L }
         .flatMapLatest { chartRepository.observeCharts(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val chartDataMap: StateFlow<Map<String, ChartData>> = combine(
         charts, eventType, _allEntries
-    ) { configs, type, entries ->
+    ) { stored, type, entries ->
         val fields = type?.fields ?: emptyList()
-        configs.associate { config ->
-            config.id to ChartDataProcessor.process(config, entries, fields)
+        stored.filterIsInstance<StoredChartConfig.Readable>().associate {
+            it.config.id to ChartDataProcessor.process(it.config, entries, fields)
         }
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
