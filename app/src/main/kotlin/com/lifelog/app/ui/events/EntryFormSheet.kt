@@ -58,6 +58,8 @@ import com.lifelog.app.ui.theme.rememberAccentOnSurface
 import com.lifelog.app.util.iconForName
 import com.lifelog.app.util.toDisplayDate
 import com.lifelog.app.util.toDisplayTime
+import com.lifelog.app.util.toUtcDateMillis
+import com.lifelog.app.util.withUtcDate
 import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -190,23 +192,20 @@ fun EntryFormSheet(
     }
 
     if (showDatePicker) {
+        // The M3 date picker speaks UTC start-of-day in both directions, so the
+        // entry's local timestamp is bridged through toUtcDateMillis/withUtcDate;
+        // merging the selection with a local Calendar would land the entry on
+        // the previous day in zones west of UTC.
         val datePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = state.createdAt
+            initialSelectedDateMillis = state.createdAt.toUtcDateMillis()
         )
         DatePickerDialog(
             onDismissRequest = { showDatePicker = false },
             confirmButton = {
                 TextButton(onClick = {
-                    val selectedDate = datePickerState.selectedDateMillis ?: state.createdAt
-                    val cal = Calendar.getInstance().apply {
-                        val current = Calendar.getInstance().also { it.timeInMillis = state.createdAt }
-                        timeInMillis = selectedDate
-                        set(Calendar.HOUR_OF_DAY, current.get(Calendar.HOUR_OF_DAY))
-                        set(Calendar.MINUTE, current.get(Calendar.MINUTE))
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
+                    datePickerState.selectedDateMillis?.let { day ->
+                        viewModel.setCreatedAt(state.createdAt.withUtcDate(day))
                     }
-                    viewModel.setCreatedAt(cal.timeInMillis)
                     showDatePicker = false
                 }) { Text("Set") }
             },

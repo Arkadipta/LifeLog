@@ -63,6 +63,31 @@ fun Long.toUtcDateMillis(): Long {
     }.timeInMillis
 }
 
+/**
+ * This timestamp moved onto the calendar date named by [utcDateMillis] — a
+ * DatePicker selection, i.e. midnight UTC of the chosen day — keeping its
+ * local wall-clock time (seconds cleared). Inverse of [toUtcDateMillis]: the
+ * day is decomposed in UTC and re-applied in the device zone, so the result
+ * stays on the picked day in every time zone, where reading [utcDateMillis]
+ * through a local Calendar would drift a day west of UTC.
+ */
+fun Long.withUtcDate(utcDateMillis: Long): Long {
+    val utcDay = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+        timeInMillis = utcDateMillis
+    }
+    val local = Calendar.getInstance().apply { timeInMillis = this@withUtcDate }
+    return Calendar.getInstance().apply {
+        clear()
+        set(
+            utcDay.get(Calendar.YEAR),
+            utcDay.get(Calendar.MONTH),
+            utcDay.get(Calendar.DAY_OF_MONTH),
+            local.get(Calendar.HOUR_OF_DAY),
+            local.get(Calendar.MINUTE)
+        )
+    }.timeInMillis
+}
+
 fun Long.isToday(): Boolean {
     val now = Calendar.getInstance()
     val target = Calendar.getInstance().apply { timeInMillis = this@isToday }
