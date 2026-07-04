@@ -38,8 +38,8 @@ object ChartDataProcessor {
         val relevant = entries.filter { hasChartableValue(it, config) }
         if (relevant.isEmpty()) return ChartData.InsufficientData
 
-        val anchorMs = resolveAnchor(relevant, config.timeRangeDays, nowMs)
-        val windowed = applyTimeRange(relevant, config.timeRangeDays, anchorMs)
+        val anchorMs = resolveAnchor(relevant, config, nowMs)
+        val windowed = applyTimeRange(relevant, config, anchorMs)
         if (windowed.isEmpty()) return ChartData.InsufficientData
         val anchoredEndMs = anchorMs.takeIf { it != nowMs }
 
@@ -75,21 +75,50 @@ object ChartDataProcessor {
 
     /**
      * Timestamp the window ends at. Normally now, but when the now-anchored
-     * window would be empty, the window slides back to end at the most recent
-     * chartable entry so sparse histories still produce a chart.
+     * window would show nothing, the window slides back to end at the most
+     * recent chartable entry so sparse histories still produce a chart.
      */
-    private fun resolveAnchor(relevant: List<EventEntry>, days: Int?, nowMs: Long): Long {
-        if (days == null) return nowMs
-        val cutoff = nowMs - days * MS_PER_DAY
-        return if (relevant.any { it.createdAt >= cutoff }) nowMs
+    private fun resolveAnchor(relevant: List<EventEntry>, config: ChartConfig, nowMs: Long): Long {
+        val days = config.timeRangeDays ?: return nowMs
+        val windowStart = windowStartMs(config, days, nowMs)
+        return if (relevant.any { it.createdAt >= windowStart }) nowMs
                else relevant.maxOf { it.createdAt }
     }
 
-    private fun applyTimeRange(entries: List<EventEntry>, days: Int?, anchorMs: Long): List<EventEntry> {
-        if (days == null) return entries
-        val cutoff = anchorMs - days * MS_PER_DAY
-        return entries.filter { it.createdAt >= cutoff }
+    private fun applyTimeRange(
+        entries: List<EventEntry>,
+        config: ChartConfig,
+        anchorMs: Long
+    ): List<EventEntry> {
+        val days = config.timeRangeDays ?: return entries
+        val windowStart = windowStartMs(config, days, anchorMs)
+        return entries.filter { it.createdAt >= windowStart }
     }
+
+    /**
+     * First instant the chart displays when its window ends at [anchorMs] —
+     * the entry filter must admit exactly what the chart lays out. Cartesian
+     * ranges start at the oldest bucket of [buildBuckets] (same arithmetic);
+     * heatmaps start at their day grid, a last-N-calendar-days convention pie
+     * charts share. A looser filter admits entries that render nowhere yet
+     * hold the anchor at now (blank chart instead of sliding back) and skew
+     * heatmap min/max/day counts; a tighter one clips the oldest year bucket
+     * when the window spans a leap February.
+     */
+    private fun windowStartMs(config: ChartConfig, days: Int, anchorMs: Long): Long =
+        when (config.type) {
+            ChartType.LINE, ChartType.BAR -> when (TimeRange.fromDays(days)) {
+                TimeRange.DAY -> midnightOf(anchorMs)                        // today's 24 hours
+                TimeRange.WEEK -> midnightOf(anchorMs) - 6 * MS_PER_DAY      // 6 days + today
+                TimeRange.MONTH -> midnightOf(anchorMs) - 4 * 7 * MS_PER_DAY // 4 weeks + today
+                TimeRange.YEAR -> firstOfMonth(anchorMs, monthsAgo = 11)     // 12 calendar months
+                // A day count with no bucket layout bins like ALL — spanning
+                // whatever data exists — so it takes no lower bound either.
+                TimeRange.ALL -> Long.MIN_VALUE
+            }
+            // Last [days] calendar days ending on the anchor's day.
+            ChartType.PIE, ChartType.HEATMAP -> addDays(midnightOf(anchorMs), -(days - 1))
+        }
 
     // ── Bucketing ─────────────────────────────────────────────────────────────
 
@@ -133,24 +162,9 @@ object ChartDataProcessor {
             }
 
             TimeRange.YEAR -> {
-                val anchor = Calendar.getInstance().apply { timeInMillis = anchorMs }
                 (11 downTo 0).map { monthsAgo ->
-                    val startCal = Calendar.getInstance().apply {
-                        set(Calendar.YEAR, anchor.get(Calendar.YEAR))
-                        set(Calendar.MONTH, anchor.get(Calendar.MONTH))
-                        set(Calendar.DAY_OF_MONTH, 1)
-                        set(Calendar.HOUR_OF_DAY, 0)
-                        set(Calendar.MINUTE, 0)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                        add(Calendar.MONTH, -monthsAgo)
-                    }
-                    val endCal = Calendar.getInstance().apply {
-                        timeInMillis = startCal.timeInMillis
-                        add(Calendar.MONTH, 1)
-                    }
-                    val start = startCal.timeInMillis
-                    val end = endCal.timeInMillis
+                    val start = firstOfMonth(anchorMs, monthsAgo)
+                    val end = firstOfMonth(anchorMs, monthsAgo - 1)
                     Pair((start + end) / 2, entries.filter { it.createdAt in start until end })
                 }
             }
@@ -288,12 +302,13 @@ object ChartDataProcessor {
         // column is a full Sun–Sat (locale-aware) stack. ALL ends at the latest
         // entry — mirroring the cartesian ALL range — to avoid an empty tail when
         // the newest data is old; fixed windows end at the anchor (today, or the
-        // latest entry when the now-anchored window would be empty).
+        // latest entry when the now-anchored window would be empty) and start at
+        // the same windowStartMs boundary the entry filter applied.
         val firstDataDay = perDayValues.keys.min()
         val lastDay = if (config.timeRangeDays == null) midnightOf(perDayValues.keys.max())
                       else midnightOf(anchorMs)
         val windowStartDay = if (config.timeRangeDays == null) firstDataDay
-                             else addDays(lastDay, -(config.timeRangeDays - 1))
+                             else windowStartMs(config, config.timeRangeDays, anchorMs)
         val firstWeekday = Calendar.getInstance().firstDayOfWeek
         val gridStart = startOfWeek(minOf(windowStartDay, lastDay), firstWeekday)
 
@@ -423,5 +438,16 @@ object ChartDataProcessor {
         set(Calendar.MINUTE, 0)
         set(Calendar.SECOND, 0)
         set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    /** Midnight on the 1st of the month [monthsAgo] whole months before [anchorMs]'s. */
+    private fun firstOfMonth(anchorMs: Long, monthsAgo: Int): Long = Calendar.getInstance().apply {
+        timeInMillis = anchorMs
+        set(Calendar.DAY_OF_MONTH, 1)
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+        add(Calendar.MONTH, -monthsAgo)
     }.timeInMillis
 }
