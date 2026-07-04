@@ -2,6 +2,7 @@ package com.lifelog.app.ui.settings
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
@@ -9,6 +10,7 @@ import com.lifelog.app.data.repository.UserPreferences
 import com.lifelog.app.data.repository.UserPreferencesRepository
 import com.lifelog.app.export.AutoBackupWorker
 import com.lifelog.app.export.BackupFrequency
+import com.lifelog.app.export.BackupLocationStatus
 import com.lifelog.app.export.ExportEngine
 import com.lifelog.app.export.ExportFormat
 import com.lifelog.app.export.ImportEngine
@@ -20,10 +22,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.io.File
 import javax.inject.Inject
 
 data class ExportUiState(
@@ -50,6 +53,17 @@ class SettingsViewModel @Inject constructor(
     val prefs: StateFlow<UserPreferences> = prefsRepo.userPreferences
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UserPreferences())
 
+    /**
+     * Live status of the auto-backup location; null while the first check runs.
+     * Re-evaluated whenever the pref changes and whenever the screen is
+     * re-subscribed, so a folder that went missing shows up as unreachable.
+     */
+    val backupLocationStatus: StateFlow<BackupLocationStatus?> = prefsRepo.userPreferences
+        .map { it.backupDirUri }
+        .distinctUntilChanged()
+        .map { exportEngine.locationStatusFor(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     private val _exportState = MutableStateFlow(ExportUiState())
     val exportState: StateFlow<ExportUiState> = _exportState.asStateFlow()
 
@@ -67,6 +81,17 @@ class SettingsViewModel @Inject constructor(
         prefsRepo.setBackupFrequency(freq)
         val wm = WorkManager.getInstance(context)
         AutoBackupWorker.schedule(wm, freq)
+    }
+
+    /** Point auto-backups at the folder picked via ACTION_OPEN_DOCUMENT_TREE. */
+    fun setBackupFolder(uri: Uri) = viewModelScope.launch {
+        runCatching { exportEngine.setBackupLocation(uri) }
+            .onFailure { Log.w("SettingsViewModel", "Could not persist backup folder", it) }
+    }
+
+    fun useAppStorageForBackups() = viewModelScope.launch {
+        runCatching { exportEngine.setBackupLocation(null) }
+            .onFailure { Log.w("SettingsViewModel", "Could not reset backup location", it) }
     }
 
     fun exportNow(uri: Uri, format: ExportFormat) = viewModelScope.launch {
@@ -105,9 +130,13 @@ class SettingsViewModel @Inject constructor(
      */
     fun restoreFromSqlite(uri: Uri) = launchRestore { importEngine.restoreFromSqlite(uri) }
 
-    /** Same flow as [restoreFromSqlite], sourced from an on-device auto-backup. */
-    fun restoreFromAutoBackup(backup: ExportEngine.AutoBackup) =
-        launchRestore { importEngine.restoreFromFile(backup.file) }
+    /** Same flow as [restoreFromSqlite], sourced from an auto-backup. */
+    fun restoreFromAutoBackup(backup: ExportEngine.AutoBackup) = launchRestore {
+        when (val source = backup.source) {
+            is ExportEngine.AutoBackup.Source.AppStorage -> importEngine.restoreFromFile(source.file)
+            is ExportEngine.AutoBackup.Source.Folder -> importEngine.restoreFromSqlite(source.uri)
+        }
+    }
 
     private fun launchRestore(perform: suspend () -> ImportEngine.RestoreResult) =
         viewModelScope.launch {

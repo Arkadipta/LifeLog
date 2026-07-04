@@ -21,6 +21,8 @@ data class UserPreferences(
     val useDynamicColor: Boolean = false,
     val backupFrequency: BackupFrequency = BackupFrequency.OFF,
     val lastBackupAt: Long = 0L,
+    /** SAF tree uri auto-backups are written to; null = app-private storage. */
+    val backupDirUri: String? = null,
     val eventSortOption: EventSortOption = EventSortOption.DEFAULT
 )
 
@@ -35,6 +37,7 @@ class UserPreferencesRepository @Inject constructor(
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val BACKUP_FREQUENCY = stringPreferencesKey("backup_frequency")
         val LAST_BACKUP_AT = longPreferencesKey("last_backup_at")
+        val BACKUP_DIR_URI = stringPreferencesKey("backup_dir_uri")
         val EVENT_SORT_OPTION = stringPreferencesKey("event_sort_option")
     }
 
@@ -46,6 +49,7 @@ class UserPreferencesRepository @Inject constructor(
                 ?.let { runCatching { BackupFrequency.valueOf(it) }.getOrNull() }
                 ?: BackupFrequency.OFF,
             lastBackupAt = prefs[Keys.LAST_BACKUP_AT] ?: 0L,
+            backupDirUri = prefs[Keys.BACKUP_DIR_URI],
             eventSortOption = prefs[Keys.EVENT_SORT_OPTION]
                 ?.let { runCatching { EventSortOption.valueOf(it) }.getOrNull() }
                 ?: EventSortOption.DEFAULT
@@ -66,6 +70,12 @@ class UserPreferencesRepository @Inject constructor(
 
     suspend fun setLastBackupAt(timestamp: Long) {
         context.dataStore.edit { it[Keys.LAST_BACKUP_AT] = timestamp }
+    }
+
+    suspend fun setBackupDirUri(uri: String?) {
+        context.dataStore.edit {
+            if (uri == null) it.remove(Keys.BACKUP_DIR_URI) else it[Keys.BACKUP_DIR_URI] = uri
+        }
     }
 
     suspend fun setEventSortOption(option: EventSortOption) {

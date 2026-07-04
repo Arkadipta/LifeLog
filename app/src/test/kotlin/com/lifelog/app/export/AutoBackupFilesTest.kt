@@ -111,4 +111,49 @@ class AutoBackupFilesTest {
 
         assertEquals(emptyList<File>(), restorableAutoBackupsIn(dir))
     }
+
+    // ── Generalized core (shared by the app-storage and SAF-folder backends) ──
+
+    private fun candidate(name: String, ageRank: Int) =
+        BackupCandidate(handle = name, name = name, modifiedAt = 1_000_000L - ageRank)
+
+    /**
+     * Some SAF providers may append a MIME-derived extension to a created
+     * document ("lifelog_backup_x.db.bin"). Such a file must never be offered
+     * for restore, but rotation still counts it and ages it out.
+     */
+    @Test
+    fun mangledSafName_isNotRestorable_butIsRotated() {
+        val ok = candidate("lifelog_backup_1.db", ageRank = 1)
+        val mangled = candidate("lifelog_backup_2.db.bin", ageRank = 0)
+
+        assertEquals(listOf(ok), restorableBackups(listOf(mangled, ok)))
+        assertEquals(
+            listOf(ok.handle),
+            rotationVictims(listOf(mangled, ok), maxKeep = 1)
+        )
+    }
+
+    @Test
+    fun restorable_sortsNewestFirst_regardlessOfInputOrder() {
+        val newest = candidate("lifelog_backup_a.db", ageRank = 0)
+        val middle = candidate("lifelog_backup_b.db", ageRank = 1)
+        val oldest = candidate("lifelog_backup_c.db", ageRank = 2)
+
+        assertEquals(
+            listOf(newest, middle, oldest),
+            restorableBackups(listOf(middle, oldest, newest))
+        )
+    }
+
+    @Test
+    fun rotationVictims_returnsOldestBeyondMaxKeep_neverUnrelatedNames() {
+        val backups = (0 until 9).map { candidate("lifelog_backup_$it.db", ageRank = it) }
+        val unrelated = candidate("keep_me.db", ageRank = 99)
+
+        assertEquals(
+            listOf(backups[7].handle, backups[8].handle),
+            rotationVictims(backups.shuffled() + unrelated, maxKeep = 7)
+        )
+    }
 }

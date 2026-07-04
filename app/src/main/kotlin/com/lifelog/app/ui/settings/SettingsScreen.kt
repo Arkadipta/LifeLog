@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.export.BackupFrequency
+import com.lifelog.app.export.BackupLocationStatus
 import com.lifelog.app.export.ExportEngine
 import com.lifelog.app.export.ExportFormat
 import com.lifelog.app.ui.components.DialogOption
@@ -74,6 +75,7 @@ fun SettingsScreen(
     val exportState by viewModel.exportState.collectAsStateWithLifecycle()
     val restoreState by viewModel.restoreState.collectAsStateWithLifecycle()
     val autoBackups by viewModel.autoBackups.collectAsStateWithLifecycle()
+    val backupLocation by viewModel.backupLocationStatus.collectAsStateWithLifecycle()
     val systemInDarkTheme = isSystemInDarkTheme()
 
     // SAF launchers – one per format (MIME type is fixed at registration time)
@@ -98,8 +100,14 @@ fun SettingsScreen(
     // Restore from an on-device auto-backup; same confirmation before importing.
     var pendingRestoreBackup by remember { mutableStateOf<ExportEngine.AutoBackup?>(null) }
 
+    // Folder that future auto-backups are written into.
+    val backupFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri -> uri?.let(viewModel::setBackupFolder) }
+
     var showFormatPicker by remember { mutableStateOf(false) }
     var showFrequencyPicker by remember { mutableStateOf(false) }
+    var showLocationPicker by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(exportState.exportSuccess, exportState.lastExportError) {
@@ -179,7 +187,7 @@ fun SettingsScreen(
                     )
                     SettingsClickItem(
                         title = "Auto-Backup Frequency",
-                        subtitle = "Keeps the last 7 database backups on this device",
+                        subtitle = "Keeps the last 7 database backups",
                         trailingContent = {
                             Text(
                                 prefs.backupFrequency.displayName,
@@ -188,6 +196,31 @@ fun SettingsScreen(
                             )
                         },
                         onClick = { showFrequencyPicker = true }
+                    )
+                    val locationUnreachable = backupLocation is BackupLocationStatus.FolderUnreachable
+                    SettingsClickItem(
+                        title = "Backup Location",
+                        subtitle = when (val location = backupLocation) {
+                            null -> "Checking…"
+                            BackupLocationStatus.AppStorage ->
+                                "App storage — backups are removed if you uninstall"
+                            is BackupLocationStatus.Folder -> location.name
+                            BackupLocationStatus.FolderUnreachable ->
+                                "Backup folder unreachable — tap to re-select. " +
+                                    "Backups go to app storage until then."
+                        },
+                        subtitleColor = if (locationUnreachable) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        trailingContent = if (locationUnreachable) {
+                            {
+                                Icon(
+                                    Icons.Rounded.WarningAmber,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        } else null,
+                        onClick = { showLocationPicker = true }
                     )
                     if (prefs.backupFrequency != BackupFrequency.OFF) {
                         SettingsItem(
@@ -216,7 +249,7 @@ fun SettingsScreen(
                     )
                     SettingsClickItem(
                         title = "Restore from Auto-Backup",
-                        subtitle = "Replace all current data with a backup saved on this device",
+                        subtitle = "Replace all current data with an automatic backup",
                         enabled = !restoreState.isRestoring && !restoreState.isRestarting,
                         onClick = viewModel::showAutoBackupPicker
                     )
@@ -267,6 +300,33 @@ fun SettingsScreen(
         )
     }
 
+    // ── Backup location picker ────────────────────────────────────────────────
+    if (showLocationPicker) {
+        val usingFolder = backupLocation is BackupLocationStatus.Folder ||
+            backupLocation is BackupLocationStatus.FolderUnreachable
+        SingleChoiceDialog(
+            title = "Backup Location",
+            options = listOf(
+                DialogOption(
+                    label = "App storage",
+                    description = "Private to LifeLog. Backups are removed when the app is uninstalled."
+                ),
+                DialogOption(
+                    label = "Folder I choose",
+                    description = "Backups survive uninstall. After reinstalling, bring one back via " +
+                        "“Restore from SQLite Database”, then pick the folder again."
+                )
+            ),
+            selectedIndex = if (usingFolder) 1 else 0,
+            onDismiss = { showLocationPicker = false },
+            onSelect = { idx ->
+                showLocationPicker = false
+                if (idx == 0) viewModel.useAppStorageForBackups()
+                else backupFolderLauncher.launch(null)
+            }
+        )
+    }
+
     // ── Auto-backup picker ────────────────────────────────────────────────────
     autoBackups?.let { backups ->
         if (backups.isEmpty()) {
@@ -275,7 +335,7 @@ fun SettingsScreen(
                 title = { Text("No auto-backups yet") },
                 text = {
                     Text(
-                        "No automatic backups were found on this device. " +
+                        "No automatic backups were found. " +
                             "Set an Auto-Backup Frequency above to start creating them."
                     )
                 },
@@ -291,7 +351,11 @@ fun SettingsScreen(
                     DialogOption(
                         label = backup.modifiedAt.toDisplayDateTime(),
                         description = "${backup.modifiedAt.relativeTimeLabel()} · " +
-                            Formatter.formatShortFileSize(context, backup.sizeBytes)
+                            Formatter.formatShortFileSize(context, backup.sizeBytes) + " · " +
+                            when (backup.source) {
+                                is ExportEngine.AutoBackup.Source.AppStorage -> "App storage"
+                                is ExportEngine.AutoBackup.Source.Folder -> "Backup folder"
+                            }
                     )
                 },
                 selectedIndex = -1,
@@ -477,6 +541,7 @@ private fun SettingsToggleItem(
 private fun SettingsClickItem(
     title: String,
     subtitle: String,
+    subtitleColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     trailingContent: @Composable (() -> Unit)? = null,
     enabled: Boolean = true,
     onClick: () -> Unit
@@ -493,7 +558,7 @@ private fun SettingsClickItem(
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = subtitleColor
             )
         },
         trailingContent = trailingContent,
