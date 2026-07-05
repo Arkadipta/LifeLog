@@ -29,7 +29,9 @@ data class EntryFormState(
     val existingEntryId: Long = 0L,
     /** The event type (or the entry being edited) no longer exists — the form cannot save. */
     val eventTypeMissing: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    /** Ids of required fields ([EventField.isRequired]) left empty by the last save attempt. */
+    val fieldErrors: Set<Long> = emptySet()
 )
 
 /**
@@ -48,6 +50,19 @@ fun EntryFormState.toEventEntry(): EventEntry? {
         createdAt = createdAt
     )
 }
+
+/**
+ * Required fields still missing a value. A field only ever appears in
+ * [EntryFormState.fieldValues] once it holds a value (every [FieldInput] variant
+ * calls `onValueChange(null)` to represent "empty"), so an untouched or cleared
+ * required field is simply absent from the map — no per-type emptiness check needed.
+ */
+fun EntryFormState.missingRequiredFieldIds(): Set<Long> =
+    eventType?.fields.orEmpty()
+        .asSequence()
+        .filter { it.isRequired && fieldValues[it.id] == null }
+        .map { it.id }
+        .toSet()
 
 @HiltViewModel
 class EntryViewModel @Inject constructor(
@@ -97,7 +112,11 @@ class EntryViewModel @Inject constructor(
         _state.update {
             val updated = it.fieldValues.toMutableMap()
             if (value == null) updated.remove(fieldId) else updated[fieldId] = value
-            it.copy(fieldValues = updated)
+            it.copy(
+                fieldValues = updated,
+                // A value just came in — clear its flagged-required error, if any.
+                fieldErrors = if (value != null) it.fieldErrors - fieldId else it.fieldErrors
+            )
         }
     }
 
@@ -106,7 +125,15 @@ class EntryViewModel @Inject constructor(
 
     fun save() {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, errorMessage = null) }
+            val missing = _state.value.missingRequiredFieldIds()
+            if (missing.isNotEmpty()) {
+                _state.update {
+                    it.copy(fieldErrors = missing, errorMessage = "Fill in the required fields")
+                }
+                return@launch
+            }
+
+            _state.update { it.copy(isLoading = true, errorMessage = null, fieldErrors = emptySet()) }
             val current = _state.value
             val entry = current.toEventEntry()
             if (entry == null) {

@@ -1,9 +1,12 @@
 package com.lifelog.app.ui.events
 
+import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.domain.model.FieldValue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -55,5 +58,49 @@ class EntryFormStateTest {
         )
 
         assertNull(state.toEventEntry())
+    }
+
+    private val requiredWeight = EventField(id = 1L, name = "Weight", type = FieldType.NUMERIC, isRequired = true)
+    private val optionalNote = EventField(id = 2L, name = "Notes", type = FieldType.TEXT, isRequired = false)
+    private val requiredMood = EventField(id = 3L, name = "Mood", type = FieldType.CHOICE, isRequired = true)
+
+    @Test
+    fun `required fields with no value are flagged`() {
+        val state = EntryFormState(
+            eventType = bloodPressure.copy(fields = listOf(requiredWeight, optionalNote, requiredMood)),
+            fieldValues = emptyMap()
+        )
+
+        assertEquals(setOf(1L, 3L), state.missingRequiredFieldIds())
+    }
+
+    @Test
+    fun `a required field with a value is not flagged`() {
+        val state = EntryFormState(
+            eventType = bloodPressure.copy(fields = listOf(requiredWeight, optionalNote, requiredMood)),
+            fieldValues = mapOf(
+                1L to FieldValue.Numeric(70.0),
+                3L to FieldValue.Choice("Good")
+            )
+        )
+
+        assertTrue(state.missingRequiredFieldIds().isEmpty())
+    }
+
+    @Test
+    fun `optional fields are never flagged`() {
+        val state = EntryFormState(
+            eventType = bloodPressure.copy(fields = listOf(optionalNote)),
+            fieldValues = emptyMap()
+        )
+
+        assertTrue(state.missingRequiredFieldIds().isEmpty())
+    }
+
+    @Test
+    fun `no loaded event type has nothing to flag`() {
+        val state = EntryFormState(eventType = null)
+
+        assertTrue(state.missingRequiredFieldIds().isEmpty())
     }
 }

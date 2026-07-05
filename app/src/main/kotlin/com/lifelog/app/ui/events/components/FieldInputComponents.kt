@@ -27,7 +27,8 @@ fun FieldInput(
     field: EventField,
     value: FieldValue?,
     onValueChange: (FieldValue?) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isError: Boolean = false
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -49,12 +50,20 @@ fun FieldInput(
             LegacyValueCard(mismatch = mismatch, onClear = { onValueChange(null) })
         } else {
             when (field.type) {
-                FieldType.NUMERIC -> NumericInput(field, value as? FieldValue.Numeric, onValueChange)
-                FieldType.TEXT -> TextInput(field, value as? FieldValue.Text, onValueChange)
+                FieldType.NUMERIC -> NumericInput(field, value as? FieldValue.Numeric, onValueChange, isError)
+                FieldType.TEXT -> TextInput(field, value as? FieldValue.Text, onValueChange, isError)
                 FieldType.BOOLEAN -> BooleanInput(value as? FieldValue.Bool, onValueChange)
                 FieldType.CHOICE -> ChoiceInput(field, value as? FieldValue.Choice, onValueChange)
                 FieldType.MULTI_SELECT -> MultiSelectInput(field, value as? FieldValue.MultiSelect, onValueChange)
             }
+        }
+
+        if (isError) {
+            Text(
+                "Required",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }
@@ -138,7 +147,8 @@ private fun LegacyDetailRow(label: String, value: String) {
 private fun NumericInput(
     field: EventField,
     value: FieldValue.Numeric?,
-    onValueChange: (FieldValue?) -> Unit
+    onValueChange: (FieldValue?) -> Unit,
+    isError: Boolean = false
 ) {
     // The editable text is the source of truth while the user types. It is kept
     // decoupled from the parsed model value so that in-progress, not-yet-parseable
@@ -170,7 +180,8 @@ private fun NumericInput(
         modifier = Modifier.fillMaxWidth(),
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         suffix = if (field.unit.isNotBlank()) ({ Text(field.unit) }) else null,
-        singleLine = true
+        singleLine = true,
+        isError = isError
     )
 }
 
@@ -214,14 +225,16 @@ private fun sanitizeNumericInput(raw: TextFieldValue): TextFieldValue {
 private fun TextInput(
     field: EventField,
     value: FieldValue.Text?,
-    onValueChange: (FieldValue?) -> Unit
+    onValueChange: (FieldValue?) -> Unit,
+    isError: Boolean = false
 ) {
     OutlinedTextField(
         value = value?.value ?: "",
         onValueChange = { onValueChange(if (it.isEmpty()) null else FieldValue.Text(it)) },
         modifier = Modifier.fillMaxWidth(),
         minLines = 2,
-        maxLines = 5
+        maxLines = 5,
+        isError = isError
     )
 }
 
