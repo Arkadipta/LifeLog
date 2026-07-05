@@ -103,4 +103,43 @@ class EntryFormStateTest {
 
         assertTrue(state.missingRequiredFieldIds().isEmpty())
     }
+
+    // withOptionSelected — how a just-added option lands in the field's value.
+
+    @Test
+    fun `choice selects the added option, replacing any previous selection`() {
+        val value = FieldValue.Choice("Good").withOptionSelected(FieldType.CHOICE, "Great")
+
+        assertEquals(FieldValue.Choice("Great"), value)
+    }
+
+    @Test
+    fun `multi-select appends the added option to the current selection`() {
+        val value = FieldValue.MultiSelect(listOf("Rice"))
+            .withOptionSelected(FieldType.MULTI_SELECT, "Dal")
+
+        assertEquals(FieldValue.MultiSelect(listOf("Rice", "Dal")), value)
+    }
+
+    @Test
+    fun `multi-select with no value starts a selection from the added option`() {
+        val value = (null as FieldValue?).withOptionSelected(FieldType.MULTI_SELECT, "Dal")
+
+        assertEquals(FieldValue.MultiSelect(listOf("Dal")), value)
+    }
+
+    @Test
+    fun `multi-select does not duplicate an already-selected option`() {
+        val value = FieldValue.MultiSelect(listOf("Rice", "Dal"))
+            .withOptionSelected(FieldType.MULTI_SELECT, "Dal")
+
+        assertEquals(FieldValue.MultiSelect(listOf("Rice", "Dal")), value)
+    }
+
+    @Test
+    fun `types without options keep their value unchanged`() {
+        val value = FieldValue.Numeric(120.0).withOptionSelected(FieldType.NUMERIC, "Dal")
+
+        assertEquals(FieldValue.Numeric(120.0), value)
+    }
 }

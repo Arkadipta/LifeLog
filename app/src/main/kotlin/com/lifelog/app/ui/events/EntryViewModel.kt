@@ -6,6 +6,7 @@ import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.data.repository.ReminderRepository
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.notifications.ReminderScheduler
 import com.lifelog.app.widget.WidgetUpdater
@@ -63,6 +64,20 @@ fun EntryFormState.missingRequiredFieldIds(): Set<Long> =
         .filter { it.isRequired && fieldValues[it.id] == null }
         .map { it.id }
         .toSet()
+
+/**
+ * The field's value after a just-added option is picked: CHOICE replaces the
+ * selection, MULTI_SELECT appends (already-selected stays as-is). Types without
+ * options keep their value unchanged.
+ */
+fun FieldValue?.withOptionSelected(type: FieldType, option: String): FieldValue? = when (type) {
+    FieldType.CHOICE -> FieldValue.Choice(option)
+    FieldType.MULTI_SELECT -> {
+        val current = (this as? FieldValue.MultiSelect)?.values.orEmpty()
+        if (option in current) this else FieldValue.MultiSelect(current + option)
+    }
+    else -> this
+}
 
 @HiltViewModel
 class EntryViewModel @Inject constructor(
@@ -122,6 +137,36 @@ class EntryViewModel @Inject constructor(
 
     fun setNote(note: String) = _state.update { it.copy(note = note) }
     fun setCreatedAt(time: Long) = _state.update { it.copy(createdAt = time) }
+
+    /**
+     * Persists a user-added option onto its Choice/MultiSelect field definition,
+     * then selects it. Persist-first is the point: the entry's value must never
+     * reference an option the field doesn't durably have (the add used to live
+     * in remember-local UI state, so the option vanished when the form closed
+     * and any saved value pointing at it became invisible on the chips row).
+     */
+    fun addFieldOption(fieldId: Long, option: String) {
+        val trimmed = option.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            val persisted = runCatching { repository.addFieldOption(fieldId, trimmed) }.getOrNull()
+            if (persisted == null) {
+                _state.update { it.copy(errorMessage = "Couldn't add the option") }
+                return@launch
+            }
+            _state.update { st ->
+                st.copy(
+                    eventType = st.eventType?.let { type ->
+                        type.copy(fields = type.fields.map { if (it.id == fieldId) persisted else it })
+                    }
+                )
+            }
+            setFieldValue(
+                fieldId,
+                _state.value.fieldValues[fieldId].withOptionSelected(persisted.type, trimmed)
+            )
+        }
+    }
 
     fun save() {
         viewModelScope.launch {

@@ -27,6 +27,7 @@ fun FieldInput(
     field: EventField,
     value: FieldValue?,
     onValueChange: (FieldValue?) -> Unit,
+    onAddOption: (String) -> Unit,
     modifier: Modifier = Modifier,
     isError: Boolean = false
 ) {
@@ -53,8 +54,8 @@ fun FieldInput(
                 FieldType.NUMERIC -> NumericInput(field, value as? FieldValue.Numeric, onValueChange, isError)
                 FieldType.TEXT -> TextInput(field, value as? FieldValue.Text, onValueChange, isError)
                 FieldType.BOOLEAN -> BooleanInput(value as? FieldValue.Bool, onValueChange)
-                FieldType.CHOICE -> ChoiceInput(field, value as? FieldValue.Choice, onValueChange)
-                FieldType.MULTI_SELECT -> MultiSelectInput(field, value as? FieldValue.MultiSelect, onValueChange)
+                FieldType.CHOICE -> ChoiceInput(field, value as? FieldValue.Choice, onValueChange, onAddOption)
+                FieldType.MULTI_SELECT -> MultiSelectInput(field, value as? FieldValue.MultiSelect, onValueChange, onAddOption)
             }
         }
 
@@ -263,35 +264,35 @@ private fun BooleanInput(
     }
 }
 
+// The chips in both option inputs render field.options directly: the field
+// definition is the single source of truth for what options exist. "Add" hands
+// the new option to the ViewModel (onAddOption), which persists it onto the
+// field and selects it — the chip appears when the updated definition flows
+// back down, never from a local copy that would be lost with the composition.
+
 @Composable
 private fun ChoiceInput(
     field: EventField,
     value: FieldValue.Choice?,
-    onValueChange: (FieldValue?) -> Unit
+    onValueChange: (FieldValue?) -> Unit,
+    onAddOption: (String) -> Unit
 ) {
-    var allOptions by remember { mutableStateOf(field.options) }
     var showAddDialog by remember { mutableStateOf(false) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(allOptions) { option ->
-                FilterChip(
-                    selected = value?.value == option,
-                    onClick = {
-                        onValueChange(
-                            if (value?.value == option) null else FieldValue.Choice(option)
-                        )
-                    },
-                    label = { Text(option) }
-                )
-            }
-            item {
-                AssistChip(
-                    onClick = { showAddDialog = true },
-                    label = { Text("Add") },
-                    leadingIcon = { Icon(Icons.Rounded.Add, null, modifier = Modifier.size(16.dp)) }
-                )
-            }
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        items(field.options) { option ->
+            FilterChip(
+                selected = value?.value == option,
+                onClick = {
+                    onValueChange(
+                        if (value?.value == option) null else FieldValue.Choice(option)
+                    )
+                },
+                label = { Text(option) }
+            )
+        }
+        item {
+            AddOptionChip(onClick = { showAddDialog = true })
         }
     }
 
@@ -299,10 +300,7 @@ private fun ChoiceInput(
         AddOptionDialog(
             onDismiss = { showAddDialog = false },
             onAdd = { newOption ->
-                if (newOption.isNotBlank() && !allOptions.contains(newOption)) {
-                    allOptions = allOptions + newOption
-                }
-                onValueChange(FieldValue.Choice(newOption))
+                onAddOption(newOption)
                 showAddDialog = false
             }
         )
@@ -313,35 +311,29 @@ private fun ChoiceInput(
 private fun MultiSelectInput(
     field: EventField,
     value: FieldValue.MultiSelect?,
-    onValueChange: (FieldValue?) -> Unit
+    onValueChange: (FieldValue?) -> Unit,
+    onAddOption: (String) -> Unit
 ) {
-    var allOptions by remember { mutableStateOf(field.options) }
     val selected = value?.values ?: emptyList()
     var showAddDialog by remember { mutableStateOf(false) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(allOptions) { option ->
-                FilterChip(
-                    selected = selected.contains(option),
-                    onClick = {
-                        val updated = if (selected.contains(option)) {
-                            selected - option
-                        } else {
-                            selected + option
-                        }
-                        onValueChange(if (updated.isEmpty()) null else FieldValue.MultiSelect(updated))
-                    },
-                    label = { Text(option) }
-                )
-            }
-            item {
-                AssistChip(
-                    onClick = { showAddDialog = true },
-                    label = { Text("Add") },
-                    leadingIcon = { Icon(Icons.Rounded.Add, null, modifier = Modifier.size(16.dp)) }
-                )
-            }
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        items(field.options) { option ->
+            FilterChip(
+                selected = selected.contains(option),
+                onClick = {
+                    val updated = if (selected.contains(option)) {
+                        selected - option
+                    } else {
+                        selected + option
+                    }
+                    onValueChange(if (updated.isEmpty()) null else FieldValue.MultiSelect(updated))
+                },
+                label = { Text(option) }
+            )
+        }
+        item {
+            AddOptionChip(onClick = { showAddDialog = true })
         }
     }
 
@@ -349,15 +341,20 @@ private fun MultiSelectInput(
         AddOptionDialog(
             onDismiss = { showAddDialog = false },
             onAdd = { newOption ->
-                if (newOption.isNotBlank() && !allOptions.contains(newOption)) {
-                    allOptions = allOptions + newOption
-                }
-                val updated = if (selected.contains(newOption)) selected else selected + newOption
-                onValueChange(FieldValue.MultiSelect(updated))
+                onAddOption(newOption)
                 showAddDialog = false
             }
         )
     }
+}
+
+@Composable
+private fun AddOptionChip(onClick: () -> Unit) {
+    AssistChip(
+        onClick = onClick,
+        label = { Text("Add") },
+        leadingIcon = { Icon(Icons.Rounded.Add, null, modifier = Modifier.size(16.dp)) }
+    )
 }
 
 @Composable

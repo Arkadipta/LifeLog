@@ -84,6 +84,22 @@ class EventRepository @Inject constructor(
         eventTypeDao.deleteById(id)
     }
 
+    /**
+     * Appends [option] to a Choice/MultiSelect field's stored definition — a
+     * targeted single-row update rather than [saveEventType]'s wholesale field
+     * replacement, so an option added mid-entry can't race a concurrent edit of
+     * the other fields. Works from a fresh read of the row (not a caller-held
+     * copy) and returns the field as now persisted, or null when the field no
+     * longer exists. An already-present option is left as-is.
+     */
+    suspend fun addFieldOption(fieldId: Long, option: String): EventField? {
+        val stored = eventFieldDao.getById(fieldId)?.toDomain() ?: return null
+        if (option in stored.options) return stored
+        val updated = stored.copy(options = stored.options + option)
+        eventFieldDao.update(updated.toEntity())
+        return updated
+    }
+
     fun observeEntriesForEventType(eventTypeId: Long): Flow<List<EventEntry>> {
         val entityFlow = eventTypeDao.observeById(eventTypeId)
         val entriesFlow = eventEntryDao.observeByEventType(eventTypeId)

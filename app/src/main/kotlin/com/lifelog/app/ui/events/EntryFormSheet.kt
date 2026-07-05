@@ -146,6 +146,7 @@ fun EntryFormSheet(
                         field = field,
                         value = state.fieldValues[field.id],
                         onValueChange = { value -> viewModel.setFieldValue(field.id, value) },
+                        onAddOption = { option -> viewModel.addFieldOption(field.id, option) },
                         modifier = Modifier.fillMaxWidth(),
                         isError = state.fieldErrors.contains(field.id)
                     )
