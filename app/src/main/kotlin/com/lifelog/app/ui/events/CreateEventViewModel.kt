@@ -69,6 +69,9 @@ class CreateEventViewModel @Inject constructor(
     /** Guards one-time seeding so returning to the draft step keeps user edits. */
     private var draftSeeded = false
 
+    /** Guards one-time loading so a config change (e.g. rotation) doesn't clobber in-progress edits. */
+    private var eventLoaded = false
+
     /** Pre-fill the draft form once with import-suggested metadata. */
     fun seedDraftOnce(config: EventDraftConfig) {
         if (draftSeeded) return
@@ -102,6 +105,8 @@ class CreateEventViewModel @Inject constructor(
     }
 
     fun loadEvent(eventId: Long) {
+        if (eventLoaded) return
+        eventLoaded = true
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             val event = repository.getEventType(eventId)

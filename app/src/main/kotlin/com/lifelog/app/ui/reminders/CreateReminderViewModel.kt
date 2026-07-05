@@ -45,6 +45,9 @@ class CreateReminderViewModel @Inject constructor(
     private val _state = MutableStateFlow(CreateReminderUiState())
     val state: StateFlow<CreateReminderUiState> = _state.asStateFlow()
 
+    /** Guards one-time loading so a config change (e.g. rotation) doesn't clobber in-progress edits. */
+    private var reminderLoaded = false
+
     init {
         viewModelScope.launch {
             eventRepository.observeAllEventTypes().collect { types ->
@@ -54,6 +57,8 @@ class CreateReminderViewModel @Inject constructor(
     }
 
     fun loadReminder(id: Long) {
+        if (reminderLoaded) return
+        reminderLoaded = true
         viewModelScope.launch {
             val reminder = reminderRepository.getById(id) ?: return@launch
             _state.update {
