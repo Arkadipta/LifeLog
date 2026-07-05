@@ -115,7 +115,12 @@ class ReminderReceiver : BroadcastReceiver() {
                 // stale intent extra can never override the user's setting. Snooze stays a transient
                 // one-shot re-arm — the stored nextTriggerAt / recurrence are intentionally untouched.
                 val snoozeUntil = System.currentTimeMillis() + reminder.snoozeMinutes * 60_000L
-                reminderScheduler.schedule(reminder.copy(nextTriggerAt = snoozeUntil))
+                // A one-shot (NONE) reminder is already isActive=false here — handleReminder deactivates
+                // it the instant it fires, before the user can tap Snooze — so schedule() below would
+                // silently refuse to arm it. Re-activating is a no-op for recurring reminders, which are
+                // already active at this point.
+                reminderRepository.setActive(reminderId, true)
+                reminderScheduler.schedule(reminder.copy(nextTriggerAt = snoozeUntil, isActive = true))
             } finally {
                 pending.finish()
             }
