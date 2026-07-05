@@ -27,8 +27,8 @@ import kotlinx.serialization.json.Json
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -65,7 +65,9 @@ class ExportEngine @Inject constructor(
     private val prefsRepo: UserPreferencesRepository
 ) {
     private val json = Json { prettyPrint = true; encodeDefaults = true }
-    private val fileTimestampFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
+    // This is a @Singleton reached from both the auto-backup worker and manual
+    // exports; DateTimeFormatter is thread-safe where SimpleDateFormat was not.
+    private val fileTimestampFormat = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss", Locale.US)
 
     // ── Public export-to-URI API (manual exports via SAF) ─────────────────────
 
@@ -172,7 +174,8 @@ class ExportEngine @Inject constructor(
 
     private fun autoBackupDir() = File(context.filesDir, "backups")
 
-    private fun backupFileName() = "$AUTO_BACKUP_PREFIX${fileTimestampFormat.format(Date())}.db"
+    private fun backupFileName() =
+        "$AUTO_BACKUP_PREFIX${fileTimestampFormat.format(LocalDateTime.now())}.db"
 
     private fun writeBackupToAppStorage() {
         val backupDir = autoBackupDir().also { it.mkdirs() }

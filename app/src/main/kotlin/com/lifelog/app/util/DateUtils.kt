@@ -1,33 +1,52 @@
 package com.lifelog.app.util
 
-import java.text.DateFormatSymbols
-import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeFormatterBuilder
+import java.time.temporal.ChronoField
 import java.util.Calendar
-import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
-private fun simpleDateFormat(pattern: String) =
-    SimpleDateFormat(pattern, Locale.getDefault()).apply {
-        dateFormatSymbols = DateFormatSymbols(Locale.getDefault()).apply {
-            amPmStrings = arrayOf("AM", "PM")
-        }
-    }
+/*
+ * These formatters are shared across threads: UI composition on main plus
+ * Glance widget composition on its background workers. DateTimeFormatter is
+ * immutable and thread-safe, so the singletons are fine to share — do not
+ * swap them back to SimpleDateFormat, whose shared instances garble output
+ * under exactly that concurrency. Locale is captured once at init; the zone
+ * is resolved per call.
+ */
 
-private val dateTimeFormat = simpleDateFormat("MMM d, yyyy  h:mm a")
-private val dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
-private val timeFormat = simpleDateFormat("h:mm a")
-private val iso8601Format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
-private val clock12Format = simpleDateFormat("h:mm")
-private val clock24Format = SimpleDateFormat("HH:mm", Locale.getDefault())
-private val meridiemFormat = simpleDateFormat("a")
-private val widgetStamp12Format = simpleDateFormat("d MMM yyyy, hh:mm a")
-private val widgetStamp24Format = SimpleDateFormat("d MMM yyyy, HH:mm", Locale.getDefault())
+/**
+ * [pattern] rendered in [locale], except a trailing `a` becomes literal
+ * "AM"/"PM" regardless of locale — e.g. Spanish would otherwise write
+ * "a. m.", and the app's layouts assume the two-letter English markers.
+ */
+internal fun displayFormatter(pattern: String, locale: Locale): DateTimeFormatter =
+    if (pattern.endsWith("a"))
+        DateTimeFormatterBuilder()
+            .appendPattern(pattern.dropLast(1))
+            .appendText(ChronoField.AMPM_OF_DAY, mapOf(0L to "AM", 1L to "PM"))
+            .toFormatter(locale)
+    else
+        DateTimeFormatter.ofPattern(pattern, locale)
 
-fun Long.toDisplayDateTime(): String = dateTimeFormat.format(Date(this))
-fun Long.toDisplayDate(): String = dateFormat.format(Date(this))
-fun Long.toDisplayTime(): String = timeFormat.format(Date(this))
-fun Long.toIso8601(): String = iso8601Format.format(Date(this))
+private val dateTimeFormat = displayFormatter("MMM d, yyyy  h:mm a", Locale.getDefault())
+private val dateFormat = displayFormatter("MMM d, yyyy", Locale.getDefault())
+private val timeFormat = displayFormatter("h:mm a", Locale.getDefault())
+private val clock12Format = displayFormatter("h:mm", Locale.getDefault())
+private val clock24Format = displayFormatter("HH:mm", Locale.getDefault())
+private val meridiemFormat = displayFormatter("a", Locale.getDefault())
+private val widgetStamp12Format = displayFormatter("d MMM yyyy, hh:mm a", Locale.getDefault())
+private val widgetStamp24Format = displayFormatter("d MMM yyyy, HH:mm", Locale.getDefault())
+
+private fun Long.atSystemZone() = Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault())
+
+fun Long.toDisplayDateTime(): String = dateTimeFormat.format(atSystemZone())
+fun Long.toDisplayDate(): String = dateFormat.format(atSystemZone())
+fun Long.toDisplayTime(): String = timeFormat.format(atSystemZone())
 
 /**
  * The exact timestamp shown as the primary value on timeline-widget entries —
@@ -35,15 +54,17 @@ fun Long.toIso8601(): String = iso8601Format.format(Date(this))
  * 24-hour time. [is24Hour] comes from DateFormat.is24HourFormat(context).
  */
 fun Long.toWidgetTimestamp(is24Hour: Boolean): String =
-    (if (is24Hour) widgetStamp24Format else widgetStamp12Format).format(Date(this))
+    (if (is24Hour) widgetStamp24Format else widgetStamp12Format).format(atSystemZone())
 
 /**
  * Clock reading split for the entry time tile: "14:32" to null in 24-hour
  * mode, "2:32" to "PM" otherwise. [is24Hour] comes from the device setting.
  */
-fun Long.toClockParts(is24Hour: Boolean): Pair<String, String?> =
-    if (is24Hour) clock24Format.format(Date(this)) to null
-    else clock12Format.format(Date(this)) to meridiemFormat.format(Date(this))
+fun Long.toClockParts(is24Hour: Boolean): Pair<String, String?> {
+    val local = atSystemZone()
+    return if (is24Hour) clock24Format.format(local) to null
+    else clock12Format.format(local) to meridiemFormat.format(local)
+}
 
 /**
  * The UTC start-of-day epoch millis for this timestamp's *local* calendar
@@ -95,19 +116,6 @@ fun Long.isToday(): Boolean {
             now.get(Calendar.DAY_OF_YEAR) == target.get(Calendar.DAY_OF_YEAR)
 }
 
-//fun Long.relativeTimeLabel(): String {
-//    val now = System.currentTimeMillis()
-//    val diff = now - this
-//    return when {
-//        diff < 60_000 -> "Just now"
-//        diff < 3_600_000 -> "${diff / 60_000}m ago"
-//        diff < 86_400_000 -> "${diff / 3_600_000}h ago"
-//        isToday() -> "Today"
-//        diff < 2 * 86_400_000 -> "Yesterday"
-//        else -> toDisplayDate()
-//    }
-//}
-
 fun Long.relativeTimeLabel(): String {
     val now = System.currentTimeMillis()
     val diff = now - this
@@ -157,11 +165,8 @@ fun Long.relativeTimeLabel(): String {
 }
 
 fun minutesFromMidnightToLabel(minutes: Int): String {
-    val h = minutes / 60
-    val m = minutes % 60
-    val cal = Calendar.getInstance().apply {
-        set(Calendar.HOUR_OF_DAY, h)
-        set(Calendar.MINUTE, m)
-    }
-    return timeFormat.format(cal.time)
+    // mod keeps out-of-range input wrapping into the day, like the lenient
+    // Calendar this replaced, where LocalTime.of would throw.
+    val clamped = minutes.mod(24 * 60)
+    return timeFormat.format(LocalTime.of(clamped / 60, clamped % 60))
 }
