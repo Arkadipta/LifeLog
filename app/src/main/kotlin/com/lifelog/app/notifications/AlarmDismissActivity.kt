@@ -41,8 +41,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,21 +76,17 @@ class AlarmDismissActivity : ComponentActivity() {
     // the alarm keeps ringing even if this screen is backgrounded; the buttons just tell the service
     // to stop. Nothing audio-related lives here anymore.
 
+    // singleInstance means a second alarm arrives here via onNewIntent rather than a fresh onCreate,
+    // so the extras must live in observable state rather than local onCreate vals — otherwise the
+    // screen keeps showing the first alarm's title while Snooze/Add Entry act on its reminderId.
+    private lateinit var extras: MutableState<AlarmExtras>
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         wakeScreen()
 
-        val reminderId    = intent.getLongExtra(EXTRA_REMINDER_ID, -1L)
-        val title         = intent.getStringExtra(EXTRA_TITLE) ?: "LifeLog Alarm"
-        val message       = intent.getStringExtra(EXTRA_MESSAGE) ?: ""
-        val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, reminderId.toInt())
-        val eventTypeId   = intent.getLongExtra(EXTRA_EVENT_TYPE_ID, -1L).takeIf { it != -1L }
-        val snoozeMinutes = intent.getIntExtra(EXTRA_SNOOZE_MINUTES, Reminder.DEFAULT_SNOOZE_MINUTES)
-
-        // The notification stays in the shade (owned by AlarmService) as the recovery path while the
-        // alarm rings; it sits behind this full-screen UI and is removed when the service stops.
-
-        viewModel.loadNextTrigger(reminderId)
+        extras = mutableStateOf(intent.toAlarmExtras())
+        viewModel.loadNextTrigger(extras.value.reminderId)
 
         // Prevent the back gesture from bypassing the alarm screen; the user must tap an action.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -98,13 +96,14 @@ class AlarmDismissActivity : ComponentActivity() {
         setContent {
             val prefs      by userPreferencesRepository.userPreferences.collectAsState(UserPreferences())
             val nextTrigger by viewModel.nextTriggerAt.collectAsState()
+            val current    by extras
 
             LifeLogTheme(amoledBlack = prefs.useAmoledBlack, dynamicColor = prefs.useDynamicColor) {
                 AlarmScreen(
-                    title        = title,
-                    message      = message,
+                    title        = current.title,
+                    message      = current.message,
                     nextTriggerAt = nextTrigger,
-                    snoozeMinutes = snoozeMinutes,
+                    snoozeMinutes = current.snoozeMinutes,
                     onDismiss = {
                         AlarmService.stop(this@AlarmDismissActivity)
                         finish()
@@ -115,16 +114,16 @@ class AlarmDismissActivity : ComponentActivity() {
                         AlarmService.stop(this@AlarmDismissActivity)
                         sendBroadcast(Intent(this@AlarmDismissActivity, ReminderReceiver::class.java).apply {
                             action = ReminderReceiver.ACTION_SNOOZE
-                            putExtra(ReminderReceiver.EXTRA_REMINDER_ID, reminderId)
+                            putExtra(ReminderReceiver.EXTRA_REMINDER_ID, current.reminderId)
                         })
                         finish()
                     },
-                    onAddEntry = eventTypeId?.let { etId ->
+                    onAddEntry = current.eventTypeId?.let { etId ->
                         {
                             AlarmService.stop(this@AlarmDismissActivity)
                             startActivity(Intent(this@AlarmDismissActivity, QuickAddActivity::class.java).apply {
                                 putExtra(QuickAddActivity.EXTRA_EVENT_ID, etId)
-                                putExtra(QuickAddActivity.EXTRA_NOTIFICATION_ID, notificationId)
+                                putExtra(QuickAddActivity.EXTRA_NOTIFICATION_ID, current.notificationId)
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             })
                             finish()
@@ -133,6 +132,13 @@ class AlarmDismissActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        extras.value = intent.toAlarmExtras()
+        viewModel.loadNextTrigger(extras.value.reminderId)
     }
 
     // ── Wake / lock-screen helpers ─────────────────────────────────────────────
@@ -191,6 +197,27 @@ class AlarmDismissActivity : ComponentActivity() {
             putExtra(EXTRA_SNOOZE_MINUTES, snoozeMinutes)
         }
     }
+}
+
+private data class AlarmExtras(
+    val reminderId: Long,
+    val title: String,
+    val message: String,
+    val notificationId: Int,
+    val eventTypeId: Long?,
+    val snoozeMinutes: Int
+)
+
+private fun Intent.toAlarmExtras(): AlarmExtras {
+    val reminderId = getLongExtra(AlarmDismissActivity.EXTRA_REMINDER_ID, -1L)
+    return AlarmExtras(
+        reminderId = reminderId,
+        title = getStringExtra(AlarmDismissActivity.EXTRA_TITLE) ?: "LifeLog Alarm",
+        message = getStringExtra(AlarmDismissActivity.EXTRA_MESSAGE) ?: "",
+        notificationId = getIntExtra(AlarmDismissActivity.EXTRA_NOTIFICATION_ID, reminderId.toInt()),
+        eventTypeId = getLongExtra(AlarmDismissActivity.EXTRA_EVENT_TYPE_ID, -1L).takeIf { it != -1L },
+        snoozeMinutes = getIntExtra(AlarmDismissActivity.EXTRA_SNOOZE_MINUTES, Reminder.DEFAULT_SNOOZE_MINUTES)
+    )
 }
 
 // ── Full-screen alarm UI ───────────────────────────────────────────────────────
