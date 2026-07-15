@@ -103,4 +103,9 @@ dependencies {
     implementation(libs.vico.compose.m3)
 
     testImplementation(libs.junit4)
+
+    // Instrumented tests: real device DB (FK cascades, DAO transactions), real
+    // AlarmManager PendingIntents, and on-device SQLite files for restore validation.
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }

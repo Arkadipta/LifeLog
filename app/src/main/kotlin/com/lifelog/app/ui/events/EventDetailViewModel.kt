@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.lifelog.app.csv.CsvManager
 import com.lifelog.app.data.repository.ChartRepository
 import com.lifelog.app.data.repository.EventRepository
+import com.lifelog.app.data.repository.ReminderRepository
 import com.lifelog.app.domain.ChartDataProcessor
 import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.ChartData
@@ -14,6 +15,7 @@ import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.model.StoredChartConfig
 import com.lifelog.app.domain.query.EntryQuery
+import com.lifelog.app.notifications.ReminderCoordinator
 import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +29,9 @@ class EventDetailViewModel @Inject constructor(
     private val repository: EventRepository,
     private val chartRepository: ChartRepository,
     private val csvManager: CsvManager,
-    private val widgetUpdater: WidgetUpdater
+    private val widgetUpdater: WidgetUpdater,
+    private val reminderRepository: ReminderRepository,
+    private val reminderCoordinator: ReminderCoordinator
 ) : ViewModel() {
 
     private val eventIdFlow = MutableStateFlow<Long>(0)
@@ -65,6 +69,13 @@ class EventDetailViewModel @Inject constructor(
         .flatMapLatest { chartRepository.observeCharts(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    // Drives the delete dialog's "N linked reminders will be turned off" line.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val linkedActiveReminderCount: StateFlow<Int> = eventIdFlow
+        .filter { it != 0L }
+        .flatMapLatest { reminderRepository.observeActiveCountForEventType(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
     val chartDataMap: StateFlow<Map<String, ChartData>> = combine(
         charts, eventType, _allEntries
     ) { stored, type, entries ->
@@ -94,6 +105,9 @@ class EventDetailViewModel @Inject constructor(
 
     fun deleteEventType(id: Long) {
         viewModelScope.launch {
+            // Reminders have no FK to event_types — detach them (unlink, deactivate,
+            // cancel alarms) before the row goes, so none ever holds a dead id.
+            reminderCoordinator.detachFromEventType(id)
             repository.deleteEventType(id)
             // Unbind any QuickAddWidget for this event (it re-renders as part of
             // the clear), then refresh timelines that showed its entries.

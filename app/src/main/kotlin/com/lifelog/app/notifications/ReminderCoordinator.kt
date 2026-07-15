@@ -62,4 +62,23 @@ class ReminderCoordinator @Inject constructor(
             reminderRepository.getAllActive().any { !reminderScheduler.hasAlarmToken(it.id) }
         if (armLost) rescheduleAll()
     }
+
+    /**
+     * Event-type deletion: reminders carry no FK to event_types, so the link must be
+     * severed here or rows keep pointing at the dead id (a TIME_SINCE_LAST reminder can
+     * then never reset — only a logged entry for its event does that). Every linked
+     * reminder is unlinked (eventTypeId → NULL, the editor's "All Events (Global)"
+     * state) and deactivated in one transaction, then its armed alarm cancelled.
+     * Deactivation rather than deletion: the user's title/message/schedule survive,
+     * visibly switched off in the Reminders list. Callers run this BEFORE deleting the
+     * event row, so no reminder references a dead id even if the process dies between
+     * the two steps.
+     */
+    suspend fun detachFromEventType(eventTypeId: Long) {
+        rearmMutex.withLock {
+            reminderRepository.detachFromEventType(eventTypeId).forEach { id ->
+                reminderScheduler.cancel(id)
+            }
+        }
+    }
 }

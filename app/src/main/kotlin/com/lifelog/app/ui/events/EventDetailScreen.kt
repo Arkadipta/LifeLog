@@ -471,9 +471,16 @@ fun EventDetailScreen(
 
     if (showDeleteEventDialog) {
         eventType?.let { target ->
+            val linkedReminders by viewModel.linkedActiveReminderCount.collectAsStateWithLifecycle()
             DeleteConfirmDialog(
                 title = "Delete \"${target.name}\"?",
-                text = "This will permanently delete this event and all its entries.",
+                text = buildString {
+                    append("This will permanently delete this event and all its entries.")
+                    when {
+                        linkedReminders == 1 -> append(" Its linked reminder will be turned off.")
+                        linkedReminders > 1 -> append(" Its $linkedReminders linked reminders will be turned off.")
+                    }
+                },
                 onConfirm = {
                     viewModel.deleteEventType(target.id)
                     showDeleteEventDialog = false
