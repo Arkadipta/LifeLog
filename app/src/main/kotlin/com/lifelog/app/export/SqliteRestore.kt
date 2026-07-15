@@ -122,9 +122,15 @@ object SqliteRestore {
                 in Int.MIN_VALUE..0 -> return Validation.Invalid(
                     "This file was not created by LifeLog (unrecognized schema)."
                 )
+                // Above ours is ambiguous: a newer app release, or a pre-1.0 build
+                // (the 1.0 schema reset restarted numbering at 1, so legacy backups
+                // carry higher numbers that future releases will reuse). The number
+                // alone can't tell them apart, so the message must claim neither.
                 else -> return Validation.Invalid(
-                    "This backup was made by a newer version of LifeLog (schema v$version). " +
-                        "Please update the app before restoring."
+                    "This backup uses a database format (schema v$version) that this " +
+                        "version of LifeLog can't read. If it came from a newer version " +
+                        "of the app, update LifeLog and try again; backups from pre-1.0 " +
+                        "builds can no longer be restored."
                 )
             }
 
