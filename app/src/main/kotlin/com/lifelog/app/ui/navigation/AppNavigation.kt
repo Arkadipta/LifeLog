@@ -41,10 +41,14 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.lifelog.app.ShortcutDestination
 import com.lifelog.app.export.SqliteRestore
 import com.lifelog.app.ui.csvimport.ImportCsvScreen
 import com.lifelog.app.ui.events.CreateEventScreen
+import com.lifelog.app.ui.events.EntryFormMode
+import com.lifelog.app.ui.events.EntryFormSheet
 import com.lifelog.app.ui.events.EventDetailScreen
+import com.lifelog.app.ui.events.EventPickerSheet
 import com.lifelog.app.ui.events.EventsScreen
 import com.lifelog.app.ui.reminders.CreateReminderScreen
 import com.lifelog.app.ui.reminders.RemindersScreen
@@ -97,7 +101,9 @@ private val bottomNavItems = listOf(
 @Composable
 fun AppNavigation(
     openEventId: Long? = null,
-    onEventOpened: () -> Unit = {}
+    onEventOpened: () -> Unit = {},
+    shortcut: ShortcutDestination? = null,
+    onShortcutHandled: () -> Unit = {}
 ) {
     val navController = rememberNavController()
 
@@ -108,6 +114,27 @@ fun AppNavigation(
             navController.navigate(Screen.EventDetail.route(openEventId))
             onEventOpened()
         }
+    }
+
+    // Launcher-shortcut routing (lifelog:// URIs, parsed by MainActivity):
+    // Timeline switches tab exactly like a bottom-bar tap; Log Entry opens the
+    // event picker, which hands the chosen id to the entry form below. Both
+    // sheet states are plain `remember`, matching every other entry sheet in
+    // the app: rotation closes the sheet rather than reloading (and thereby
+    // clobbering) a form mid-edit.
+    var quickAddPickerVisible by remember { mutableStateOf(false) }
+    var quickAddEventId by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(shortcut) {
+        when (shortcut) {
+            ShortcutDestination.TIMELINE -> navController.navigate(Screen.Timeline.route) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+            ShortcutDestination.QUICK_ADD -> quickAddPickerVisible = true
+            null -> {}
+        }
+        if (shortcut != null) onShortcutHandled()
     }
 
     // Surface the result of a database restore that completed on the last launch.
@@ -250,6 +277,31 @@ fun AppNavigation(
 
     restoreOutcome?.let { outcome ->
         RestoreOutcomeDialog(outcome = outcome, onDismiss = { restoreOutcome = null })
+    }
+
+    if (quickAddPickerVisible) {
+        EventPickerSheet(
+            onPick = { id ->
+                quickAddPickerVisible = false
+                quickAddEventId = id
+            },
+            onCreateEvent = {
+                quickAddPickerVisible = false
+                navController.navigate(Screen.CreateEvent.route)
+            },
+            onDismiss = { quickAddPickerVisible = false }
+        )
+    }
+
+    quickAddEventId?.let { eventId ->
+        EntryFormSheet(
+            mode = EntryFormMode.New(eventId),
+            onDismiss = { quickAddEventId = null },
+            onViewHistory = { id ->
+                quickAddEventId = null
+                navController.navigate(Screen.EventDetail.route(id))
+            }
+        )
     }
 }
 

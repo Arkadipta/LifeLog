@@ -37,13 +37,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Deep-link for widgets and shortcuts -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="lifelog" />
-            </intent-filter>
-
+            <!-- Static launcher shortcuts reach MainActivity with an explicit
+                 component + a lifelog:// data URI (parsed in onCreate/onNewIntent),
+                 so the scheme needs no VIEW intent-filter and stays unexported. -->
             <meta-data
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
