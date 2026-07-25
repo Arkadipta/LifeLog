@@ -3,12 +3,11 @@ package com.lifelog.app.ui.events
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
-import com.lifelog.app.data.repository.ReminderRepository
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.domain.model.FieldValue
-import com.lifelog.app.notifications.ReminderScheduler
+import com.lifelog.app.notifications.ReminderCoordinator
 import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
@@ -82,8 +81,7 @@ fun FieldValue?.withOptionSelected(type: FieldType, option: String): FieldValue?
 @HiltViewModel
 class EntryViewModel @Inject constructor(
     private val repository: EventRepository,
-    private val reminderRepository: ReminderRepository,
-    private val reminderScheduler: ReminderScheduler,
+    private val reminderCoordinator: ReminderCoordinator,
     private val widgetUpdater: WidgetUpdater
 ) : ViewModel() {
 
@@ -196,11 +194,10 @@ class EntryViewModel @Inject constructor(
                 return@launch
             }
 
-            // Reschedule any TIME_SINCE_LAST reminders linked to this event type
-            reminderRepository.rescheduleTimeSinceLast(
+            // Restart any TIME_SINCE_LAST reminders watching this event type
+            reminderCoordinator.onEntryLogged(
                 eventTypeId = entry.eventTypeId,
-                entryAt = current.createdAt,
-                schedule = { reminder -> reminderScheduler.schedule(reminder) }
+                entryAt = current.createdAt
             )
 
             // Entry data changed — refresh Timeline widgets so they show the new entry.

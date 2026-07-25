@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.ReminderRepository
 import com.lifelog.app.domain.model.Reminder
-import com.lifelog.app.notifications.ReminderScheduler
+import com.lifelog.app.notifications.ReminderCoordinator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -15,7 +15,7 @@ import javax.inject.Inject
 @HiltViewModel
 class RemindersViewModel @Inject constructor(
     private val repository: ReminderRepository,
-    private val scheduler: ReminderScheduler
+    private val reminderCoordinator: ReminderCoordinator
 ) : ViewModel() {
 
     val reminders: StateFlow<List<Reminder>> = repository.observeAll()
@@ -23,24 +23,13 @@ class RemindersViewModel @Inject constructor(
 
     fun toggleActive(reminder: Reminder) {
         viewModelScope.launch {
-            if (reminder.isActive) {
-                repository.setActive(reminder.id, false)
-                scheduler.cancel(reminder.id)
-            } else {
-                // Persist the recomputed trigger and active flag before arming: the receiver
-                // re-reads the row when the alarm fires and stays silent if it looks inactive.
-                val armed = reminder.reactivated()
-                repository.updateNextTrigger(armed.id, armed.nextTriggerAt)
-                repository.setActive(armed.id, true)
-                scheduler.schedule(armed)
-            }
+            reminderCoordinator.setActive(reminder, isActive = !reminder.isActive)
         }
     }
 
     fun delete(reminder: Reminder) {
         viewModelScope.launch {
-            scheduler.cancel(reminder.id)
-            repository.delete(reminder.id)
+            reminderCoordinator.delete(reminder.id)
         }
     }
 }

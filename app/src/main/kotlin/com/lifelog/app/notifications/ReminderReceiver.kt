@@ -4,9 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.lifelog.app.data.repository.ReminderRepository
-import com.lifelog.app.domain.RecurrenceCalculator
 import com.lifelog.app.domain.model.DeliveryType
-import com.lifelog.app.domain.model.RecurrenceType
 import com.lifelog.app.domain.model.Reminder
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -18,7 +16,6 @@ import javax.inject.Inject
 class ReminderReceiver : BroadcastReceiver() {
 
     @Inject lateinit var reminderRepository: ReminderRepository
-    @Inject lateinit var reminderScheduler: ReminderScheduler
     @Inject lateinit var reminderCoordinator: ReminderCoordinator
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -53,20 +50,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (reminder == null || !reminder.isActive) return@launch
 
                 ring(context, reminder)
-
-                // TIME_SINCE_LAST reminders don't auto-reschedule; they reset on entry-logged event
-                if (reminder.recurrenceRule.type == RecurrenceType.TIME_SINCE_LAST) return@launch
-
-                val nextTrigger = RecurrenceCalculator.computeNextTrigger(
-                    rule = reminder.recurrenceRule,
-                    after = System.currentTimeMillis()
-                )
-                if (nextTrigger != null) {
-                    reminderRepository.updateNextTrigger(reminderId, nextTrigger)
-                    reminderScheduler.schedule(reminder.copy(nextTriggerAt = nextTrigger))
-                } else {
-                    reminderRepository.setActive(reminderId, false)
-                }
+                reminderCoordinator.onFired(reminder)
             } finally {
                 pending.finish()
             }
@@ -110,17 +94,9 @@ class ReminderReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val reminder = reminderRepository.getById(reminderId) ?: return@launch
-                // Per-reminder snooze: the configured duration is read straight from the DB row, so a
-                // stale intent extra can never override the user's setting. Snooze stays a transient
-                // one-shot re-arm — the stored nextTriggerAt / recurrence are intentionally untouched.
-                val snoozeUntil = System.currentTimeMillis() + reminder.snoozeMinutes * 60_000L
-                // A one-shot (NONE) reminder is already isActive=false here — handleReminder deactivates
-                // it the instant it fires, before the user can tap Snooze — so schedule() below would
-                // silently refuse to arm it. Re-activating is a no-op for recurring reminders, which are
-                // already active at this point.
-                reminderRepository.setActive(reminderId, true)
-                reminderScheduler.schedule(reminder.copy(nextTriggerAt = snoozeUntil, isActive = true))
+                // The snooze duration is read from the DB row inside the coordinator, so a stale
+                // intent extra can never override the user's setting.
+                reminderCoordinator.snooze(reminderId)
             } finally {
                 pending.finish()
             }
