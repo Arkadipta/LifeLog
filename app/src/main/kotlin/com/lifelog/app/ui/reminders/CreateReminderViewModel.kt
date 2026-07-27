@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.data.repository.ReminderRepository
+import com.lifelog.app.domain.RecurrenceCalculator
 import com.lifelog.app.domain.model.DeliveryType
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.model.RecurrenceRule
@@ -33,7 +34,9 @@ data class CreateReminderUiState(
     val eventTypes: List<EventType> = emptyList(),
     val isLoading: Boolean = false,
     val isSaved: Boolean = false,
-    val titleError: String? = null
+    val titleError: String? = null,
+    /** Set by [CreateReminderViewModel.save] when the rule cannot produce an occurrence. */
+    val recurrenceError: String? = null
 )
 
 @HiltViewModel
@@ -84,26 +87,33 @@ class CreateReminderViewModel @Inject constructor(
     fun setEventType(id: Long?, name: String?) = _state.update { it.copy(eventTypeId = id, eventTypeName = name) }
     fun setDeliveryType(v: DeliveryType) = _state.update { it.copy(deliveryType = v) }
 
-    fun setRecurrenceType(type: RecurrenceType) = _state.update {
-        it.copy(recurrenceRule = it.recurrenceRule.copy(type = type))
+    /**
+     * Every rule edit clears [CreateReminderUiState.recurrenceError]: the message names one thing
+     * to fix, so the moment the user touches the rule at all it has to be re-earned by [save].
+     */
+    private fun updateRule(transform: (RecurrenceRule) -> RecurrenceRule) = _state.update {
+        it.copy(recurrenceRule = transform(it.recurrenceRule), recurrenceError = null)
     }
 
-    fun setRecurrenceRule(rule: RecurrenceRule) = _state.update { it.copy(recurrenceRule = rule) }
+    fun setRecurrenceType(type: RecurrenceType) = updateRule { it.copy(type = type) }
+
+    fun setRecurrenceRule(rule: RecurrenceRule) = updateRule { rule }
 
     fun setSnoozeMinutes(minutes: Int) = _state.update {
         it.copy(snoozeMinutes = minutes.coerceIn(Reminder.MIN_SNOOZE_MINUTES, Reminder.MAX_SNOOZE_MINUTES))
     }
 
-    fun setTimeOfDay(minutes: Int) = _state.update {
-        it.copy(recurrenceRule = it.recurrenceRule.copy(timeOfDayMinutes = minutes))
+    fun setTimeOfDay(minutes: Int) = updateRule { it.copy(timeOfDayMinutes = minutes) }
+
+    // Durations are stored exactly as typed — a value below the minimum is rejected by save() with
+    // a message rather than silently coerced, which used to rewrite the field mid-keystroke (an
+    // emptied Hours box became "0h 1m") and hid the fact that 0h 0m armed a per-minute alarm.
+    fun setIntervalMinutes(totalMinutes: Int) = updateRule {
+        it.copy(intervalMinutes = totalMinutes.coerceAtLeast(0))
     }
 
-    fun setIntervalMinutes(totalMinutes: Int) = _state.update {
-        it.copy(recurrenceRule = it.recurrenceRule.copy(intervalMinutes = totalMinutes.coerceAtLeast(1)))
-    }
-
-    fun setTimeSinceLastTotalMinutes(totalMinutes: Int) = _state.update {
-        it.copy(recurrenceRule = it.recurrenceRule.copy(timeSinceLastMinutes = totalMinutes.coerceAtLeast(1)))
+    fun setTimeSinceLastTotalMinutes(totalMinutes: Int) = updateRule {
+        it.copy(timeSinceLastMinutes = totalMinutes.coerceAtLeast(0))
     }
 
     fun setTimeSinceLastEventDateTime(epochMs: Long?) = _state.update {
@@ -112,10 +122,17 @@ class CreateReminderViewModel @Inject constructor(
 
     // ── Save ──────────────────────────────────────────────────────────────────
 
+    /**
+     * Both checks run before anything is written, so a reminder can never be stored with a rule
+     * that has no occurrence to schedule. The two messages surface at opposite ends of the form
+     * and are reported together — the screen scrolls to whichever comes first.
+     */
     fun save(existingId: Long = 0L) {
         val title = _state.value.title.trim()
-        if (title.isBlank()) {
-            _state.update { it.copy(titleError = "Title is required") }
+        val titleError = "Title is required".takeIf { title.isBlank() }
+        val recurrenceError = RecurrenceCalculator.validate(_state.value.recurrenceRule)
+        if (titleError != null || recurrenceError != null) {
+            _state.update { it.copy(titleError = titleError, recurrenceError = recurrenceError) }
             return
         }
         viewModelScope.launch {

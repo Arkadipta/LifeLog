@@ -8,6 +8,45 @@ import java.util.Calendar
 object RecurrenceCalculator {
 
     /**
+     * Check that [rule] describes something this calculator can actually turn into occurrences,
+     * returning a message to show the user or null when the rule is fine.
+     *
+     * Each case below is a rule the compute functions cannot honor and so answer with a fallback
+     * the user never asked for: an unsatisfiable monthly rule lands on [nextMonthlyTrigger]'s
+     * "30 days from now", and an interval of nothing became a one-minute alarm loop. Rejecting
+     * these in the editor is what keeps those fallbacks off the screen — they still exist for
+     * rows that arrive from a restore or predate a rule.
+     *
+     * DAILY and NONE need only a time of day, which is always set, so they are always valid.
+     */
+    fun validate(rule: RecurrenceRule): String? = when (rule.type) {
+        RecurrenceType.NONE, RecurrenceType.DAILY -> null
+
+        RecurrenceType.INTERVAL ->
+            if (rule.intervalMinutes < RecurrenceRule.MIN_INTERVAL_MINUTES)
+                "Repeat at least every ${RecurrenceRule.MIN_INTERVAL_MINUTES} minutes."
+            else null
+
+        RecurrenceType.TIME_SINCE_LAST ->
+            if (rule.timeSinceLastMinutes < RecurrenceRule.MIN_TIME_SINCE_LAST_MINUTES)
+                "Set how long after the last entry this should fire."
+            else null
+
+        RecurrenceType.WEEKLY ->
+            if (rule.daysOfWeek.isEmpty()) "Pick at least one day of the week." else null
+
+        RecurrenceType.MONTHLY, RecurrenceType.YEARLY -> when {
+            rule.type == RecurrenceType.YEARLY && rule.months.isEmpty() ->
+                "Pick at least one month."
+            rule.dayOfMonthMode == DayOfMonthMode.DAY_OF_MONTH && rule.daysOfMonth.isEmpty() ->
+                "Pick at least one day of the month."
+            rule.dayOfMonthMode == DayOfMonthMode.DAY_OF_WEEK && rule.daysOfWeek.isEmpty() ->
+                "Pick at least one day of the week."
+            else -> null
+        }
+    }
+
+    /**
      * Compute the next trigger after [after] for a recurring reminder.
      *
      * @param rule          the recurrence descriptor
@@ -24,12 +63,20 @@ object RecurrenceCalculator {
         RecurrenceType.NONE -> null
         RecurrenceType.INTERVAL -> after + rule.intervalMinutes * 60_000L
         RecurrenceType.TIME_SINCE_LAST -> timeSinceLastTrigger(rule, after, lastEntryAt)
-        RecurrenceType.DAILY, RecurrenceType.WEEKLY -> nextWeeklyTrigger(rule, after)
+        // Daily reads only the time of day. Routing it through nextWeeklyTrigger made it honor a
+        // daysOfWeek list left behind by switching the type from Weekly — "Daily" firing weekly.
+        RecurrenceType.DAILY -> nextTimeOfDayOccurrence(after, rule.timeOfDayMinutes)
+        RecurrenceType.WEEKLY -> nextWeeklyTrigger(rule, after)
         RecurrenceType.MONTHLY, RecurrenceType.YEARLY -> nextMonthlyTrigger(rule, after)
     }
 
     /**
      * Compute the very first trigger when a reminder is created.
+     *
+     * A recurring rule just asks [computeNextTrigger] for its first occurrence after [now], so the
+     * first firing obeys the same day constraints as every one after it. This used to take "today
+     * at the rule's time of day" whenever that was still ahead, which ignored the day entirely: a
+     * "15th of the month, 8 AM" reminder created at 2 AM on the 28th rang that same morning.
      *
      * For TIME_SINCE_LAST, [eventDateTime] is the datetime of the entry the user just logged.
      * Handles the three edge cases from the spec:
@@ -44,10 +91,7 @@ object RecurrenceCalculator {
     ): Long? = when (rule.type) {
         RecurrenceType.NONE -> nextTimeOfDayOccurrence(now, rule.timeOfDayMinutes)
         RecurrenceType.DAILY, RecurrenceType.WEEKLY,
-        RecurrenceType.MONTHLY, RecurrenceType.YEARLY -> {
-            val candidate = calAtTime(now, rule.timeOfDayMinutes)
-            if (candidate > now) candidate else computeNextTrigger(rule, now)
-        }
+        RecurrenceType.MONTHLY, RecurrenceType.YEARLY -> computeNextTrigger(rule, now)
         RecurrenceType.INTERVAL -> now + rule.intervalMinutes * 60_000L
         RecurrenceType.TIME_SINCE_LAST -> {
             val base = eventDateTime ?: now
@@ -137,6 +181,12 @@ object RecurrenceCalculator {
 
     // ── Monthly ──────────────────────────────────────────────────────────────
 
+    /**
+     * Scans the next 24 months for an occurrence. The trailing "30 days from now" is the answer
+     * for a rule that has none at all — no day of the month picked, or no day of the week in
+     * DAY_OF_WEEK mode. [validate] keeps the editor from producing one; a restored or imported
+     * row still can, and a nudge a month out beats an alarm that never fires again.
+     */
     private fun nextMonthlyTrigger(rule: RecurrenceRule, after: Long): Long {
         val base = Calendar.getInstance().apply { timeInMillis = after }
         val startYear = base.get(Calendar.YEAR)
@@ -249,7 +299,9 @@ object RecurrenceCalculator {
         val time = minutesToTimeLabel(rule.timeOfDayMinutes)
         return when (rule.type) {
             RecurrenceType.NONE -> "Once at $time"
-            RecurrenceType.DAILY, RecurrenceType.WEEKLY -> {
+            RecurrenceType.DAILY -> "Daily at $time"
+            // A WEEKLY row with no days left fires every day (legacy shape — validate blocks it now).
+            RecurrenceType.WEEKLY -> {
                 if (rule.daysOfWeek.isEmpty()) "Daily at $time"
                 else {
                     val days = rule.daysOfWeek.joinToString(", ") { DAY_SHORT.getOrElse(it) { "?" } }
@@ -270,7 +322,9 @@ object RecurrenceCalculator {
 
     private fun buildMonthlyDescription(rule: RecurrenceRule, time: String): String {
         val monthPart = when {
-            rule.months.isEmpty() -> if (rule.type == RecurrenceType.YEARLY) "every year" else "every month"
+            // No month filter means the rule fires in all twelve, whichever type it claims to be —
+            // a YEARLY row that lost its months (restore, legacy) is monthly, and says so.
+            rule.months.isEmpty() -> "every month"
             rule.months == (0..11 step 2).toList() -> "even months"
             rule.months == (1..11 step 2).toList() -> "odd months"
             else -> rule.months.joinToString(", ") { MONTH_SHORT[it] }

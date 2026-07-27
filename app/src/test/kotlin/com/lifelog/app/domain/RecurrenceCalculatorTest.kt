@@ -437,4 +437,190 @@ class RecurrenceCalculatorTest {
         val rule = RecurrenceRule(type = RecurrenceType.TIME_SINCE_LAST, timeSinceLastMinutes = 48 * 60)
         assertEquals("48h after last entry", RecurrenceCalculator.describeRule(rule))
     }
+
+    @Test fun `describeRule calls a rule with no month filter monthly whatever its type`() {
+        // A YEARLY rule that lost its months fires every month; the card used to say "every year".
+        val rule = RecurrenceRule(
+            type = RecurrenceType.YEARLY,
+            timeOfDayMinutes = 9 * 60,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfMonth = listOf(15)
+        )
+        assertEquals("15th of every month at 9 AM", RecurrenceCalculator.describeRule(rule))
+    }
+
+    // ── computeInitialTrigger honours the rule's days, not just its time ─────
+
+    @Test fun `initial MONTHLY trigger waits for the chosen day, not today at that time`() {
+        val now = calOf(2026, Calendar.JULY, 28, 2, 0)     // 02:00, well before the 08:00 slot
+        val rule = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            timeOfDayMinutes = 8 * 60,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfMonth = listOf(15)
+        )
+        val trigger = RecurrenceCalculator.computeInitialTrigger(rule, now)!!
+        assertEquals(Calendar.AUGUST, calGet(trigger, Calendar.MONTH))
+        assertEquals(15, calGet(trigger, Calendar.DAY_OF_MONTH))
+        assertEquals(8, calGet(trigger, Calendar.HOUR_OF_DAY))
+    }
+
+    @Test fun `initial MONTHLY trigger is today when today is the chosen day`() {
+        val now = calOf(2026, Calendar.JULY, 15, 2, 0)
+        val rule = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            timeOfDayMinutes = 8 * 60,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfMonth = listOf(15)
+        )
+        val trigger = RecurrenceCalculator.computeInitialTrigger(rule, now)!!
+        assertEquals(Calendar.JULY, calGet(trigger, Calendar.MONTH))
+        assertEquals(15, calGet(trigger, Calendar.DAY_OF_MONTH))
+    }
+
+    @Test fun `initial WEEKLY trigger waits for the chosen weekday`() {
+        // 2025-06-12 is a Thursday, 06:00; rule fires Mondays at 09:00
+        val thursday = calOf(2025, Calendar.JUNE, 12, 6, 0)
+        val rule = RecurrenceRule(
+            type = RecurrenceType.WEEKLY,
+            timeOfDayMinutes = 9 * 60,
+            daysOfWeek = listOf(1)
+        )
+        val trigger = RecurrenceCalculator.computeInitialTrigger(rule, thursday)!!
+        assertEquals(Calendar.MONDAY, calGet(trigger, Calendar.DAY_OF_WEEK))
+        assertEquals(16, calGet(trigger, Calendar.DAY_OF_MONTH))
+    }
+
+    @Test fun `initial DAILY trigger is today when its time is still ahead, else tomorrow`() {
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        val early = RecurrenceCalculator.computeInitialTrigger(rule, calOf(2025, Calendar.JUNE, 10, 6, 0))!!
+        assertEquals(10, calGet(early, Calendar.DAY_OF_MONTH))
+        val late = RecurrenceCalculator.computeInitialTrigger(rule, calOf(2025, Calendar.JUNE, 10, 10, 0))!!
+        assertEquals(11, calGet(late, Calendar.DAY_OF_MONTH))
+    }
+
+    @Test fun `DAILY ignores a daysOfWeek list left over from the Weekly editor`() {
+        // Thursday 06:00, with Monday left in daysOfWeek: daily means today at 09:00.
+        val thursday = calOf(2025, Calendar.JUNE, 12, 6, 0)
+        val rule = RecurrenceRule(
+            type = RecurrenceType.DAILY,
+            timeOfDayMinutes = 9 * 60,
+            daysOfWeek = listOf(1)
+        )
+        val trigger = RecurrenceCalculator.computeNextTrigger(rule, thursday)!!
+        assertEquals(12, calGet(trigger, Calendar.DAY_OF_MONTH))
+        assertEquals(9, calGet(trigger, Calendar.HOUR_OF_DAY))
+        assertEquals("Daily at 9 AM", RecurrenceCalculator.describeRule(rule))
+    }
+
+    // ── validate (what the editor refuses to save) ────────────────────────────
+
+    @Test fun `validate accepts the default rule`() {
+        assertNull(RecurrenceCalculator.validate(RecurrenceRule()))
+    }
+
+    @Test fun `validate accepts NONE and DAILY which need only a time of day`() {
+        assertNull(RecurrenceCalculator.validate(RecurrenceRule(type = RecurrenceType.NONE)))
+        assertNull(RecurrenceCalculator.validate(RecurrenceRule(type = RecurrenceType.DAILY)))
+    }
+
+    @Test fun `validate rejects an INTERVAL of nothing`() {
+        val rule = RecurrenceRule(type = RecurrenceType.INTERVAL, intervalMinutes = 0)
+        assertNotNull(RecurrenceCalculator.validate(rule))
+    }
+
+    @Test fun `validate rejects an INTERVAL below the minimum`() {
+        val rule = RecurrenceRule(
+            type = RecurrenceType.INTERVAL,
+            intervalMinutes = RecurrenceRule.MIN_INTERVAL_MINUTES - 1
+        )
+        assertNotNull(RecurrenceCalculator.validate(rule))
+    }
+
+    @Test fun `validate accepts an INTERVAL at exactly the minimum`() {
+        val rule = RecurrenceRule(
+            type = RecurrenceType.INTERVAL,
+            intervalMinutes = RecurrenceRule.MIN_INTERVAL_MINUTES
+        )
+        assertNull(RecurrenceCalculator.validate(rule))
+    }
+
+    @Test fun `validate rejects a TIME_SINCE_LAST of nothing but accepts one minute`() {
+        val zero = RecurrenceRule(type = RecurrenceType.TIME_SINCE_LAST, timeSinceLastMinutes = 0)
+        assertNotNull(RecurrenceCalculator.validate(zero))
+        assertNull(RecurrenceCalculator.validate(zero.copy(timeSinceLastMinutes = 1)))
+    }
+
+    @Test fun `validate requires a day for WEEKLY`() {
+        val rule = RecurrenceRule(type = RecurrenceType.WEEKLY, daysOfWeek = emptyList())
+        assertNotNull(RecurrenceCalculator.validate(rule))
+        assertNull(RecurrenceCalculator.validate(rule.copy(daysOfWeek = listOf(1))))
+    }
+
+    @Test fun `validate requires a day of month for MONTHLY in DAY_OF_MONTH mode`() {
+        // Unguarded, this is the rule nextMonthlyTrigger answers with "30 days from now".
+        val rule = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfMonth = emptyList()
+        )
+        assertNotNull(RecurrenceCalculator.validate(rule))
+        assertNull(RecurrenceCalculator.validate(rule.copy(daysOfMonth = listOf(15))))
+    }
+
+    @Test fun `validate accepts the last-day-of-month sentinel`() {
+        val rule = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfMonth = listOf(-1)
+        )
+        assertNull(RecurrenceCalculator.validate(rule))
+    }
+
+    @Test fun `validate requires a weekday for MONTHLY in DAY_OF_WEEK mode`() {
+        val rule = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_WEEK,
+            daysOfWeek = emptyList()
+        )
+        assertNotNull(RecurrenceCalculator.validate(rule))
+        assertNull(RecurrenceCalculator.validate(rule.copy(daysOfWeek = listOf(1))))
+    }
+
+    @Test fun `validate ignores daysOfMonth in DAY_OF_WEEK mode and vice versa`() {
+        val dow = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_WEEK,
+            daysOfMonth = listOf(15)          // set, but this mode does not read it
+        )
+        assertNotNull(RecurrenceCalculator.validate(dow))
+        val dom = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfWeek = listOf(1)            // ditto
+        )
+        assertNotNull(RecurrenceCalculator.validate(dom))
+    }
+
+    @Test fun `validate requires months for YEARLY`() {
+        // With no month filter a YEARLY rule fires every month — that is a MONTHLY rule.
+        val rule = RecurrenceRule(
+            type = RecurrenceType.YEARLY,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfMonth = listOf(15),
+            months = emptyList()
+        )
+        assertNotNull(RecurrenceCalculator.validate(rule))
+        assertNull(RecurrenceCalculator.validate(rule.copy(months = listOf(1))))
+    }
+
+    @Test fun `validate lets MONTHLY keep an empty month filter`() {
+        val rule = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfMonth = listOf(15),
+            months = emptyList()
+        )
+        assertNull(RecurrenceCalculator.validate(rule))
+    }
 }
