@@ -6,10 +6,12 @@ import com.lifelog.app.domain.model.RecurrenceType
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.Calendar
+import java.util.TimeZone
 
 /**
  * Unit tests for RecurrenceCalculator covering all recurrence types and edge cases.
- * Uses wall-clock Calendar math — DST and leap-year behaviour inherits from the JVM.
+ * Uses wall-clock Calendar math; the DST section at the bottom pins what that means
+ * on either side of a transition rather than leaving it to inherit from the JVM.
  */
 class RecurrenceCalculatorTest {
 
@@ -23,6 +25,17 @@ class RecurrenceCalculatorTest {
 
     private fun calGet(epochMs: Long, field: Int): Int =
         Calendar.getInstance().apply { timeInMillis = epochMs }.get(field)
+
+    /** Runs [block] with the JVM default zone forced to [zoneId], then restores it. */
+    private fun inZone(zoneId: String, block: () -> Unit) {
+        val original = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone(zoneId))
+        try {
+            block()
+        } finally {
+            TimeZone.setDefault(original)
+        }
+    }
 
     // ── NONE ─────────────────────────────────────────────────────────────────
 
@@ -622,5 +635,118 @@ class RecurrenceCalculatorTest {
             months = emptyList()
         )
         assertNull(RecurrenceCalculator.validate(rule))
+    }
+
+    // ── Daylight saving ───────────────────────────────────────────────────────
+    // Two kinds of rule meet here and must not be conflated. A wall-clock rule
+    // ("every day at 8 AM") keeps its local time and so spans 23 or 25 real
+    // hours across a transition; an elapsed-time rule ("every 6 hours") keeps
+    // its duration and so lands an hour off in wall-clock terms. All timings
+    // below are America/New_York 2026: forward Mar 8 (01:59 EST → 03:00 EDT),
+    // back Nov 1 (01:59 EDT → 01:00 EST).
+
+    private val NEW_YORK = "America/New_York"
+    private val HOUR_MS = 3_600_000L
+
+    @Test fun `DAILY keeps its local hour across a spring forward`() = inZone(NEW_YORK) {
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        val after = calOf(2026, Calendar.MARCH, 7, 9, 0)
+        val next = RecurrenceCalculator.computeNextTrigger(rule, after)!!
+
+        assertEquals(8, calGet(next, Calendar.DAY_OF_MONTH))
+        assertEquals(8, calGet(next, Calendar.HOUR_OF_DAY))
+        // 23 hours of wall clock, 22 of real time — naive millisecond arithmetic
+        // would have rung at 9 AM.
+        assertEquals(22 * HOUR_MS, next - after)
+    }
+
+    @Test fun `DAILY keeps its local hour across a fall back`() = inZone(NEW_YORK) {
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        val after = calOf(2026, Calendar.OCTOBER, 31, 23, 0)
+        val next = RecurrenceCalculator.computeNextTrigger(rule, after)!!
+
+        assertEquals(1, calGet(next, Calendar.DAY_OF_MONTH))
+        assertEquals(8, calGet(next, Calendar.HOUR_OF_DAY))
+        assertEquals(10 * HOUR_MS, next - after) // 9 wall-clock hours, 10 real ones
+    }
+
+    @Test fun `WEEKLY lands on its weekday at its local hour when that day loses an hour`() =
+        inZone(NEW_YORK) {
+            // Mar 8 2026 is a Sunday and the spring-forward day.
+            val rule = RecurrenceRule(
+                type = RecurrenceType.WEEKLY,
+                daysOfWeek = listOf(0), // 0 = Sunday
+                timeOfDayMinutes = 8 * 60
+            )
+            val next = RecurrenceCalculator
+                .computeNextTrigger(rule, calOf(2026, Calendar.MARCH, 3, 12, 0))!!
+
+            assertEquals(Calendar.SUNDAY, calGet(next, Calendar.DAY_OF_WEEK))
+            assertEquals(8, calGet(next, Calendar.DAY_OF_MONTH))
+            assertEquals(8, calGet(next, Calendar.HOUR_OF_DAY))
+        }
+
+    @Test fun `MONTHLY keeps its local hour when the target day loses an hour`() =
+        inZone(NEW_YORK) {
+            val rule = RecurrenceRule(
+                type = RecurrenceType.MONTHLY,
+                dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+                daysOfMonth = listOf(8),
+                timeOfDayMinutes = 8 * 60
+            )
+            val next = RecurrenceCalculator
+                .computeNextTrigger(rule, calOf(2026, Calendar.MARCH, 1, 12, 0))!!
+
+            assertEquals(8, calGet(next, Calendar.DAY_OF_MONTH))
+            assertEquals(8, calGet(next, Calendar.HOUR_OF_DAY))
+        }
+
+    @Test fun `INTERVAL measures elapsed time, not wall clock, across a spring forward`() =
+        inZone(NEW_YORK) {
+            val rule = RecurrenceRule(type = RecurrenceType.INTERVAL, intervalMinutes = 6 * 60)
+            val after = calOf(2026, Calendar.MARCH, 8, 0, 30)
+            val next = RecurrenceCalculator.computeNextTrigger(rule, after)!!
+
+            // Six real hours later reads 07:30, not 06:30 — correct for "every
+            // 6 hours", and the reason this rule is deliberately not wall-clock.
+            assertEquals(6 * HOUR_MS, next - after)
+            assertEquals(7, calGet(next, Calendar.HOUR_OF_DAY))
+            assertEquals(30, calGet(next, Calendar.MINUTE))
+        }
+
+    @Test fun `TIME_SINCE_LAST measures elapsed time across a spring forward`() =
+        inZone(NEW_YORK) {
+            val rule = RecurrenceRule(
+                type = RecurrenceType.TIME_SINCE_LAST,
+                timeSinceLastMinutes = 6 * 60
+            )
+            val lastEntryAt = calOf(2026, Calendar.MARCH, 8, 0, 30)
+            val next = RecurrenceCalculator.computeNextTrigger(
+                rule, after = lastEntryAt + 60_000L, lastEntryAt = lastEntryAt
+            )!!
+
+            assertEquals(6 * HOUR_MS, next - lastEntryAt)
+            assertEquals(7, calGet(next, Calendar.HOUR_OF_DAY))
+        }
+
+    @Test fun `a time of day inside the skipped hour still fires that day`() = inZone(NEW_YORK) {
+        // 02:30 does not exist on Mar 8. What matters is that the reminder is
+        // not lost; which side of the gap it lands on depends on which branch
+        // of nextTimeOfDayOccurrence computed it, so both are pinned here.
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 2 * 60 + 30)
+
+        // Asked the day before: "same wall time tomorrow" steps back an hour.
+        val fromDayBefore = RecurrenceCalculator
+            .computeNextTrigger(rule, calOf(2026, Calendar.MARCH, 7, 12, 0))!!
+        assertEquals(8, calGet(fromDayBefore, Calendar.DAY_OF_MONTH))
+        assertEquals(1, calGet(fromDayBefore, Calendar.HOUR_OF_DAY))
+        assertEquals(30, calGet(fromDayBefore, Calendar.MINUTE))
+
+        // Asked on the day itself: the lenient set() resolves the gap forward.
+        val fromSameDay = RecurrenceCalculator
+            .computeNextTrigger(rule, calOf(2026, Calendar.MARCH, 8, 0, 10))!!
+        assertEquals(8, calGet(fromSameDay, Calendar.DAY_OF_MONTH))
+        assertEquals(3, calGet(fromSameDay, Calendar.HOUR_OF_DAY))
+        assertEquals(30, calGet(fromSameDay, Calendar.MINUTE))
     }
 }

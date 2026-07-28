@@ -98,20 +98,24 @@ object ChartDataProcessor {
     /**
      * First instant the chart displays when its window ends at [anchorMs] —
      * the entry filter must admit exactly what the chart lays out. Cartesian
-     * ranges start at the oldest bucket of [buildBuckets] (same arithmetic);
-     * heatmaps start at their day grid, a last-N-calendar-days convention pie
-     * charts share. A looser filter admits entries that render nowhere yet
-     * hold the anchor at now (blank chart instead of sliding back) and skew
-     * heatmap min/max/day counts; a tighter one clips the oldest year bucket
-     * when the window spans a leap February.
+     * ranges start at the oldest bucket of [buildBuckets] (same calendar-day
+     * arithmetic); heatmaps start at their day grid, a last-N-calendar-days
+     * convention pie charts share. A looser filter admits entries that render
+     * nowhere yet hold the anchor at now (blank chart instead of sliding back)
+     * and skew heatmap min/max/day counts; a tighter one clips the oldest year
+     * bucket when the window spans a leap February.
+     *
+     * Every bound steps in calendar days, never in fixed 24-hour blocks: a DST
+     * day is 23 or 25 hours long, so counting days in milliseconds slides the
+     * boundary off local midnight for the whole window past the transition.
      */
     private fun windowStartMs(config: ChartConfig, days: Int, anchorMs: Long): Long =
         when (config.type) {
             ChartType.LINE, ChartType.BAR -> when (TimeRange.fromDays(days)) {
-                TimeRange.DAY -> midnightOf(anchorMs)                        // today's 24 hours
-                TimeRange.WEEK -> midnightOf(anchorMs) - 6 * MS_PER_DAY      // 6 days + today
-                TimeRange.MONTH -> midnightOf(anchorMs) - 4 * 7 * MS_PER_DAY // 4 weeks + today
-                TimeRange.YEAR -> firstOfMonth(anchorMs, monthsAgo = 11)     // 12 calendar months
+                TimeRange.DAY -> midnightOf(anchorMs)                     // today
+                TimeRange.WEEK -> addDays(midnightOf(anchorMs), -6)       // 6 days + today
+                TimeRange.MONTH -> addDays(midnightOf(anchorMs), -4 * 7)  // 4 weeks + today
+                TimeRange.YEAR -> firstOfMonth(anchorMs, monthsAgo = 11)  // 12 calendar months
                 // A day count with no bucket layout bins like ALL — spanning
                 // whatever data exists — so it takes no lower bound either.
                 TimeRange.ALL -> Long.MIN_VALUE
@@ -126,6 +130,11 @@ object ChartDataProcessor {
      * Returns ordered (representativeTimestampMs, entriesInBucket) pairs for the
      * given time range ending at [anchorMs]. All buckets are returned even if
      * empty, so every series shares the same bucket index space.
+     *
+     * Day boundaries come from [addDays], never from a fixed 24 hours, so the
+     * grid stays pinned to local midnight across a DST transition — otherwise
+     * every bucket after one drifts an hour and entries land a column off. The
+     * representative timestamp is the bucket's own midpoint for the same reason.
      */
     private fun buildBuckets(
         entries: List<EventEntry>,
@@ -133,31 +142,39 @@ object ChartDataProcessor {
         anchorMs: Long
     ): List<Pair<Long, List<EventEntry>>> {
         return when (timeRange) {
+            // Hourly buckets tile the anchor's local day exactly, so a DST day
+            // yields 23 or 25 of them rather than 24 that overrun or fall short.
             TimeRange.DAY -> {
                 val dayStart = midnightOf(anchorMs)
-                (0 until 24).map { hour ->
-                    val start = dayStart + hour * MS_PER_HOUR
-                    val end = start + MS_PER_HOUR
-                    Pair(start + MS_PER_HOUR / 2, entries.filter { it.createdAt in start until end })
+                val dayEnd = addDays(dayStart, 1)
+                buildList {
+                    var start = dayStart
+                    while (start < dayEnd) {
+                        // minOf keeps the trailing bucket inside the day in the
+                        // half-hour-offset zones where a shift isn't a whole hour.
+                        val end = minOf(start + MS_PER_HOUR, dayEnd)
+                        add(Pair(midpoint(start, end), entries.filter { it.createdAt in start until end }))
+                        start = end
+                    }
                 }
             }
 
             TimeRange.WEEK -> {
                 val anchorMidnight = midnightOf(anchorMs)
                 (6 downTo 0).map { daysAgo ->
-                    val start = anchorMidnight - daysAgo * MS_PER_DAY
-                    val end = start + MS_PER_DAY
-                    Pair(start + MS_PER_DAY / 2, entries.filter { it.createdAt in start until end })
+                    val start = addDays(anchorMidnight, -daysAgo)
+                    val end = addDays(start, 1)
+                    Pair(midpoint(start, end), entries.filter { it.createdAt in start until end })
                 }
             }
 
             TimeRange.MONTH -> {
                 val anchorMidnight = midnightOf(anchorMs)
                 (3 downTo 0).map { weeksAgo ->
-                    val start = anchorMidnight - (weeksAgo + 1) * 7 * MS_PER_DAY
-                    val end = if (weeksAgo == 0) anchorMidnight + MS_PER_DAY
-                               else anchorMidnight - weeksAgo * 7 * MS_PER_DAY
-                    Pair((start + end) / 2, entries.filter { it.createdAt in start until end })
+                    val start = addDays(anchorMidnight, -(weeksAgo + 1) * 7)
+                    val end = if (weeksAgo == 0) addDays(anchorMidnight, 1)
+                               else addDays(anchorMidnight, -weeksAgo * 7)
+                    Pair(midpoint(start, end), entries.filter { it.createdAt in start until end })
                 }
             }
 
@@ -177,7 +194,9 @@ object ChartDataProcessor {
                 if (minTime == maxTime) return listOf(Pair(minTime, sorted))
                 val span = maxTime - minTime
                 // Bin by natural calendar units so axis labels stay distinct;
-                // only very long histories fall back to 20 even bins.
+                // only very long histories fall back to 20 even bins. These bins
+                // start at the oldest entry rather than at midnight, so they are
+                // elapsed-time spans by design and take no DST adjustment.
                 val binSize = when {
                     span <= 26 * MS_PER_HOUR -> MS_PER_HOUR
                     span <= 20 * MS_PER_DAY -> MS_PER_DAY
@@ -361,12 +380,6 @@ object ChartDataProcessor {
     private fun startOfWeek(dayMs: Long, firstWeekday: Int): Long =
         addDays(dayMs, -weekdayRow(dayMs, firstWeekday))
 
-    /** DST-safe day arithmetic: shifts a midnight timestamp by whole days. */
-    private fun addDays(dayMs: Long, days: Int): Long = Calendar.getInstance().apply {
-        timeInMillis = dayMs
-        add(Calendar.DAY_OF_YEAR, days)
-    }.timeInMillis
-
     /** Short weekday names in row order (e.g. Sun..Sat or Mon..Sun by locale). */
     private fun weekdayLabels(firstWeekday: Int): List<String> {
         val names = DateFormatSymbols.getInstance().shortWeekdays // [1]=Sun..[7]=Sat
@@ -439,6 +452,21 @@ object ChartDataProcessor {
         set(Calendar.SECOND, 0)
         set(Calendar.MILLISECOND, 0)
     }.timeInMillis
+
+    /**
+     * DST-safe day arithmetic: shifts a midnight timestamp by whole calendar
+     * days, keeping the result on local midnight where a fixed 24-hour step
+     * would land an hour off on either side of a transition. Shared by the
+     * window filter, the cartesian buckets, and the heatmap grid — they have
+     * to agree on where a day starts.
+     */
+    private fun addDays(dayMs: Long, days: Int): Long = Calendar.getInstance().apply {
+        timeInMillis = dayMs
+        add(Calendar.DAY_OF_YEAR, days)
+    }.timeInMillis
+
+    /** Label position for a bucket: its own midpoint, so 23/25-hour days sit right. */
+    private fun midpoint(startMs: Long, endMs: Long): Long = startMs + (endMs - startMs) / 2
 
     /** Midnight on the 1st of the month [monthsAgo] whole months before [anchorMs]'s. */
     private fun firstOfMonth(anchorMs: Long, monthsAgo: Int): Long = Calendar.getInstance().apply {
