@@ -122,6 +122,25 @@ fun EventEntryEntity.toDomain(
     )
 }
 
+/**
+ * Resolves the event-type columns an [EventEntry] carries denormalized for
+ * display, straight from the type row.
+ *
+ * Every read path in [com.lifelog.app.data.repository.EventRepository] that
+ * joins entries to their type needs the same four values and the same fallbacks
+ * when the row is missing. Routing them through this overload states those
+ * fallbacks once — in the default arguments above — instead of re-deriving
+ * `?: ""` / `?: DEFAULT_COLOR` / `?: "star"` at each call site, where they could
+ * drift apart or from the defaults they are meant to mirror.
+ */
+fun EventEntryEntity.toDomain(type: EventTypeEntity?): EventEntry =
+    if (type == null) toDomain() else toDomain(
+        eventTypeName = type.name,
+        eventTypeCategory = type.category,
+        eventTypeColor = type.colorArgb,
+        eventTypeIcon = type.iconName
+    )
+
 fun EventEntry.toEntity() = EventEntryEntity(
     id = id,
     eventTypeId = eventTypeId,
