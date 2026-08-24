@@ -4,10 +4,12 @@ import androidx.room.withTransaction
 import com.lifelog.app.data.db.LifeLogDatabase
 import com.lifelog.app.data.db.toDomain
 import com.lifelog.app.data.db.toEntity
+import com.lifelog.app.data.db.toRow
 import com.lifelog.app.data.db.dao.EventEntryDao
 import com.lifelog.app.data.db.dao.EventFieldDao
 import com.lifelog.app.data.db.dao.EventTypeDao
 import com.lifelog.app.data.db.entity.EventFieldEntity
+import com.lifelog.app.domain.model.EntryRow
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventType
@@ -127,13 +129,24 @@ class EventRepository @Inject constructor(
         }
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    fun observeAllEntries(): Flow<List<EventEntry>> =
-        eventEntryDao.observeAll().flatMapLatest { entries ->
-            eventTypeDao.observeAll().map { types ->
-                val typeMap = types.associateBy { it.id }
-                entries.map { it.toDomain(typeMap[it.eventTypeId]) }
-            }
+    /**
+     * Every entry, newest first, as list rows with values still encoded — the
+     * Timeline's source. Two whole-table flows joined with [combine] rather than
+     * the entries flow flat-mapping the types flow: flat-mapping tore down and
+     * re-subscribed the type query (and re-ran it) on every single entry write,
+     * and cancelled an in-flight type emission whenever the two raced. Same shape
+     * P1 applied to [observeAllEventTypes].
+     *
+     * Rows are mapped with [toRow], so an emission costs one pass of field copies
+     * and no JSON parsing at all; the values of a row are decoded only if a card
+     * for it is actually drawn. Mapping the whole table eagerly here was the
+     * Timeline's dominant cost — it ran on the collector's thread, which for a
+     * `stateIn(viewModelScope, …)` collector is the main thread.
+     */
+    fun observeAllEntryRows(): Flow<List<EntryRow>> =
+        combine(eventEntryDao.observeAll(), eventTypeDao.observeAll()) { entries, types ->
+            val typeMap = types.associateBy { it.id }
+            entries.map { it.toRow(typeMap[it.eventTypeId]) }
         }
 
     suspend fun getEntry(id: Long): EventEntry? {

@@ -59,7 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.ChartConfig
-import com.lifelog.app.domain.model.EventEntry
+import com.lifelog.app.domain.model.EntryRow
 import com.lifelog.app.domain.model.FieldType
 import com.lifelog.app.domain.query.SortField
 import com.lifelog.app.ui.components.DeleteConfirmDialog
@@ -91,7 +91,7 @@ fun EventDetailScreen(
 
     var showEntrySheet by remember { mutableStateOf(false) }
     var editingEntryId by remember { mutableStateOf<Long?>(null) }
-    var deleteTarget by remember { mutableStateOf<EventEntry?>(null) }
+    var deleteTarget by remember { mutableStateOf<EntryRow?>(null) }
     var searchActive by remember { mutableStateOf(false) }
     var showChartConfigSheet by remember { mutableStateOf(false) }
     var editingChart by remember { mutableStateOf<ChartConfig?>(null) }

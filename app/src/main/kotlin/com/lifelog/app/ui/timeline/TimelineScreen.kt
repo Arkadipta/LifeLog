@@ -34,7 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.lifelog.app.domain.model.EventEntry
+import com.lifelog.app.domain.model.EntryRow
 import com.lifelog.app.ui.components.DeleteConfirmDialog
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
 import com.lifelog.app.ui.components.TagFilterRow
@@ -56,7 +56,7 @@ fun TimelineScreen(
     val filterState by viewModel.filterState.collectAsStateWithLifecycle()
     val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
     val fieldsMap by viewModel.fieldsMap.collectAsStateWithLifecycle()
-    var deleteTarget by remember { mutableStateOf<EventEntry?>(null) }
+    var deleteTarget by remember { mutableStateOf<EntryRow?>(null) }
     var editingEntryId by remember { mutableStateOf<Long?>(null) }
 
     val listState = rememberLazyListState()

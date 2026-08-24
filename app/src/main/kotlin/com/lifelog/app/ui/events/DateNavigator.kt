@@ -18,7 +18,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.lifelog.app.domain.model.EventEntry
+import com.lifelog.app.domain.model.EntryRow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -95,7 +95,7 @@ class DateNavigator internal constructor(
  */
 @Composable
 fun rememberDateNavigator(
-    entries: List<EventEntry>,
+    entries: List<EntryRow>,
     listState: LazyListState,
     groupByDate: Boolean = true,
     leadingItemCount: Int = 0

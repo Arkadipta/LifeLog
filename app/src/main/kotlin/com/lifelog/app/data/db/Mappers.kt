@@ -7,6 +7,7 @@ import com.lifelog.app.data.db.entity.EventTypeEntity
 import com.lifelog.app.data.db.entity.ReminderEntity
 import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.DeliveryType
+import com.lifelog.app.domain.model.EntryRow
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventType
@@ -87,40 +88,46 @@ fun EventField.toEntity() = EventFieldEntity(
     sortOrder = sortOrder
 )
 
-fun EventEntryEntity.toDomain(
-    eventTypeName: String = "",
-    eventTypeCategory: String = "",
-    eventTypeColor: Int = EventType.DEFAULT_COLOR,
-    eventTypeIcon: String = "star"
-): EventEntry {
-    // Values are salvaged pair-by-pair: a corrupt value (e.g. a subtype from a
-    // newer app version) or an unparseable field-id key costs only that pair,
-    // never the whole entry — note and timestamps always survive. Unparseable
-    // keys are dropped outright; collapsing them onto a shared bogus id would
-    // make the survivors overwrite each other.
+/**
+ * Decodes a `fieldValuesJson` column. Values are salvaged pair-by-pair: a
+ * corrupt value (e.g. a subtype from a newer app version) or an unparseable
+ * field-id key costs only that pair, never the whole entry — note and timestamps
+ * always survive. Unparseable keys are dropped outright; collapsing them onto a
+ * shared bogus id would make the survivors overwrite each other.
+ *
+ * The one decoder for both entry shapes ([toDomain] eagerly, [toRow] on first
+ * read), so a lazily-drawn card can never salvage differently from a chart.
+ */
+internal fun decodeFieldValues(fieldValuesJson: String): Map<Long, FieldValue> {
     val rawValues: Map<String, JsonElement> =
         runCatching { appJson.decodeFromString<Map<String, JsonElement>>(fieldValuesJson) }
             .getOrDefault(emptyMap())
-    val fieldValues = buildMap {
+    return buildMap {
         for ((key, element) in rawValues) {
             val fieldId = key.toLongOrNull() ?: continue
             runCatching { appJson.decodeFromJsonElement<FieldValue>(element) }
                 .onSuccess { put(fieldId, it) }
         }
     }
-    return EventEntry(
-        id = id,
-        eventTypeId = eventTypeId,
-        eventTypeName = eventTypeName,
-        eventTypeCategory = eventTypeCategory,
-        eventTypeColor = eventTypeColor,
-        eventTypeIcon = eventTypeIcon,
-        fieldValues = fieldValues,
-        note = note,
-        createdAt = createdAt,
-        updatedAt = updatedAt
-    )
 }
+
+fun EventEntryEntity.toDomain(
+    eventTypeName: String = "",
+    eventTypeCategory: String = "",
+    eventTypeColor: Int = EventType.DEFAULT_COLOR,
+    eventTypeIcon: String = "star"
+): EventEntry = EventEntry(
+    id = id,
+    eventTypeId = eventTypeId,
+    eventTypeName = eventTypeName,
+    eventTypeCategory = eventTypeCategory,
+    eventTypeColor = eventTypeColor,
+    eventTypeIcon = eventTypeIcon,
+    fieldValues = decodeFieldValues(fieldValuesJson),
+    note = note,
+    createdAt = createdAt,
+    updatedAt = updatedAt
+)
 
 /**
  * Resolves the event-type columns an [EventEntry] carries denormalized for
@@ -140,6 +147,87 @@ fun EventEntryEntity.toDomain(type: EventTypeEntity?): EventEntry =
         eventTypeColor = type.colorArgb,
         eventTypeIcon = type.iconName
     )
+
+/**
+ * The identity an entry falls back to when its event type is gone, read out of
+ * [toDomain]'s own default arguments — which is where those fallbacks are stated
+ * (A4) — rather than restated here, so [toRow] cannot drift from [toDomain].
+ * Only the four type columns are meaningful; the rest of this instance is unused.
+ */
+private val NO_TYPE = EventEntryEntity(eventTypeId = 0).toDomain()
+
+/**
+ * An [EntryRow] that still holds its values as the stored JSON and decodes them
+ * the first time a card asks — see [EntryRow] for why lists want this. Equality
+ * is by the stored column, so two rows built from the same database row compare
+ * equal whether or not either has been decoded.
+ */
+private class LazyEntryRow(
+    override val id: Long,
+    override val eventTypeId: Long,
+    override val eventTypeName: String,
+    override val eventTypeCategory: String,
+    override val eventTypeColor: Int,
+    override val eventTypeIcon: String,
+    override val note: String,
+    override val createdAt: Long,
+    private val fieldValuesJson: String
+) : EntryRow {
+    private val values = lazy { decodeFieldValues(fieldValuesJson) }
+
+    override val fieldValues: Map<Long, FieldValue> get() = values.value
+
+    /** Whether [fieldValues] has been read yet — the property the decode-laziness
+     *  tests assert on, since laziness is otherwise invisible from outside. */
+    internal fun isDecoded(): Boolean = values.isInitialized()
+
+    override fun equals(other: Any?): Boolean = other is LazyEntryRow &&
+        id == other.id &&
+        eventTypeId == other.eventTypeId &&
+        eventTypeName == other.eventTypeName &&
+        eventTypeCategory == other.eventTypeCategory &&
+        eventTypeColor == other.eventTypeColor &&
+        eventTypeIcon == other.eventTypeIcon &&
+        note == other.note &&
+        createdAt == other.createdAt &&
+        fieldValuesJson == other.fieldValuesJson
+
+    override fun hashCode(): Int {
+        var result = id.hashCode()
+        result = 31 * result + eventTypeId.hashCode()
+        result = 31 * result + eventTypeName.hashCode()
+        result = 31 * result + eventTypeCategory.hashCode()
+        result = 31 * result + eventTypeColor
+        result = 31 * result + eventTypeIcon.hashCode()
+        result = 31 * result + note.hashCode()
+        result = 31 * result + createdAt.hashCode()
+        result = 31 * result + fieldValuesJson.hashCode()
+        return result
+    }
+}
+
+/**
+ * Maps an entry to a list row **without** decoding its values, resolving the
+ * denormalized type columns exactly as [toDomain] does. Cheap enough to run over
+ * a whole table on every database change; use it for lists, and [toDomain] when
+ * the caller actually needs every value.
+ */
+fun EventEntryEntity.toRow(type: EventTypeEntity?): EntryRow = LazyEntryRow(
+    id = id,
+    eventTypeId = eventTypeId,
+    eventTypeName = type?.name ?: NO_TYPE.eventTypeName,
+    eventTypeCategory = type?.category ?: NO_TYPE.eventTypeCategory,
+    eventTypeColor = type?.colorArgb ?: NO_TYPE.eventTypeColor,
+    eventTypeIcon = type?.iconName ?: NO_TYPE.eventTypeIcon,
+    note = note,
+    createdAt = createdAt,
+    fieldValuesJson = fieldValuesJson
+)
+
+/** Test hook: whether this row's values have been decoded yet. An already-decoded
+ *  shape ([EventEntry]) reports true, so a test can assert over a mixed list. */
+internal fun EntryRow.isDecodedForTest(): Boolean =
+    (this as? LazyEntryRow)?.isDecoded() ?: true
 
 fun EventEntry.toEntity() = EventEntryEntity(
     id = id,

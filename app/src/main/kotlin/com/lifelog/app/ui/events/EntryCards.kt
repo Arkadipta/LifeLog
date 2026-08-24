@@ -53,7 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import com.lifelog.app.domain.model.EventEntry
+import com.lifelog.app.domain.model.EntryRow
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.domain.model.legacyMismatchOf
@@ -107,10 +107,10 @@ private fun fieldDisplayValue(field: EventField, value: FieldValue): String {
  */
 @OptIn(ExperimentalFoundationApi::class)
 fun LazyListScope.entryCardItems(
-    entries: List<EventEntry>,
-    fieldsFor: (EventEntry) -> List<EventField>,
-    onEdit: (EventEntry) -> Unit,
-    onDeleteRequest: (EventEntry) -> Unit,
+    entries: List<EntryRow>,
+    fieldsFor: (EntryRow) -> List<EventField>,
+    onEdit: (EntryRow) -> Unit,
+    onDeleteRequest: (EntryRow) -> Unit,
     showEventName: Boolean = false,
     groupByDate: Boolean = true
 ) {
@@ -145,7 +145,7 @@ data class EntryDateAnchor(val utcDateMillis: Long, val index: Int)
  * anchors instead of a header.
  */
 fun entryDateAnchors(
-    entries: List<EventEntry>,
+    entries: List<EntryRow>,
     groupByDate: Boolean = true,
     leadingItemCount: Int = 0
 ): List<EntryDateAnchor> {
@@ -173,12 +173,12 @@ fun entryDateAnchors(
 
 @Composable
 private fun LazyItemScope.EntryListItem(
-    entry: EventEntry,
+    entry: EntryRow,
     fields: List<EventField>,
     showEventName: Boolean,
     showFullDate: Boolean,
-    onEdit: (EventEntry) -> Unit,
-    onDeleteRequest: (EventEntry) -> Unit
+    onEdit: (EntryRow) -> Unit,
+    onDeleteRequest: (EntryRow) -> Unit
 ) {
     SwipeableEntryCard(
         entry = entry,
@@ -222,7 +222,7 @@ fun EntryDateHeader(date: String, modifier: Modifier = Modifier) {
  */
 @Composable
 fun SwipeableEntryCard(
-    entry: EventEntry,
+    entry: EntryRow,
     fields: List<EventField>,
     onEdit: () -> Unit,
     onDeleteRequest: () -> Unit,
@@ -273,7 +273,7 @@ fun SwipeableEntryCard(
  */
 @Composable
 fun EntryCard(
-    entry: EventEntry,
+    entry: EntryRow,
     fields: List<EventField>,
     modifier: Modifier = Modifier,
     showEventName: Boolean = false,

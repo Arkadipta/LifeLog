@@ -4,21 +4,29 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.domain.EventFilterUseCase
-import com.lifelog.app.domain.model.EventEntry
+import com.lifelog.app.domain.model.EntryRow
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventFilterState
 import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+/** How long typing settles before the timeline re-filters. Long enough to skip
+ *  the intermediate words of a real search, short enough to feel immediate. */
+private const val SEARCH_DEBOUNCE_MS = 200L
 
 @HiltViewModel
 class TimelineViewModel @Inject constructor(
@@ -33,22 +41,47 @@ class TimelineViewModel @Inject constructor(
     private val _filterState = MutableStateFlow(EventFilterState())
     val filterState: StateFlow<EventFilterState> = _filterState.asStateFlow()
 
+    // The two event-type flows below map on Dispatchers.Default for the same
+    // reason as `entries`: observeAllEventTypes joins four whole-table reads and
+    // groups them in memory, and that work runs wherever it is collected.
     val availableTags: StateFlow<List<String>> =
         repository.observeAllEventTypes()
             .map { filterUseCase.extractTags(it) }
+            .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val entries: StateFlow<List<EventEntry>> = combine(
-        repository.observeAllEntries(),
-        _searchQuery,
+    /**
+     * Typing is not a filter request per keystroke — each one would otherwise
+     * re-scan the whole table. Clearing the box skips the wait so the full list
+     * snaps back instantly; the visible text comes from [searchQuery], which is
+     * never debounced, so the field itself stays immediate either way.
+     */
+    @OptIn(FlowPreview::class)
+    private val debouncedQuery: Flow<String> =
+        _searchQuery.debounce { query -> if (query.isEmpty()) 0L else SEARCH_DEBOUNCE_MS }
+
+    /**
+     * The filtered timeline. Filtering reads only plain columns, so this scans
+     * every entry — search stays honest about old entries — while decoding none
+     * of them; a row's values are parsed only when its card is composed.
+     *
+     * [flowOn] covers the whole upstream (the two table reads, the row mapping,
+     * and the filter pass) so none of it lands on the main thread, which is where
+     * a `stateIn(viewModelScope, …)` collector would otherwise run it.
+     */
+    val entries: StateFlow<List<EntryRow>> = combine(
+        repository.observeAllEntryRows(),
+        debouncedQuery,
         _filterState
     ) { allEntries, query, state ->
         filterUseCase.filterEntries(allEntries, query, state)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val fieldsMap: StateFlow<Map<Long, List<EventField>>> =
         repository.observeAllEventTypes()
             .map { types -> types.associate { it.id to it.fields } }
+            .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     fun setSearchQuery(q: String) { _searchQuery.value = q }
