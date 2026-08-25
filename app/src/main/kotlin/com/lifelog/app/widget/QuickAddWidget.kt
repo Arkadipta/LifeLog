@@ -49,6 +49,7 @@ import androidx.glance.text.TextStyle
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.theme.DarkColorScheme
 import com.lifelog.app.ui.theme.LightColorScheme
+import com.lifelog.app.util.logD
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -66,7 +67,7 @@ class QuickAddWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        Log.d(TAG, "provideGlance start: glanceId=$id ts=${System.currentTimeMillis()}")
+        logD(TAG) { "provideGlance start: glanceId=$id ts=${System.currentTimeMillis()}" }
         provideContent {
             val prefs = currentState<Preferences>()
             val eventId = prefs[PREF_EVENT_ID] ?: 0L
@@ -76,7 +77,7 @@ class QuickAddWidget : GlanceAppWidget() {
             val eventColor = prefs[PREF_EVENT_COLOR] ?: EventType.DEFAULT_COLOR
             val eventIcon = prefs[PREF_EVENT_ICON] ?: "star"
 
-            Log.d(TAG, "QuickAddWidget composing: glanceId=$id eventId=$eventId eventName='$eventName' ts=${System.currentTimeMillis()}")
+            logD(TAG) { "QuickAddWidget composing: glanceId=$id eventId=$eventId eventName='$eventName' ts=${System.currentTimeMillis()}" }
 
             GlanceTheme(
                 colors = ColorProviders(
@@ -315,11 +316,10 @@ class QuickAddWidgetReceiver : GlanceAppWidgetReceiver() {
             }
         }
 
-        Log.d(
-            TAG,
+        logD(TAG) {
             "onUpdate: ${appWidgetIds.size} requested, ${validIds.size} ready, " +
             "${skippedIds.size} deferred: $skippedIds"
-        )
+        }
 
         skippedIds.forEach { id ->
             Log.w(TAG, "onUpdate: scheduling 3s retry for appWidgetId=$id")
@@ -329,7 +329,7 @@ class QuickAddWidgetReceiver : GlanceAppWidgetReceiver() {
                     if (AppWidgetManager.getInstance(context).getAppWidgetInfo(id) != null) {
                         val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(id)
                         QuickAddWidget().update(context, glanceId)
-                        Log.d(TAG, "onUpdate retry: update complete for appWidgetId=$id")
+                        logD(TAG) { "onUpdate retry: update complete for appWidgetId=$id" }
                     } else {
                         Log.e(TAG, "onUpdate retry: appWidgetId=$id still not bound after 3s — giving up")
                     }
@@ -356,12 +356,12 @@ class QuickAddWidgetReceiver : GlanceAppWidgetReceiver() {
         newOptions: Bundle
     ) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        Log.d(TAG, "onAppWidgetOptionsChanged: appWidgetId=$appWidgetId ts=${System.currentTimeMillis()}")
+        logD(TAG) { "onAppWidgetOptionsChanged: appWidgetId=$appWidgetId ts=${System.currentTimeMillis()}" }
         receiverScope.launch {
             try {
                 val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(appWidgetId)
                 QuickAddWidget().update(context, glanceId)
-                Log.d(TAG, "onAppWidgetOptionsChanged: update complete for appWidgetId=$appWidgetId ts=${System.currentTimeMillis()}")
+                logD(TAG) { "onAppWidgetOptionsChanged: update complete for appWidgetId=$appWidgetId ts=${System.currentTimeMillis()}" }
             } catch (e: Exception) {
                 Log.e(TAG, "onAppWidgetOptionsChanged: update failed for appWidgetId=$appWidgetId", e)
             }

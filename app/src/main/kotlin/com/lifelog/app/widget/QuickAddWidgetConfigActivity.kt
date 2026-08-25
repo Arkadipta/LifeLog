@@ -3,7 +3,6 @@ package com.lifelog.app.widget
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -32,6 +31,7 @@ import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.theme.LifeLogTheme
 import com.lifelog.app.ui.components.IconTile
 import com.lifelog.app.util.iconForName
+import com.lifelog.app.util.logD
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -89,12 +89,11 @@ class QuickAddWidgetConfigActivity : ComponentActivity() {
                             // onAppWidgetOptionsChanged callback in the receiver will fire
                             // the correct render once the launcher adds the widget.
                             val knownIds = manager.getGlanceIds(QuickAddWidget::class.java)
-                            Log.d(
-                                TAG,
+                            logD(TAG) {
                                 "onEventSelected: appWidgetId=$appWidgetId glanceId=$glanceId " +
                                 "knownIds=$knownIds widgetAlreadyInHost=${knownIds.isNotEmpty()} " +
                                 "eventId=${eventType.id} eventName='${eventType.name}'"
-                            )
+                            }
 
                             updateAppWidgetState(
                                 this@QuickAddWidgetConfigActivity,
@@ -108,9 +107,9 @@ class QuickAddWidgetConfigActivity : ComponentActivity() {
                                     this[QuickAddWidget.PREF_EVENT_ICON]  = eventType.iconName
                                 }
                             }
-                            Log.d(TAG, "onEventSelected: state written, triggering update ts=${System.currentTimeMillis()}")
+                            logD(TAG) { "onEventSelected: state written, triggering update ts=${System.currentTimeMillis()}" }
                             QuickAddWidget().update(this@QuickAddWidgetConfigActivity, glanceId)
-                            Log.d(TAG, "onEventSelected: update() returned ts=${System.currentTimeMillis()}")
+                            logD(TAG) { "onEventSelected: update() returned ts=${System.currentTimeMillis()}" }
 
                             setResult(
                                 RESULT_OK,

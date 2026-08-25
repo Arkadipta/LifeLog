@@ -47,6 +47,9 @@ android {
 
     buildFeatures {
         compose = true
+        // Opts out of android.defaults.buildfeatures.buildconfig=false: BuildConfig.DEBUG
+        // is what gates the widget diagnostics in util/AppLog.kt out of release builds.
+        buildConfig = true
     }
 
     packaging {

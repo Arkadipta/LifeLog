@@ -6,6 +6,7 @@ import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.state.PreferencesGlanceStateDefinition
+import com.lifelog.app.util.logD
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -37,7 +38,7 @@ class WidgetUpdater @Inject constructor(
             val timelineIds = withContext(Dispatchers.IO) {
                 manager.getGlanceIds(TimelineWidget::class.java)
             }
-            Log.d(TAG, "refreshAll: ${timelineIds.size} TimelineWidget instance(s) ts=${System.currentTimeMillis()}")
+            logD(TAG) { "refreshAll: ${timelineIds.size} TimelineWidget instance(s) ts=${System.currentTimeMillis()}" }
             val refreshTs = System.currentTimeMillis()
             timelineIds.forEach { id ->
                 updateAppWidgetState(context, PreferencesGlanceStateDefinition, id) { prefs ->
@@ -45,23 +46,23 @@ class WidgetUpdater @Inject constructor(
                         this[TimelineWidget.PREF_REFRESH_TS] = refreshTs
                     }
                 }
-                Log.d(TAG, "refreshAll: PREF_REFRESH_TS written id=$id ts=$refreshTs")
+                logD(TAG) { "refreshAll: PREF_REFRESH_TS written id=$id ts=$refreshTs" }
             }
             withContext(Dispatchers.Main) {
                 timelineIds.forEach { id ->
                     TimelineWidget().update(context, id)
-                    Log.d(TAG, "refreshAll: TimelineWidget update() returned id=$id ts=${System.currentTimeMillis()}")
+                    logD(TAG) { "refreshAll: TimelineWidget update() returned id=$id ts=${System.currentTimeMillis()}" }
                 }
             }
 
             val quickAddIds = withContext(Dispatchers.IO) {
                 manager.getGlanceIds(QuickAddWidget::class.java)
             }
-            Log.d(TAG, "refreshAll: ${quickAddIds.size} QuickAddWidget instance(s) ts=${System.currentTimeMillis()}")
+            logD(TAG) { "refreshAll: ${quickAddIds.size} QuickAddWidget instance(s) ts=${System.currentTimeMillis()}" }
             withContext(Dispatchers.Main) {
                 quickAddIds.forEach { id ->
                     QuickAddWidget().update(context, id)
-                    Log.d(TAG, "refreshAll: QuickAddWidget update() returned id=$id ts=${System.currentTimeMillis()}")
+                    logD(TAG) { "refreshAll: QuickAddWidget update() returned id=$id ts=${System.currentTimeMillis()}" }
                 }
             }
         } catch (e: Exception) {
@@ -75,7 +76,7 @@ class WidgetUpdater @Inject constructor(
             val ids = withContext(Dispatchers.IO) {
                 manager.getGlanceIds(TimelineWidget::class.java)
             }
-            Log.d(TAG, "refreshTimeline: ${ids.size} TimelineWidget instance(s) ts=${System.currentTimeMillis()}")
+            logD(TAG) { "refreshTimeline: ${ids.size} TimelineWidget instance(s) ts=${System.currentTimeMillis()}" }
             val refreshTs = System.currentTimeMillis()
             ids.forEach { id ->
                 updateAppWidgetState(context, PreferencesGlanceStateDefinition, id) { prefs ->
@@ -83,12 +84,12 @@ class WidgetUpdater @Inject constructor(
                         this[TimelineWidget.PREF_REFRESH_TS] = refreshTs
                     }
                 }
-                Log.d(TAG, "refreshTimeline: PREF_REFRESH_TS written id=$id ts=$refreshTs")
+                logD(TAG) { "refreshTimeline: PREF_REFRESH_TS written id=$id ts=$refreshTs" }
             }
             withContext(Dispatchers.Main) {
                 ids.forEach { id ->
                     TimelineWidget().update(context, id)
-                    Log.d(TAG, "refreshTimeline: update() returned id=$id ts=${System.currentTimeMillis()}")
+                    logD(TAG) { "refreshTimeline: update() returned id=$id ts=${System.currentTimeMillis()}" }
                 }
             }
         } catch (e: Exception) {
@@ -112,7 +113,7 @@ class WidgetUpdater @Inject constructor(
                         .get(QuickAddWidget.PREF_EVENT_ID) == eventTypeId
                 }
             }
-            Log.d(TAG, "clearQuickAddForEvent: ${staleIds.size} widget(s) bound to eventTypeId=$eventTypeId")
+            logD(TAG) { "clearQuickAddForEvent: ${staleIds.size} widget(s) bound to eventTypeId=$eventTypeId" }
             staleIds.forEach { id ->
                 updateAppWidgetState(context, PreferencesGlanceStateDefinition, id) { prefs ->
                     prefs.toMutablePreferences().apply {
