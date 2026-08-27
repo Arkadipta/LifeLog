@@ -51,7 +51,7 @@ fun TimelineScreen(
     onNavigateToEvent: (Long) -> Unit,
     viewModel: TimelineViewModel = hiltViewModel()
 ) {
-    val entries by viewModel.entries.collectAsStateWithLifecycle()
+    val entryList by viewModel.entryList.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val filterState by viewModel.filterState.collectAsStateWithLifecycle()
     val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
@@ -60,7 +60,7 @@ fun TimelineScreen(
     var editingEntryId by remember { mutableStateOf<Long?>(null) }
 
     val listState = rememberLazyListState()
-    val dateNavigator = rememberDateNavigator(entries = entries, listState = listState)
+    val dateNavigator = rememberDateNavigator(model = entryList, listState = listState)
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -70,7 +70,7 @@ fun TimelineScreen(
                 title = { Text("Timeline") },
                 scrollBehavior = scrollBehavior,
                 actions = {
-                    if (entries.isNotEmpty()) {
+                    if (entryList.rows.isNotEmpty()) {
                         IconButton(onClick = { dateNavigator.jumpToTop() }) {
                             Icon(Icons.Rounded.VerticalAlignTop, "Jump to latest")
                         }
@@ -128,14 +128,14 @@ fun TimelineScreen(
                 modifier = Modifier.padding(bottom = Spacing.xs)
             )
 
-            if (entries.isEmpty() && searchQuery.isBlank() && !filterState.hasActiveFilters) {
+            if (entryList.rows.isEmpty() && searchQuery.isBlank() && !filterState.hasActiveFilters) {
                 EmptyStatePlaceholder(
                     icon = Icons.Rounded.Timeline,
                     title = "No entries yet",
                     subtitle = "Create events and add entries to see them here",
                     modifier = Modifier.fillMaxSize()
                 )
-            } else if (entries.isEmpty()) {
+            } else if (entryList.rows.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     val message = when {
                         searchQuery.isNotBlank() && filterState.hasActiveFilters ->
@@ -156,7 +156,7 @@ fun TimelineScreen(
                     contentPadding = PaddingValues(bottom = Spacing.xl)
                 ) {
                     entryCardItems(
-                        entries = entries,
+                        model = entryList,
                         fieldsFor = { entry -> fieldsMap[entry.eventTypeId].orEmpty() },
                         onEdit = { editingEntryId = it.id },
                         onDeleteRequest = { deleteTarget = it },

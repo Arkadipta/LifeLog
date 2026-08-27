@@ -4,9 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
 import com.lifelog.app.domain.EventFilterUseCase
-import com.lifelog.app.domain.model.EntryRow
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventFilterState
+import com.lifelog.app.ui.events.EntryListModel
+import com.lifelog.app.ui.events.entryListModel
 import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -61,22 +62,25 @@ class TimelineViewModel @Inject constructor(
         _searchQuery.debounce { query -> if (query.isEmpty()) 0L else SEARCH_DEBOUNCE_MS }
 
     /**
-     * The filtered timeline. Filtering reads only plain columns, so this scans
-     * every entry — search stays honest about old entries — while decoding none
-     * of them; a row's values are parsed only when its card is composed.
+     * The filtered timeline, laid out. Filtering reads only plain columns, so
+     * this scans every entry — search stays honest about old entries — while
+     * decoding none of them; a row's values are parsed only when its card is
+     * composed. [entryListModel] then groups the survivors into days once, here,
+     * instead of on the main thread in the screen's list lambda.
      *
      * [flowOn] covers the whole upstream (the two table reads, the row mapping,
-     * and the filter pass) so none of it lands on the main thread, which is where
-     * a `stateIn(viewModelScope, …)` collector would otherwise run it.
+     * the filter pass, and the grouping) so none of it lands on the main thread,
+     * which is where a `stateIn(viewModelScope, …)` collector would otherwise
+     * run it.
      */
-    val entries: StateFlow<List<EntryRow>> = combine(
+    val entryList: StateFlow<EntryListModel> = combine(
         repository.observeAllEntryRows(),
         debouncedQuery,
         _filterState
     ) { allEntries, query, state ->
-        filterUseCase.filterEntries(allEntries, query, state)
+        entryListModel(filterUseCase.filterEntries(allEntries, query, state))
     }.flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EntryListModel())
 
     val fieldsMap: StateFlow<Map<Long, List<EventField>>> =
         repository.observeAllEventTypes()

@@ -6,7 +6,7 @@ import com.lifelog.app.domain.EventFilterUseCase
 import com.lifelog.app.domain.model.EventFilterState
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.model.FieldValue
-import com.lifelog.app.ui.events.entryDateAnchors
+import com.lifelog.app.ui.events.entryListModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -150,7 +150,10 @@ class EntryRowLazyDecodeTest {
                 entity(id = 3, createdAt = 2 * day)
             ).map { it.toRow(type(1, "Run", "Fitness")) }
 
-            assertEquals(2, entryDateAnchors(rows).size)
+            val model = entryListModel(rows)
+
+            assertEquals(2, model.days.size)
+            assertEquals(2, model.anchors.size)
             assertTrue("day grouping must not decode", rows.none { it.isDecodedForTest() })
         } finally {
             TimeZone.setDefault(original)
