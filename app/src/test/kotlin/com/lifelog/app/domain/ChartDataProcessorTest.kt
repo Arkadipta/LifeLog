@@ -229,6 +229,71 @@ class ChartDataProcessorTest {
         assertEquals(11, data.bucketTimestamps.size)
     }
 
+    // ── Bucket fill ───────────────────────────────────────────────────────────
+    // Buckets are filled by one walk over the sorted entries instead of by
+    // re-filtering the whole list once per bucket (P4), so the half-open
+    // boundaries, the entries no bucket covers, and unordered input all have to
+    // keep behaving exactly as they did.
+
+    @Test
+    fun `an entry on a bucket boundary belongs to the later bucket`() {
+        // Midnight opening the column two days before the anchor day.
+        val boundary = midnight(NOW - 2 * DAY)
+        val entries = listOf(entry(boundary - 1, 10.0), entry(boundary, 20.0))
+        val data = cartesian(ChartDataProcessor.process(config(days = 7), entries, fields, NOW))
+
+        val points = data.series.single().points
+        assertEquals(listOf(3, 4), points.map { it.bucketIndex })
+        assertEquals(10.0, points.first().value, 0.001)
+        assertEquals(20.0, points.last().value, 0.001)
+    }
+
+    @Test
+    fun `an entry dated past the last bucket lands in none of them`() {
+        val entries = listOf(entry(NOW - DAY, 10.0), entry(NOW + 2 * DAY, 99.0))
+        val data = cartesian(ChartDataProcessor.process(config(days = 7), entries, fields, NOW))
+
+        // A future-dated entry passes the window filter but no bucket covers it:
+        // it is dropped, never folded into the anchor day's column.
+        val points = data.series.single().points
+        assertEquals(listOf(5), points.map { it.bucketIndex })
+        assertEquals(10.0, points.single().value, 0.001)
+    }
+
+    @Test
+    fun `entries bucket the same whatever order they arrive in`() {
+        val chronological = (6 downTo 0).map { entry(NOW - it * DAY, 10.0 + it) }
+        val shuffled = listOf(3, 0, 6, 1, 5, 2, 4).map { chronological[it] }
+
+        val sorted = cartesian(ChartDataProcessor.process(config(days = 7), chronological, fields, NOW))
+        val unsorted = cartesian(ChartDataProcessor.process(config(days = 7), shuffled, fields, NOW))
+
+        assertEquals(listOf(0, 1, 2, 3, 4, 5, 6), sorted.series.single().points.map { it.bucketIndex })
+        assertEquals(sorted.series.single().points, unsorted.series.single().points)
+    }
+
+    @Test
+    fun `every windowed entry lands in exactly one bucket`() {
+        // Summing entries worth 1.0 each: the total comes to the entry count
+        // only if no entry is dropped between buckets or counted in two.
+        val summed = config().copy(aggregation = AggregationStrategy.SUM)
+        val cases = mapOf<Int?, List<Long>>(
+            1 to (0..5).map { NOW - it * HOUR },        // hourly buckets, today
+            7 to (0..6).map { NOW - it * DAY },         // daily buckets
+            30 to (0..8).map { NOW - it * 3 * DAY },    // weekly buckets
+            365 to (0..10).map { NOW - it * 30 * DAY }, // monthly buckets
+            null to (0..10).map { NOW - it * 30 * DAY } // ALL: span-based bins
+        )
+        for ((days, timestamps) in cases) {
+            val entries = timestamps.map { entry(it, 1.0) }
+            val data = cartesian(
+                ChartDataProcessor.process(summed.copy(timeRangeDays = days), entries, fields, NOW)
+            )
+            val total = data.series.single().points.sumOf { it.value }
+            assertEquals("timeRangeDays=$days", timestamps.size.toDouble(), total, 0.001)
+        }
+    }
+
     // ── Existing behavior kept ────────────────────────────────────────────────
 
     @Test
@@ -377,6 +442,30 @@ class ChartDataProcessorTest {
             )
         )
         assertEquals(20.0, data.dayAt(NOW)!!.value!!, 0.001)
+    }
+
+    @Test
+    fun `heatmap groups by day whatever order entries arrive in`() {
+        // Two days interleaved: the day cursor that replaced the per-entry
+        // midnight lookup (P5) has to put each entry on its own day, and LATEST
+        // still has to see each day's values in chronological order.
+        val entries = listOf(
+            entry(NOW - DAY, 1.0),            // yesterday noon
+            entry(NOW, 3.0),                  // today noon
+            entry(NOW - DAY - 3 * HOUR, 2.0), // yesterday 09:00
+            entry(NOW - 3 * HOUR, 4.0)        // today 09:00
+        )
+        val data = heatmap(
+            ChartDataProcessor.process(
+                heatmapConfig(agg = AggregationStrategy.LATEST), entries, heatmapFields, NOW
+            )
+        )
+
+        assertEquals(2, data.daysWithData)
+        assertEquals(3.0, data.dayAt(NOW)!!.value!!, 0.001)
+        assertEquals(1.0, data.dayAt(NOW - DAY)!!.value!!, 0.001)
+        assertEquals(2, data.dayAt(NOW)!!.entryCount)
+        assertEquals(2, data.dayAt(NOW - DAY)!!.entryCount)
     }
 
     @Test

@@ -48,10 +48,20 @@ class EventDetailViewModel @Inject constructor(
         .flatMapLatest { repository.observeEventType(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /**
+     * The event's entries, decoded once per change and shared by both consumers.
+     * Cold, this flow ran its query and re-decoded every row once per collector,
+     * and the list and the charts below are two collectors.
+     *
+     * [flowOn] has to sit upstream of [shareIn]: `shareIn` collects in the
+     * sharing scope, and `viewModelScope` dispatches on the main thread.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val _allEntries: Flow<List<EventEntry>> = eventIdFlow
         .filter { it != 0L }
         .flatMapLatest { repository.observeEntriesForEventType(it) }
+        .flowOn(Dispatchers.Default)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
     /**
      * The searched, filtered, sorted entries, laid out for the list. Sticky day
@@ -91,6 +101,14 @@ class EventDetailViewModel @Inject constructor(
         .flatMapLatest { reminderRepository.observeActiveCountForEventType(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
+    /**
+     * Data for every readable chart on the screen. Rebuilt whenever the entries,
+     * the fields or the chart list change — each of those feeds every chart, so
+     * there is no finer thing to invalidate. What that leans on instead is that
+     * the inputs re-emit only when they really differ (see
+     * [EventRepository.observeEntriesForEventType]) and that one rebuild costs a
+     * pass over the entries, not a pass per bucket (see [ChartDataProcessor]).
+     */
     val chartDataMap: StateFlow<Map<String, ChartData>> = combine(
         charts, eventType, _allEntries
     ) { stored, type, entries ->

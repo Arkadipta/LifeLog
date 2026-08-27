@@ -16,6 +16,7 @@ import com.lifelog.app.domain.model.EventType
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -64,9 +65,17 @@ class EventRepository @Inject constructor(
             }
         }
 
+    /**
+     * One event type with its fields, live.
+     *
+     * [distinctUntilChanged] because Room invalidates per *table*, not per row:
+     * without it every write anywhere in `event_types` re-emitted this row
+     * unchanged, and each of those re-emissions tore down and re-subscribed the
+     * inner fields query as well.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun observeEventType(id: Long): Flow<EventType?> =
-        eventTypeDao.observeById(id).flatMapLatest { entity ->
+        eventTypeDao.observeById(id).distinctUntilChanged().flatMapLatest { entity ->
             eventFieldDao.observeByEventType(id).map { fieldEntities ->
                 entity?.toDomain(fieldEntities.map { it.toDomain() })
             }
@@ -121,9 +130,19 @@ class EventRepository @Inject constructor(
         return updated
     }
 
+    /**
+     * One event type's entries, decoded, newest first — the event detail screen's
+     * list and its charts.
+     *
+     * Both inputs are [distinctUntilChanged] for the same reason as
+     * [observeEventType]: Room re-runs and re-emits a query whenever *any* row of
+     * a table it reads changes, so logging an entry under a different event type
+     * used to re-decode this one's whole history (two JSON parses a row) and
+     * re-process every chart on the screen with byte-identical input.
+     */
     fun observeEntriesForEventType(eventTypeId: Long): Flow<List<EventEntry>> {
-        val entityFlow = eventTypeDao.observeById(eventTypeId)
-        val entriesFlow = eventEntryDao.observeByEventType(eventTypeId)
+        val entityFlow = eventTypeDao.observeById(eventTypeId).distinctUntilChanged()
+        val entriesFlow = eventEntryDao.observeByEventType(eventTypeId).distinctUntilChanged()
         return combine(entityFlow, entriesFlow) { entity, entries ->
             entries.map { it.toDomain(entity) }
         }

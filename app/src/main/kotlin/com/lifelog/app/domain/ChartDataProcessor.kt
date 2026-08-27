@@ -12,6 +12,7 @@ import com.lifelog.app.domain.model.TimeRange
 import java.text.DateFormatSymbols
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
 object ChartDataProcessor {
@@ -38,16 +39,21 @@ object ChartDataProcessor {
         val relevant = entries.filter { hasChartableValue(it, config) }
         if (relevant.isEmpty()) return ChartData.InsufficientData
 
-        val anchorMs = resolveAnchor(relevant, config, nowMs)
-        val windowed = applyTimeRange(relevant, config, anchorMs)
+        // One scratch calendar for the whole call — every day boundary below
+        // borrows it instead of allocating its own. See [DayMath].
+        val dayMath = DayMath()
+
+        val anchorMs = resolveAnchor(relevant, config, nowMs, dayMath)
+        val windowed = applyTimeRange(relevant, config, anchorMs, dayMath)
         if (windowed.isEmpty()) return ChartData.InsufficientData
         val anchoredEndMs = anchorMs.takeIf { it != nowMs }
 
         return when (config.type) {
             ChartType.LINE, ChartType.BAR ->
-                buildCartesianData(config, windowed, fields, anchorMs, anchoredEndMs)
+                buildCartesianData(config, windowed, fields, anchorMs, anchoredEndMs, dayMath)
             ChartType.PIE -> buildPieData(config, windowed, fields, anchoredEndMs)
-            ChartType.HEATMAP -> buildHeatmapData(config, windowed, fields, anchorMs, anchoredEndMs)
+            ChartType.HEATMAP ->
+                buildHeatmapData(config, windowed, fields, anchorMs, anchoredEndMs, dayMath)
         }
     }
 
@@ -78,9 +84,14 @@ object ChartDataProcessor {
      * window would show nothing, the window slides back to end at the most
      * recent chartable entry so sparse histories still produce a chart.
      */
-    private fun resolveAnchor(relevant: List<EventEntry>, config: ChartConfig, nowMs: Long): Long {
+    private fun resolveAnchor(
+        relevant: List<EventEntry>,
+        config: ChartConfig,
+        nowMs: Long,
+        dayMath: DayMath
+    ): Long {
         val days = config.timeRangeDays ?: return nowMs
-        val windowStart = windowStartMs(config, days, nowMs)
+        val windowStart = windowStartMs(config, days, nowMs, dayMath)
         return if (relevant.any { it.createdAt >= windowStart }) nowMs
                else relevant.maxOf { it.createdAt }
     }
@@ -88,10 +99,11 @@ object ChartDataProcessor {
     private fun applyTimeRange(
         entries: List<EventEntry>,
         config: ChartConfig,
-        anchorMs: Long
+        anchorMs: Long,
+        dayMath: DayMath
     ): List<EventEntry> {
         val days = config.timeRangeDays ?: return entries
-        val windowStart = windowStartMs(config, days, anchorMs)
+        val windowStart = windowStartMs(config, days, anchorMs, dayMath)
         return entries.filter { it.createdAt >= windowStart }
     }
 
@@ -109,7 +121,12 @@ object ChartDataProcessor {
      * day is 23 or 25 hours long, so counting days in milliseconds slides the
      * boundary off local midnight for the whole window past the transition.
      */
-    private fun windowStartMs(config: ChartConfig, days: Int, anchorMs: Long): Long =
+    private fun windowStartMs(
+        config: ChartConfig,
+        days: Int,
+        anchorMs: Long,
+        dayMath: DayMath
+    ): Long = with(dayMath) {
         when (config.type) {
             ChartType.LINE, ChartType.BAR -> when (TimeRange.fromDays(days)) {
                 TimeRange.DAY -> midnightOf(anchorMs)                     // today
@@ -123,6 +140,7 @@ object ChartDataProcessor {
             // Last [days] calendar days ending on the anchor's day.
             ChartType.PIE, ChartType.HEATMAP -> addDays(midnightOf(anchorMs), -(days - 1))
         }
+    }
 
     // ── Bucketing ─────────────────────────────────────────────────────────────
 
@@ -131,68 +149,82 @@ object ChartDataProcessor {
      * given time range ending at [anchorMs]. All buckets are returned even if
      * empty, so every series shares the same bucket index space.
      *
-     * Day boundaries come from [addDays], never from a fixed 24 hours, so the
-     * grid stays pinned to local midnight across a DST transition — otherwise
-     * every bucket after one drifts an hour and entries land a column off. The
-     * representative timestamp is the bucket's own midpoint for the same reason.
+     * [sortedEntries] must be in ascending [EventEntry.createdAt] order: the
+     * buckets tile one contiguous span, so a single walk in step with the sorted
+     * entries fills every one of them. This used to re-filter the whole list once
+     * per bucket — up to 26 passes over every entry of the window, per chart.
      */
     private fun buildBuckets(
-        entries: List<EventEntry>,
+        sortedEntries: List<EventEntry>,
         timeRange: TimeRange,
-        anchorMs: Long
+        anchorMs: Long,
+        dayMath: DayMath
     ): List<Pair<Long, List<EventEntry>>> {
-        return when (timeRange) {
+        if (timeRange == TimeRange.ALL) {
+            if (sortedEntries.isEmpty()) return emptyList()
+            // A history logged at a single instant has no span to bin.
+            val minTime = sortedEntries.first().createdAt
+            if (minTime == sortedEntries.last().createdAt) return listOf(Pair(minTime, sortedEntries))
+        }
+        val edges = bucketEdges(sortedEntries, timeRange, anchorMs, dayMath)
+        if (edges.size < 2) return emptyList()
+        return distribute(sortedEntries, edges)
+    }
+
+    /**
+     * The bucket boundaries for [timeRange], oldest first: n + 1 edges bounding n
+     * contiguous half-open buckets.
+     *
+     * Day boundaries come from [DayMath.addDays], never from a fixed 24 hours, so
+     * the grid stays pinned to local midnight across a DST transition — otherwise
+     * every bucket after one drifts an hour and entries land a column off. Each
+     * edge is measured from the anchor rather than from its neighbour, which is
+     * what makes the buckets exactly contiguous (chaining `+1 day` off a bucket
+     * start can drift in the zones where local midnight itself is the instant DST
+     * skips) and is what the single-pass fill below relies on.
+     */
+    private fun bucketEdges(
+        sortedEntries: List<EventEntry>,
+        timeRange: TimeRange,
+        anchorMs: Long,
+        dayMath: DayMath
+    ): List<Long> = with(dayMath) {
+        when (timeRange) {
             // Hourly buckets tile the anchor's local day exactly, so a DST day
             // yields 23 or 25 of them rather than 24 that overrun or fall short.
             TimeRange.DAY -> {
                 val dayStart = midnightOf(anchorMs)
                 val dayEnd = addDays(dayStart, 1)
                 buildList {
-                    var start = dayStart
-                    while (start < dayEnd) {
+                    var edge = dayStart
+                    while (edge < dayEnd) {
+                        add(edge)
                         // minOf keeps the trailing bucket inside the day in the
                         // half-hour-offset zones where a shift isn't a whole hour.
-                        val end = minOf(start + MS_PER_HOUR, dayEnd)
-                        add(Pair(midpoint(start, end), entries.filter { it.createdAt in start until end }))
-                        start = end
+                        edge = minOf(edge + MS_PER_HOUR, dayEnd)
                     }
+                    add(dayEnd)
                 }
             }
 
+            // Seven daily buckets ending with the anchor's own day.
             TimeRange.WEEK -> {
                 val anchorMidnight = midnightOf(anchorMs)
-                (6 downTo 0).map { daysAgo ->
-                    val start = addDays(anchorMidnight, -daysAgo)
-                    val end = addDays(start, 1)
-                    Pair(midpoint(start, end), entries.filter { it.createdAt in start until end })
-                }
+                (-6..1).map { addDays(anchorMidnight, it) }
             }
 
+            // Four weekly buckets; the last runs to the end of the anchor's day.
             TimeRange.MONTH -> {
                 val anchorMidnight = midnightOf(anchorMs)
-                (3 downTo 0).map { weeksAgo ->
-                    val start = addDays(anchorMidnight, -(weeksAgo + 1) * 7)
-                    val end = if (weeksAgo == 0) addDays(anchorMidnight, 1)
-                               else addDays(anchorMidnight, -weeksAgo * 7)
-                    Pair(midpoint(start, end), entries.filter { it.createdAt in start until end })
-                }
+                listOf(-28, -21, -14, -7, 1).map { addDays(anchorMidnight, it) }
             }
 
-            TimeRange.YEAR -> {
-                (11 downTo 0).map { monthsAgo ->
-                    val start = firstOfMonth(anchorMs, monthsAgo)
-                    val end = firstOfMonth(anchorMs, monthsAgo - 1)
-                    Pair((start + end) / 2, entries.filter { it.createdAt in start until end })
-                }
-            }
+            // Twelve calendar months ending with the anchor's own month.
+            TimeRange.YEAR -> (11 downTo -1).map { firstOfMonth(anchorMs, monthsAgo = it) }
 
             TimeRange.ALL -> {
-                val sorted = entries.sortedBy { it.createdAt }
-                if (sorted.isEmpty()) return emptyList()
-                val minTime = sorted.first().createdAt
-                val maxTime = sorted.last().createdAt
-                if (minTime == maxTime) return listOf(Pair(minTime, sorted))
-                val span = maxTime - minTime
+                val minTime = sortedEntries.first().createdAt
+                val span = sortedEntries.last().createdAt - minTime
                 // Bin by natural calendar units so axis labels stay distinct;
                 // only very long histories fall back to 20 even bins. These bins
                 // start at the oldest entry rather than at midnight, so they are
@@ -205,13 +237,34 @@ object ChartDataProcessor {
                     else -> (span + 19) / 20
                 }
                 val binCount = (span / binSize + 1).toInt()
-                (0 until binCount).map { i ->
-                    val start = minTime + i * binSize
-                    val end = start + binSize
-                    Pair(start + binSize / 2, entries.filter { it.createdAt in start until end })
-                }
+                (0..binCount).map { minTime + it * binSize }
             }
         }
+    }
+
+    /**
+     * Splits [sortedEntries] across the half-open ranges between [edges] in one
+     * pass, labelling each bucket with its own midpoint — a 23- or 25-hour day
+     * puts that somewhere other than the arithmetic middle of a fixed step.
+     *
+     * An entry outside the outermost edges — one dated into the future, say,
+     * which the anchor logic admits but no bucket covers — belongs to no bucket
+     * and is dropped, exactly as the per-bucket filter dropped it.
+     */
+    private fun distribute(
+        sortedEntries: List<EventEntry>,
+        edges: List<Long>
+    ): List<Pair<Long, List<EventEntry>>> {
+        val bucketCount = edges.size - 1
+        val contents = List(bucketCount) { mutableListOf<EventEntry>() }
+        var index = 0
+        for (entry in sortedEntries) {
+            // Ascending input means the cursor only ever moves forward.
+            while (index < bucketCount && entry.createdAt >= edges[index + 1]) index++
+            if (index == bucketCount) break
+            if (entry.createdAt >= edges[index]) contents[index].add(entry)
+        }
+        return List(bucketCount) { Pair(midpoint(edges[it], edges[it + 1]), contents[it]) }
     }
 
     // ── Cartesian (Line + Bar) builder ────────────────────────────────────────
@@ -221,11 +274,12 @@ object ChartDataProcessor {
         entries: List<EventEntry>,
         fields: List<EventField>,
         anchorMs: Long,
-        anchoredEndMs: Long?
+        anchoredEndMs: Long?,
+        dayMath: DayMath
     ): ChartData {
         val fieldMap = fields.associateBy { it.id }
         val timeRange = TimeRange.fromDays(config.timeRangeDays)
-        val buckets = buildBuckets(entries.sortedBy { it.createdAt }, timeRange, anchorMs)
+        val buckets = buildBuckets(entries.sortedBy { it.createdAt }, timeRange, anchorMs, dayMath)
         val timestamps = buckets.map { it.first }
 
         val series = config.numericFieldIds.mapNotNull { fieldId ->
@@ -298,19 +352,27 @@ object ChartDataProcessor {
         entries: List<EventEntry>,
         fields: List<EventField>,
         anchorMs: Long,
-        anchoredEndMs: Long?
+        anchoredEndMs: Long?,
+        dayMath: DayMath
     ): ChartData {
         val fieldId = config.numericFieldIds.firstOrNull() ?: return ChartData.Empty
         val field = fields.firstOrNull { it.id == fieldId } ?: return ChartData.Empty
         val isBoolean = field.type == FieldType.BOOLEAN
 
         // Collect the day's values in chronological order so LATEST resolves to
-        // the last entry of the day.
+        // the last entry of the day. Sorted input lets a day cursor carry the
+        // current day's bounds forward, so the calendar is consulted once per
+        // day with data rather than once per entry.
         val perDayValues = linkedMapOf<Long, MutableList<Double>>()
+        var dayStart = Long.MAX_VALUE
+        var dayEnd = Long.MIN_VALUE
         for (entry in entries.sortedBy { it.createdAt }) {
             val value = heatmapValue(entry.fieldValues[fieldId], isBoolean) ?: continue
-            val day = midnightOf(entry.createdAt)
-            perDayValues.getOrPut(day) { mutableListOf() }.add(value)
+            if (entry.createdAt !in dayStart until dayEnd) {
+                dayStart = dayMath.midnightOf(entry.createdAt)
+                dayEnd = dayMath.addDays(dayStart, 1)
+            }
+            perDayValues.getOrPut(dayStart) { mutableListOf() }.add(value)
         }
         if (perDayValues.isEmpty()) return ChartData.InsufficientData
 
@@ -324,18 +386,20 @@ object ChartDataProcessor {
         // latest entry when the now-anchored window would be empty) and start at
         // the same windowStartMs boundary the entry filter applied.
         val firstDataDay = perDayValues.keys.min()
-        val lastDay = if (config.timeRangeDays == null) midnightOf(perDayValues.keys.max())
-                      else midnightOf(anchorMs)
+        val lastDay = if (config.timeRangeDays == null) dayMath.midnightOf(perDayValues.keys.max())
+                      else dayMath.midnightOf(anchorMs)
         val windowStartDay = if (config.timeRangeDays == null) firstDataDay
-                             else windowStartMs(config, config.timeRangeDays, anchorMs)
-        val firstWeekday = Calendar.getInstance().firstDayOfWeek
-        val gridStart = startOfWeek(minOf(windowStartDay, lastDay), firstWeekday)
+                             else windowStartMs(config, config.timeRangeDays, anchorMs, dayMath)
+        val firstWeekday = dayMath.firstDayOfWeek
+        val gridStart = startOfWeek(minOf(windowStartDay, lastDay), firstWeekday, dayMath)
 
         val columns = mutableListOf<ChartData.Heatmap.Week>()
         var week = arrayOfNulls<ChartData.Heatmap.Day>(7)
+        // The grid starts on a week boundary and steps a day at a time, so the
+        // row is the step count — no need to ask the calendar for each weekday.
+        var row = 0
         var cursor = gridStart
         while (cursor <= lastDay) {
-            val row = weekdayRow(cursor, firstWeekday)
             week[row] = ChartData.Heatmap.Day(
                 dateMs = cursor,
                 value = perDayAggregated[cursor],
@@ -344,15 +408,18 @@ object ChartDataProcessor {
             if (row == 6) {
                 columns.add(ChartData.Heatmap.Week(week.toList()))
                 week = arrayOfNulls(7)
+                row = 0
+            } else {
+                row++
             }
-            cursor = addDays(cursor, 1)
+            cursor = dayMath.addDays(cursor, 1)
         }
         if (week.any { it != null }) columns.add(ChartData.Heatmap.Week(week.toList()))
 
         val dayValues = perDayAggregated.values
         return ChartData.Heatmap(
             columns = columns,
-            monthLabels = monthLabels(gridStart, columns.size),
+            monthLabels = monthLabels(gridStart, columns.size, dayMath),
             weekdayLabels = weekdayLabels(firstWeekday),
             minValue = dayValues.min(),
             maxValue = dayValues.max(),
@@ -371,14 +438,12 @@ object ChartDataProcessor {
         else (value as? FieldValue.Numeric)?.value
 
     /** Row index 0..6 for a day, honoring the locale's first day of week. */
-    private fun weekdayRow(dayMs: Long, firstWeekday: Int): Int {
-        val dow = Calendar.getInstance().apply { timeInMillis = dayMs }.get(Calendar.DAY_OF_WEEK)
-        return (dow - firstWeekday + 7) % 7
-    }
+    private fun weekdayRow(dayMs: Long, firstWeekday: Int, dayMath: DayMath): Int =
+        (dayMath.dayOfWeek(dayMs) - firstWeekday + 7) % 7
 
     /** Midnight of the first day of [dayMs]'s week. */
-    private fun startOfWeek(dayMs: Long, firstWeekday: Int): Long =
-        addDays(dayMs, -weekdayRow(dayMs, firstWeekday))
+    private fun startOfWeek(dayMs: Long, firstWeekday: Int, dayMath: DayMath): Long =
+        dayMath.addDays(dayMs, -weekdayRow(dayMs, firstWeekday, dayMath))
 
     /** Short weekday names in row order (e.g. Sun..Sat or Mon..Sun by locale). */
     private fun weekdayLabels(firstWeekday: Int): List<String> {
@@ -387,15 +452,19 @@ object ChartDataProcessor {
     }
 
     /** A month label at the first column each calendar month appears over. */
-    private fun monthLabels(gridStart: Long, columnCount: Int): List<ChartData.Heatmap.MonthLabel> {
+    private fun monthLabels(
+        gridStart: Long,
+        columnCount: Int,
+        dayMath: DayMath
+    ): List<ChartData.Heatmap.MonthLabel> {
         val fmt = SimpleDateFormat("MMM", Locale.getDefault())
         val labels = mutableListOf<ChartData.Heatmap.MonthLabel>()
         var lastMonth = -1
         for (col in 0 until columnCount) {
-            val cal = Calendar.getInstance().apply { timeInMillis = addDays(gridStart, col * 7) }
-            val month = cal.get(Calendar.MONTH)
+            val columnStart = dayMath.addDays(gridStart, col * 7)
+            val month = dayMath.monthOf(columnStart)
             if (month != lastMonth) {
-                labels.add(ChartData.Heatmap.MonthLabel(col, fmt.format(cal.time)))
+                labels.add(ChartData.Heatmap.MonthLabel(col, fmt.format(Date(columnStart))))
                 lastMonth = month
             }
         }
@@ -445,13 +514,40 @@ object ChartDataProcessor {
             AggregationStrategy.LATEST -> values.last()
         }
 
-    private fun midnightOf(timestampMs: Long): Long = Calendar.getInstance().apply {
+    /** Label position for a bucket: its own midpoint, so 23/25-hour days sit right. */
+    private fun midpoint(startMs: Long, endMs: Long): Long = startMs + (endMs - startMs) / 2
+}
+
+/**
+ * Local-calendar day arithmetic over one reusable [Calendar].
+ *
+ * Every method assigns `timeInMillis` first, which recomputes all fields and
+ * supersedes any earlier `set`, so a single instance answers any number of
+ * questions in sequence. [ChartDataProcessor.process] creates one and threads it
+ * through: a year-long heatmap used to allocate a calendar per entry plus two
+ * per grid day, and each one of those re-reads the default zone and recomputes
+ * its fields from scratch.
+ *
+ * Deliberately per-call rather than a shared instance on the processor. A
+ * long-lived calendar would pin the time zone the process started in — the same
+ * bug M10 fixed in the display formatters — and would make the object unsafe to
+ * use from two charts at once.
+ */
+private class DayMath {
+
+    private val cal: Calendar = Calendar.getInstance()
+
+    /** The locale's first day of the week, `Calendar.SUNDAY`..`Calendar.SATURDAY`. */
+    val firstDayOfWeek: Int get() = cal.firstDayOfWeek
+
+    fun midnightOf(timestampMs: Long): Long = cal.run {
         timeInMillis = timestampMs
         set(Calendar.HOUR_OF_DAY, 0)
         set(Calendar.MINUTE, 0)
         set(Calendar.SECOND, 0)
         set(Calendar.MILLISECOND, 0)
-    }.timeInMillis
+        timeInMillis
+    }
 
     /**
      * DST-safe day arithmetic: shifts a midnight timestamp by whole calendar
@@ -460,16 +556,14 @@ object ChartDataProcessor {
      * window filter, the cartesian buckets, and the heatmap grid — they have
      * to agree on where a day starts.
      */
-    private fun addDays(dayMs: Long, days: Int): Long = Calendar.getInstance().apply {
+    fun addDays(dayMs: Long, days: Int): Long = cal.run {
         timeInMillis = dayMs
         add(Calendar.DAY_OF_YEAR, days)
-    }.timeInMillis
-
-    /** Label position for a bucket: its own midpoint, so 23/25-hour days sit right. */
-    private fun midpoint(startMs: Long, endMs: Long): Long = startMs + (endMs - startMs) / 2
+        timeInMillis
+    }
 
     /** Midnight on the 1st of the month [monthsAgo] whole months before [anchorMs]'s. */
-    private fun firstOfMonth(anchorMs: Long, monthsAgo: Int): Long = Calendar.getInstance().apply {
+    fun firstOfMonth(anchorMs: Long, monthsAgo: Int): Long = cal.run {
         timeInMillis = anchorMs
         set(Calendar.DAY_OF_MONTH, 1)
         set(Calendar.HOUR_OF_DAY, 0)
@@ -477,5 +571,18 @@ object ChartDataProcessor {
         set(Calendar.SECOND, 0)
         set(Calendar.MILLISECOND, 0)
         add(Calendar.MONTH, -monthsAgo)
-    }.timeInMillis
+        timeInMillis
+    }
+
+    /** `Calendar.SUNDAY`..`Calendar.SATURDAY` for the local day holding [timestampMs]. */
+    fun dayOfWeek(timestampMs: Long): Int = cal.run {
+        timeInMillis = timestampMs
+        get(Calendar.DAY_OF_WEEK)
+    }
+
+    /** `Calendar.JANUARY`..`Calendar.DECEMBER` for the local day holding [timestampMs]. */
+    fun monthOf(timestampMs: Long): Int = cal.run {
+        timeInMillis = timestampMs
+        get(Calendar.MONTH)
+    }
 }
