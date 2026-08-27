@@ -8,8 +8,6 @@ import com.lifelog.app.domain.EventFilterUseCase
 import com.lifelog.app.domain.model.EventFilterState
 import com.lifelog.app.domain.model.EventSortOption
 import com.lifelog.app.domain.model.EventType
-import com.lifelog.app.notifications.ReminderCoordinator
-import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,9 +23,7 @@ import javax.inject.Inject
 class EventsViewModel @Inject constructor(
     private val repository: EventRepository,
     private val filterUseCase: EventFilterUseCase,
-    private val prefsRepo: UserPreferencesRepository,
-    private val widgetUpdater: WidgetUpdater,
-    private val reminderCoordinator: ReminderCoordinator
+    private val prefsRepo: UserPreferencesRepository
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -61,18 +57,5 @@ class EventsViewModel @Inject constructor(
 
     fun setSortOption(option: EventSortOption) {
         viewModelScope.launch { prefsRepo.setEventSortOption(option) }
-    }
-
-    fun deleteEventType(id: Long) {
-        viewModelScope.launch {
-            // Reminders have no FK to event_types — detach them (unlink, deactivate,
-            // cancel alarms) before the row goes, so none ever holds a dead id.
-            reminderCoordinator.detachFromEventType(id)
-            repository.deleteEventType(id)
-            // Deleting an event type removes its entries from the timeline and
-            // orphans any QuickAddWidget bound to it — unbind those, then refresh.
-            widgetUpdater.clearQuickAddForEvent(id)
-            widgetUpdater.refreshAll()
-        }
     }
 }

@@ -22,7 +22,7 @@ class ReminderScheduler @Inject constructor(
         val receiverIntent = PendingIntent.getBroadcast(
             context,
             reminder.id.toInt(),
-            ReminderReceiver.buildIntent(context, reminder),
+            ReminderReceiver.buildIntent(context, reminder.id),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 

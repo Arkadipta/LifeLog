@@ -127,11 +127,13 @@ class ReminderReceiver : BroadcastReceiver() {
         /** Re-arm OS alarms for all active reminders, e.g. after a database restore. */
         const val ACTION_RESCHEDULE_ALL = "com.lifelog.app.ACTION_RESCHEDULE_ALL"
 
-        const val EXTRA_REMINDER_ID   = "reminder_id"
-        const val EXTRA_TITLE         = "title"
-        const val EXTRA_MESSAGE       = "message"
-        const val EXTRA_EVENT_TYPE_ID = "event_type_id"
-        const val EXTRA_IS_ALARM      = "is_alarm"
+        /**
+         * The only extra this receiver's intents carry, and the only one they should: a fired
+         * alarm re-reads its reminder from the database in [handleReminder], so it sees a delete,
+         * a disable or an edit that happened after the alarm was armed. Any reminder detail copied
+         * into the intent would be a second, staler source for state the row already owns.
+         */
+        const val EXTRA_REMINDER_ID = "reminder_id"
 
         /**
          * The bare component + action that define a scheduled alarm's PendingIntent identity.
@@ -143,13 +145,8 @@ class ReminderReceiver : BroadcastReceiver() {
         fun alarmIntent(context: Context): Intent =
             Intent(context, ReminderReceiver::class.java).apply { action = ACTION_REMINDER }
 
-        fun buildIntent(context: Context, reminder: Reminder): Intent =
-            alarmIntent(context).apply {
-                putExtra(EXTRA_REMINDER_ID, reminder.id)
-                putExtra(EXTRA_TITLE, reminder.title)
-                putExtra(EXTRA_MESSAGE, reminder.message)
-                putExtra(EXTRA_EVENT_TYPE_ID, reminder.eventTypeId ?: -1L)
-                putExtra(EXTRA_IS_ALARM, reminder.deliveryType == DeliveryType.ALARM)
-            }
+        /** The alarm intent to schedule for [reminderId]: [alarmIntent] plus the id to look up. */
+        fun buildIntent(context: Context, reminderId: Long): Intent =
+            alarmIntent(context).apply { putExtra(EXTRA_REMINDER_ID, reminderId) }
     }
 }
