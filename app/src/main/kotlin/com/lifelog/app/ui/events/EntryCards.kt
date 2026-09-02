@@ -1,6 +1,5 @@
 package com.lifelog.app.ui.events
 
-import android.text.format.DateFormat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -43,7 +42,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -59,6 +57,7 @@ import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.domain.model.legacyMismatchOf
 import com.lifelog.app.ui.components.LifeLogCard
 import com.lifelog.app.ui.components.SwipeActionBackground
+import com.lifelog.app.ui.is24HourFormat
 import com.lifelog.app.ui.theme.accentTileColors
 import com.lifelog.app.ui.theme.rememberAccentOnSurface
 import com.lifelog.app.ui.theme.Motion
@@ -493,8 +492,7 @@ fun EntryCard(
  */
 @Composable
 private fun TimeTile(timestamp: Long, accent: Color) {
-    val context = LocalContext.current
-    val is24Hour = remember(context) { DateFormat.is24HourFormat(context) }
+    val is24Hour = is24HourFormat()
     val (clock, meridiem) = remember(timestamp, is24Hour) { timestamp.toClockParts(is24Hour) }
     val tile = accentTileColors(accent)
     Surface(shape = MaterialTheme.shapes.medium, color = tile.container) {
