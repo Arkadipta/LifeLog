@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.lifelog.app.MainActivity
@@ -15,6 +16,8 @@ import com.lifelog.app.util.snoozeShortLabel
 import com.lifelog.app.widget.QuickAddActivity
 
 object NotificationHelper {
+
+    private const val TAG = "NotificationHelper"
 
     const val REMINDER_CHANNEL_ID = "lifelog_reminders"
 
@@ -78,7 +81,7 @@ object NotificationHelper {
             builder.addAction(0, "Add Entry", buildAddEntryIntent(context, notificationId, eventTypeId))
         }
 
-        tryNotify(context, notificationId, builder)
+        tryNotify(context, notificationId, builder.build())
     }
 
     /**
@@ -134,14 +137,11 @@ object NotificationHelper {
         eventTypeId: Long? = null,
         snoozeMinutes: Int = Reminder.DEFAULT_SNOOZE_MINUTES
     ) {
-        try {
-            NotificationManagerCompat.from(context).notify(
-                notificationId,
-                buildAlarmNotification(context, notificationId, title, message, reminderId, eventTypeId, snoozeMinutes)
-            )
-        } catch (_: SecurityException) {
-            // POST_NOTIFICATIONS not granted
-        }
+        tryNotify(
+            context,
+            notificationId,
+            buildAlarmNotification(context, notificationId, title, message, reminderId, eventTypeId, snoozeMinutes)
+        )
     }
 
     private fun buildBaseNotification(
@@ -202,11 +202,30 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-    private fun tryNotify(context: Context, id: Int, builder: NotificationCompat.Builder) {
+    /**
+     * Posts [notification], reporting both ways a reminder can fail to reach the user.
+     *
+     * A reminder that never appears is indistinguishable from one that was never scheduled,
+     * so the two causes are worth naming in a release logcat when someone reports "my
+     * reminders don't fire" — this is a `Log.w` and not a [com.lifelog.app.util.logD] for
+     * exactly that reason. The user-facing half of the story is the Reminders screen banner,
+     * which reads the same two conditions and offers the fix.
+     *
+     * The enabled check is the branch that actually catches this, not the `catch`: measured on
+     * API 36 with POST_NOTIFICATIONS denied, `notify` threw nothing and simply dropped the
+     * notification. `areNotificationsEnabled` covers both that and notifications switched off
+     * for the app, so the [SecurityException] handler stays only as a backstop for platforms
+     * that do throw — which is why the check is its own branch and not an `else` on the catch.
+     */
+    private fun tryNotify(context: Context, id: Int, notification: Notification) {
+        val manager = NotificationManagerCompat.from(context)
+        if (!manager.areNotificationsEnabled()) {
+            Log.w(TAG, "Notification $id will not be shown: notifications are not enabled for LifeLog")
+        }
         try {
-            NotificationManagerCompat.from(context).notify(id, builder.build())
+            manager.notify(id, notification)
         } catch (e: SecurityException) {
-            // POST_NOTIFICATIONS not granted
+            Log.w(TAG, "Notification $id refused: POST_NOTIFICATIONS is not granted", e)
         }
     }
 
