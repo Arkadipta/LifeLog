@@ -47,7 +47,7 @@ object NotificationHelper {
         // silent channel on devices that already had the old one.
         nm.deleteNotificationChannel(LEGACY_ALARM_CHANNEL_ID)
 
-        // Alarm channel is intentionally SILENT. AlarmDismissActivity owns the single audio source
+        // Alarm channel is intentionally SILENT. AlarmService owns the single audio source
         // (a looping MediaPlayer) so it can be stopped on dismiss/snooze without cancelling the
         // notification. setSound(null, null) is REQUIRED: a channel created without it defaults to
         // the notification sound, which SystemUI would then play as a duplicate source.
@@ -85,30 +85,25 @@ object NotificationHelper {
     }
 
     /**
-     * Builds the alarm notification (silent channel + full-screen intent). Returned rather than
+     * Builds [alarm]'s notification (silent channel + full-screen intent). Returned rather than
      * posted because [AlarmService] passes it to startForeground() — the foreground service owns the
      * ongoing notification and the single audio source. The full-screen intent handles the lock
      * screen; the content intent returns the user to the alarm screen if they leave it.
      */
-    fun buildAlarmNotification(
-        context: Context,
-        notificationId: Int,
-        title: String,
-        message: String,
-        reminderId: Long,
-        eventTypeId: Long? = null,
-        snoozeMinutes: Int = Reminder.DEFAULT_SNOOZE_MINUTES
-    ): Notification {
+    fun buildAlarmNotification(context: Context, alarm: RingingAlarm): Notification {
         // Same Intent that ReminderReceiver launches directly — see AlarmDismissActivity.createIntent.
         // Used for both the full-screen intent (lock screen) and the content tap (recovery).
         val alarmPendingIntent = PendingIntent.getActivity(
             context,
-            notificationId * 10 + 4,
-            AlarmDismissActivity.createIntent(context, reminderId, title, message, notificationId, eventTypeId, snoozeMinutes),
+            alarm.notificationId * 10 + 4,
+            AlarmDismissActivity.createIntent(context, alarm),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val builder = buildBaseNotification(context, notificationId, title, message, reminderId, ALARM_CHANNEL_ID, snoozeMinutes)
+        val builder = buildBaseNotification(
+            context, alarm.notificationId, alarm.title, alarm.message, alarm.reminderId,
+            ALARM_CHANNEL_ID, alarm.snoozeMinutes
+        )
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setFullScreenIntent(alarmPendingIntent, true)
@@ -116,32 +111,23 @@ object NotificationHelper {
             .setAutoCancel(false)                    // user must interact with the alarm screen
             .setOngoing(true)
 
-        if (eventTypeId != null) {
-            builder.addAction(0, "Add Entry", buildAddEntryIntent(context, notificationId, eventTypeId))
+        if (alarm.eventTypeId != null) {
+            builder.addAction(0, "Add Entry", buildAddEntryIntent(context, alarm.notificationId, alarm.eventTypeId))
         }
 
         return builder.build()
     }
 
     /**
-     * Fallback only, used if [AlarmService] cannot start (e.g. a background FGS start is ever
-     * disallowed): posts the alarm notification directly. There is no looping audio in this path —
-     * the full-screen UI still appears via the receiver's startActivity / the full-screen intent.
+     * Posts [alarm]'s notification directly, for the two alarms that don't hold [AlarmService]'s
+     * foreground notification: one ringing alongside an earlier, still-unanswered alarm (only the
+     * front one can be the foreground notification), and — the fallback path — one whose service
+     * couldn't start at all, e.g. if a background FGS start is ever disallowed. The second has no
+     * looping audio; the full-screen UI still appears via the receiver's startActivity / the
+     * full-screen intent.
      */
-    fun showAlarmNotification(
-        context: Context,
-        notificationId: Int,
-        title: String,
-        message: String,
-        reminderId: Long,
-        eventTypeId: Long? = null,
-        snoozeMinutes: Int = Reminder.DEFAULT_SNOOZE_MINUTES
-    ) {
-        tryNotify(
-            context,
-            notificationId,
-            buildAlarmNotification(context, notificationId, title, message, reminderId, eventTypeId, snoozeMinutes)
-        )
+    fun showAlarmNotification(context: Context, alarm: RingingAlarm) {
+        tryNotify(context, alarm.notificationId, buildAlarmNotification(context, alarm))
     }
 
     private fun buildBaseNotification(

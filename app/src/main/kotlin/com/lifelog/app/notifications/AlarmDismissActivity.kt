@@ -54,7 +54,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.lifelog.app.data.repository.UserPreferences
 import com.lifelog.app.data.repository.UserPreferencesRepository
-import com.lifelog.app.domain.model.Reminder
 import com.lifelog.app.ui.theme.LifeLogTheme
 import com.lifelog.app.util.snoozeShortLabel
 import com.lifelog.app.widget.QuickAddActivity
@@ -74,19 +73,21 @@ class AlarmDismissActivity : ComponentActivity() {
 
     // This Activity is pure UI. The alarm audio + ongoing notification are owned by AlarmService, so
     // the alarm keeps ringing even if this screen is backgrounded; the buttons just tell the service
-    // to stop. Nothing audio-related lives here anymore.
+    // to stop that one alarm. Nothing audio-related lives here anymore.
 
     // singleInstance means a second alarm arrives here via onNewIntent rather than a fresh onCreate,
-    // so the extras must live in observable state rather than local onCreate vals — otherwise the
-    // screen keeps showing the first alarm's title while Snooze/Add Entry act on its reminderId.
-    private lateinit var extras: MutableState<AlarmExtras>
+    // so the alarm on screen must live in observable state rather than local onCreate vals —
+    // otherwise the screen keeps showing the first alarm's title while Snooze/Add Entry act on its
+    // reminderId. The same state is what lets an answered alarm hand the screen to one that is
+    // still ringing (see showRingingOrFinish).
+    private lateinit var alarm: MutableState<RingingAlarm>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         wakeScreen()
 
-        extras = mutableStateOf(intent.toAlarmExtras())
-        viewModel.loadNextTrigger(extras.value.reminderId)
+        alarm = mutableStateOf(intent.toRingingAlarm())
+        viewModel.loadNextTrigger(alarm.value.reminderId)
 
         // Prevent the back gesture from bypassing the alarm screen; the user must tap an action.
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -101,7 +102,7 @@ class AlarmDismissActivity : ComponentActivity() {
             val prefs      by userPreferencesRepository.loaded.collectAsState()
             val theme      = prefs ?: UserPreferences()
             val nextTrigger by viewModel.nextTriggerAt.collectAsState()
-            val current    by extras
+            val current    by alarm
 
             LifeLogTheme(amoledBlack = theme.useAmoledBlack, dynamicColor = theme.useDynamicColor) {
                 AlarmScreen(
@@ -110,27 +111,29 @@ class AlarmDismissActivity : ComponentActivity() {
                     nextTriggerAt = nextTrigger,
                     snoozeMinutes = current.snoozeMinutes,
                     onDismiss = {
-                        AlarmService.stop(this@AlarmDismissActivity)
-                        finish()
+                        AlarmService.stop(current.reminderId)
+                        showRingingOrFinish()
                     },
                     onSnooze = {
                         // Stop now for an instant audio cut; ReminderReceiver (which owns the snooze
-                        // logic) also stops the service and reschedules — stop() is idempotent.
-                        AlarmService.stop(this@AlarmDismissActivity)
+                        // logic) also stops this alarm and reschedules — stop() is idempotent.
+                        AlarmService.stop(current.reminderId)
                         sendBroadcast(Intent(this@AlarmDismissActivity, ReminderReceiver::class.java).apply {
                             action = ReminderReceiver.ACTION_SNOOZE
                             putExtra(ReminderReceiver.EXTRA_REMINDER_ID, current.reminderId)
                         })
-                        finish()
+                        showRingingOrFinish()
                     },
                     onAddEntry = current.eventTypeId?.let { etId ->
                         {
-                            AlarmService.stop(this@AlarmDismissActivity)
+                            AlarmService.stop(current.reminderId)
                             startActivity(Intent(this@AlarmDismissActivity, QuickAddActivity::class.java).apply {
                                 putExtra(QuickAddActivity.EXTRA_EVENT_ID, etId)
                                 putExtra(QuickAddActivity.EXTRA_NOTIFICATION_ID, current.notificationId)
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             })
+                            // No showRingingOrFinish here: the user asked for the entry form, so an
+                            // alarm still ringing keeps only its notification to come back through.
                             finish()
                         }
                     }
@@ -142,8 +145,23 @@ class AlarmDismissActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        extras.value = intent.toAlarmExtras()
-        viewModel.loadNextTrigger(extras.value.reminderId)
+        alarm.value = intent.toRingingAlarm()
+        viewModel.loadNextTrigger(alarm.value.reminderId)
+    }
+
+    /**
+     * The alarm on screen has been answered. Alarms overlap, so another may still be ringing —
+     * show that one here rather than leaving the user with audio they have no screen to stop.
+     * Only when nothing is left does this screen go away.
+     */
+    private fun showRingingOrFinish() {
+        val stillRinging = AlarmService.ringingNow()
+        if (stillRinging == null) {
+            finish()
+            return
+        }
+        alarm.value = stillRinging
+        viewModel.loadNextTrigger(stillRinging.reminderId)
     }
 
     // ── Wake / lock-screen helpers ─────────────────────────────────────────────
@@ -170,13 +188,6 @@ class AlarmDismissActivity : ComponentActivity() {
     }
 
     companion object {
-        const val EXTRA_REMINDER_ID    = "reminder_id"
-        const val EXTRA_TITLE          = "title"
-        const val EXTRA_MESSAGE        = "message"
-        const val EXTRA_NOTIFICATION_ID = "notification_id"
-        const val EXTRA_EVENT_TYPE_ID  = "event_type_id"
-        const val EXTRA_SNOOZE_MINUTES = "snooze_minutes"
-
         /**
          * Single source of truth for the launch Intent, shared by the full-screen-intent
          * PendingIntent (NotificationHelper, lock-screen path) and ReminderReceiver's direct
@@ -184,45 +195,11 @@ class AlarmDismissActivity : ComponentActivity() {
          * Activity from a non-Activity context; FLAG_ACTIVITY_NO_USER_ACTION suppresses
          * onUserLeaveHint so the alarm isn't treated as a user-initiated app switch.
          */
-        fun createIntent(
-            context: Context,
-            reminderId: Long,
-            title: String,
-            message: String,
-            notificationId: Int,
-            eventTypeId: Long?,
-            snoozeMinutes: Int = Reminder.DEFAULT_SNOOZE_MINUTES
-        ): Intent = Intent(context, AlarmDismissActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION
-            putExtra(EXTRA_REMINDER_ID, reminderId)
-            putExtra(EXTRA_TITLE, title)
-            putExtra(EXTRA_MESSAGE, message)
-            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
-            putExtra(EXTRA_EVENT_TYPE_ID, eventTypeId ?: -1L)
-            putExtra(EXTRA_SNOOZE_MINUTES, snoozeMinutes)
-        }
+        fun createIntent(context: Context, alarm: RingingAlarm): Intent =
+            alarm.putInto(Intent(context, AlarmDismissActivity::class.java)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION
+            }
     }
-}
-
-private data class AlarmExtras(
-    val reminderId: Long,
-    val title: String,
-    val message: String,
-    val notificationId: Int,
-    val eventTypeId: Long?,
-    val snoozeMinutes: Int
-)
-
-private fun Intent.toAlarmExtras(): AlarmExtras {
-    val reminderId = getLongExtra(AlarmDismissActivity.EXTRA_REMINDER_ID, -1L)
-    return AlarmExtras(
-        reminderId = reminderId,
-        title = getStringExtra(AlarmDismissActivity.EXTRA_TITLE) ?: "LifeLog Alarm",
-        message = getStringExtra(AlarmDismissActivity.EXTRA_MESSAGE) ?: "",
-        notificationId = getIntExtra(AlarmDismissActivity.EXTRA_NOTIFICATION_ID, reminderId.toInt()),
-        eventTypeId = getLongExtra(AlarmDismissActivity.EXTRA_EVENT_TYPE_ID, -1L).takeIf { it != -1L },
-        snoozeMinutes = getIntExtra(AlarmDismissActivity.EXTRA_SNOOZE_MINUTES, Reminder.DEFAULT_SNOOZE_MINUTES)
-    )
 }
 
 // ── Full-screen alarm UI ───────────────────────────────────────────────────────

@@ -65,20 +65,27 @@ class ReminderReceiver : BroadcastReceiver() {
         val eventTypeId = reminder.eventTypeId
 
         if (reminder.deliveryType == DeliveryType.ALARM) {
+            val alarm = RingingAlarm(
+                reminderId = reminder.id,
+                title = title,
+                message = message,
+                notificationId = notifId,
+                eventTypeId = eventTypeId,
+                snoozeMinutes = reminder.snoozeMinutes
+            )
             // The foreground service owns the single audio source and posts the ongoing full-screen-
-            // intent notification. Exact alarms (setAlarmClock) get a temporary background-start
-            // allowlist when they fire, which holds for the duration of this broadcast (goAsync),
-            // so starting the service after the quick DB read above is still allowed.
-            AlarmService.start(context, reminder.id, title, message, notifId, eventTypeId, reminder.snoozeMinutes)
+            // intent notification (one per alarm ringing). Exact alarms (setAlarmClock) get a
+            // temporary background-start allowlist when they fire, which holds for the duration of
+            // this broadcast (goAsync), so starting the service after the quick DB read above is
+            // still allowed.
+            AlarmService.start(context, alarm)
             // setFullScreenIntent only auto-launches the activity when the screen is locked/off; while
             // the device is unlocked the system shows a heads-up notification instead and waits for a
             // tap. Launch the activity directly so the full-screen alarm appears in BOTH states.
             // AlarmDismissActivity is singleInstance, so this and any full-screen-intent launch
             // collapse into one instance.
             try {
-                context.startActivity(
-                    AlarmDismissActivity.createIntent(context, reminder.id, title, message, notifId, eventTypeId, reminder.snoozeMinutes)
-                )
+                context.startActivity(AlarmDismissActivity.createIntent(context, alarm))
             } catch (_: Exception) {
                 // Background-activity-launch blocked (rare): the full-screen-intent notification is the fallback.
             }
@@ -89,7 +96,10 @@ class ReminderReceiver : BroadcastReceiver() {
 
     private fun handleSnooze(context: Context, intent: Intent) {
         val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L).takeIf { it != -1L } ?: return
-        AlarmService.stop(context)   // stop alarm audio + remove the foreground-service notification (no-op for non-alarm)
+        // Stops THIS alarm — its audio if nothing else is ringing, its notification either way.
+        // The explicit cancel below is what removes a non-alarm reminder's notification, where no
+        // service was ever started.
+        AlarmService.stop(reminderId)
         NotificationHelper.cancelNotification(context, reminderId.toInt())
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
@@ -105,7 +115,7 @@ class ReminderReceiver : BroadcastReceiver() {
 
     private fun handleDismiss(context: Context, intent: Intent) {
         val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L).takeIf { it != -1L } ?: return
-        AlarmService.stop(context)   // stop alarm audio + remove the foreground-service notification (no-op for non-alarm)
+        AlarmService.stop(reminderId)   // see handleSnooze: this alarm only, and a no-op for non-alarm
         NotificationHelper.cancelNotification(context, reminderId.toInt())
     }
 
