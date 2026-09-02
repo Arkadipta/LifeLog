@@ -3,12 +3,19 @@ package com.lifelog.app.domain
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.domain.query.*
+import kotlin.math.abs
+import kotlin.math.max
 
 /**
  * Pure, stateless engine that applies an [EntryQuery] to a list of [EventEntry] objects.
  *
  * Missing values on sort: entries where the sort field is absent always appear last,
  * regardless of sort direction. This ensures a stable, predictable ordering.
+ *
+ * Unevaluable values are excluded: an entry whose field is absent — or holds a value the
+ * condition cannot be judged against (see [compareNumeric]) — matches no filter, including
+ * the negative ones (NOT_EQUALS, DOES_NOT_CONTAIN). "Not 120" means "holds a number, and
+ * that number isn't 120", not "fails to hold 120".
  */
 object EntryQueryEngine {
 
@@ -40,15 +47,14 @@ object EntryQueryEngine {
 
     private fun evaluateNumeric(entry: EventEntry, condition: FilterCondition.NumericFilter): Boolean {
         val fieldValue = entry.fieldValues[condition.fieldId] as? FieldValue.Numeric ?: return false
-        val entryVal = fieldValue.value
-        val condVal = condition.value
+        val order = compareNumeric(fieldValue.value, condition.value) ?: return false
         return when (condition.operator) {
-            NumericOperator.EQUALS -> entryVal == condVal
-            NumericOperator.NOT_EQUALS -> entryVal != condVal
-            NumericOperator.GREATER_THAN -> entryVal > condVal
-            NumericOperator.GREATER_THAN_OR_EQUAL -> entryVal >= condVal
-            NumericOperator.LESS_THAN -> entryVal < condVal
-            NumericOperator.LESS_THAN_OR_EQUAL -> entryVal <= condVal
+            NumericOperator.EQUALS -> order == 0
+            NumericOperator.NOT_EQUALS -> order != 0
+            NumericOperator.GREATER_THAN -> order > 0
+            NumericOperator.GREATER_THAN_OR_EQUAL -> order >= 0
+            NumericOperator.LESS_THAN -> order < 0
+            NumericOperator.LESS_THAN_OR_EQUAL -> order <= 0
         }
     }
 
@@ -92,6 +98,11 @@ object EntryQueryEngine {
                 }
             }
         }
+        // Double.compareTo is a total order (NaN sorts last, -0.0 before 0.0), so a
+        // non-finite value sorts predictably instead of corrupting the comparator the
+        // way a raw `<` would. Sorting deliberately keeps exact ordering: the filter
+        // tolerance below exists to answer "is this the number the user typed?", and
+        // collapsing near-equal values into ties here would only make the order arbitrary.
         return if (spec.direction == SortDirection.DESCENDING) {
             entries.sortedWith(comparator.reversed())
                 .let { sorted ->
@@ -107,4 +118,41 @@ object EntryQueryEngine {
             entries.sortedWith(comparator)
         }
     }
+}
+
+/**
+ * Relative tolerance for numeric filter comparisons — nine significant digits, which is
+ * more precision than any hand-logged measurement carries and well inside the ~15 digits
+ * a Double actually holds.
+ */
+private const val NUMERIC_TOLERANCE = 1e-9
+
+/**
+ * Three-way comparison of a stored value against a filter value, tolerant of
+ * floating-point noise: -1 below, 0 indistinguishable, 1 above, and **null when the
+ * question is unanswerable** because either side is NaN or infinite.
+ *
+ * Every numeric operator is expressed through this one function so the six of them
+ * cannot disagree: exactly one of `<`, `≈`, `>` holds for any pair, so `>` and `<=`
+ * always partition the entries and `EQUALS`/`NOT_EQUALS` are exact complements. Giving
+ * only `EQUALS` a tolerance would have created a new contradiction — a value that is
+ * "equal to 130" while also being "greater than 130".
+ *
+ * The tolerance is relative, floored at 1.0 so values near zero get an absolute 1e-9
+ * window rather than a vanishing one. Two numbers this close cannot be told apart by the
+ * entry form, which parses what the user typed, or by the CSV wizard, which parses what
+ * the file held — so treating them as different could only ever surprise someone.
+ *
+ * Non-finite values reach the database through CSV import: `"NaN".toDoubleOrNull()` and
+ * `"Infinity".toDoubleOrNull()` both succeed, so a column of them is inferred NUMERIC and
+ * stored verbatim. Returning null routes those to the engine's exclude-what-you-cannot-
+ * judge rule. Left to IEEE semantics a NaN row would have been silently swept into every
+ * NOT_EQUALS result — the one place a corrupt value could masquerade as a real answer.
+ */
+internal fun compareNumeric(value: Double, other: Double): Int? {
+    if (!value.isFinite() || !other.isFinite()) return null
+    if (value == other) return 0
+    val scale = max(abs(value), abs(other)).coerceAtLeast(1.0)
+    if (abs(value - other) <= NUMERIC_TOLERANCE * scale) return 0
+    return if (value < other) -1 else 1
 }
