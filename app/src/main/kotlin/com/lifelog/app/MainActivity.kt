@@ -53,9 +53,14 @@ class MainActivity : ComponentActivity() {
     private var pendingShortcut by mutableStateOf<ShortcutDestination?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // The app has no honest frame to draw until it knows which theme it is in, so the
+        // splash screen stays up for the (usually already finished) first read of the
+        // stored preferences instead of the window opening in the wrong colours.
+        splashScreen.setKeepOnScreenCondition { userPreferencesRepository.loaded.value == null }
 
         // Only on a fresh launch — a config-change recreation must not re-route.
         if (savedInstanceState == null) {
@@ -64,19 +69,19 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val prefs by userPreferencesRepository.userPreferences.collectAsState(
-                initial = com.lifelog.app.data.repository.UserPreferences()
-            )
-            LifeLogTheme(
-                amoledBlack = prefs.useAmoledBlack,
-                dynamicColor = prefs.useDynamicColor
-            ) {
-                AppNavigation(
-                    openEventId = pendingEventId,
-                    onEventOpened = { pendingEventId = null },
-                    shortcut = pendingShortcut,
-                    onShortcutHandled = { pendingShortcut = null }
-                )
+            val prefs by userPreferencesRepository.loaded.collectAsState()
+            prefs?.let { preferences ->
+                LifeLogTheme(
+                    amoledBlack = preferences.useAmoledBlack,
+                    dynamicColor = preferences.useDynamicColor
+                ) {
+                    AppNavigation(
+                        openEventId = pendingEventId,
+                        onEventOpened = { pendingEventId = null },
+                        shortcut = pendingShortcut,
+                        onShortcutHandled = { pendingShortcut = null }
+                    )
+                }
             }
         }
     }

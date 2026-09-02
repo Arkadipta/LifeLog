@@ -94,11 +94,16 @@ class AlarmDismissActivity : ComponentActivity() {
         })
 
         setContent {
-            val prefs      by userPreferencesRepository.userPreferences.collectAsState(UserPreferences())
+            // Unlike the other screens this one cannot wait for the stored theme — it is an
+            // opaque full-screen window the user is already looking at — so it takes the
+            // eagerly read value if it has landed (it has, unless the alarm started this
+            // process moments ago) and defaults otherwise.
+            val prefs      by userPreferencesRepository.loaded.collectAsState()
+            val theme      = prefs ?: UserPreferences()
             val nextTrigger by viewModel.nextTriggerAt.collectAsState()
             val current    by extras
 
-            LifeLogTheme(amoledBlack = prefs.useAmoledBlack, dynamicColor = prefs.useDynamicColor) {
+            LifeLogTheme(amoledBlack = theme.useAmoledBlack, dynamicColor = theme.useDynamicColor) {
                 AlarmScreen(
                     title        = current.title,
                     message      = current.message,
