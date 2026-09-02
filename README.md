@@ -54,7 +54,7 @@ Schedule daily, weekly, monthly, fixed-interval, or "time since last entry" remi
 Drop a live timeline or a one-tap quick-add widget on your home screen. Both are color-coded by event and update as you log.
 
 **Your data, in your hands.**
-Everything is stored locally. Export a full SQLite database, a portable JSON backup, or spreadsheet-ready CSV, restore from a backup in one step, and import existing data straight from a CSV file.
+Everything is stored locally. Export a full SQLite database, portable JSON, or spreadsheet-ready CSV, restore from a database backup in one step, and import existing data straight from a CSV file.
 
 **Made to feel personal.**
 Material 3 Expressive styling, a full color wheel and a library of over a hundred icons per tracker, light and dark themes, a true-black AMOLED mode, and optional dynamic color from your wallpaper.
@@ -138,7 +138,7 @@ LifeLog is built so that your information stays with you.
 | **JSON**   | Portability and inspection                | A structured, human-readable snapshot of everything    |
 | **CSV**    | Spreadsheets and external analysis        | One file per tracker, with a column for each field     |
 
-You can also **restore** from a SQLite backup, schedule **automatic local backups**, and **import** existing records by mapping a CSV file into a new tracker.
+You can also **restore** from a SQLite backup, schedule **automatic backups** (the last 7 are kept and restorable straight from Settings), and **import** existing records by mapping a CSV file into a new tracker. Automatic backups go to private app storage by default, or to **any folder you choose** (SD card included) via Settings → Backup Location. A chosen folder survives uninstalling the app — after a reinstall, bring your data back with *Restore from SQLite Database*, then re-select the folder.
 
 <br/>
 

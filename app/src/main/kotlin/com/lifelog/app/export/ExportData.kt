@@ -5,9 +5,10 @@ import kotlinx.serialization.Serializable
 const val EXPORT_SCHEMA_VERSION = 1
 
 /**
- * Root container for a full LifeLog export. Schema version is incremented
- * whenever the structure of the contained rows changes, enabling future
- * migration logic in ImportEngine.
+ * Root container for a full LifeLog JSON export. Schema version is
+ * incremented whenever the structure of the contained rows changes so
+ * consumers of the file can tell formats apart. These exports are
+ * write-only: LifeLog restores from SQLite backups, not JSON.
  */
 @Serializable
 data class ExportData(
@@ -64,8 +65,7 @@ data class ReminderRow(
     val deliveryType: String,
     val recurrenceType: String,
     val recurrenceRuleJson: String,
-    // Defaulted so backups written before per-reminder snooze (no field) decode to the legacy 10 min.
-    val snoozeMinutes: Int = 10,
+    val snoozeMinutes: Int,
     val nextTriggerAt: Long,
     val isActive: Boolean
 )

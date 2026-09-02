@@ -47,6 +47,9 @@ android {
 
     buildFeatures {
         compose = true
+        // Opts out of android.defaults.buildfeatures.buildconfig=false: BuildConfig.DEBUG
+        // is what gates the widget diagnostics in util/AppLog.kt out of release builds.
+        buildConfig = true
     }
 
     packaging {
@@ -103,4 +106,9 @@ dependencies {
     implementation(libs.vico.compose.m3)
 
     testImplementation(libs.junit4)
+
+    // Instrumented tests: real device DB (FK cascades, DAO transactions), real
+    // AlarmManager PendingIntents, and on-device SQLite files for restore validation.
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
 }

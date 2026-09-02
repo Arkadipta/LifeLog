@@ -49,6 +49,7 @@ import androidx.glance.text.TextStyle
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.theme.DarkColorScheme
 import com.lifelog.app.ui.theme.LightColorScheme
+import com.lifelog.app.util.logD
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -66,7 +67,7 @@ class QuickAddWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        Log.d(TAG, "provideGlance start: glanceId=$id ts=${System.currentTimeMillis()}")
+        logD(TAG) { "provideGlance start: glanceId=$id ts=${System.currentTimeMillis()}" }
         provideContent {
             val prefs = currentState<Preferences>()
             val eventId = prefs[PREF_EVENT_ID] ?: 0L
@@ -76,7 +77,7 @@ class QuickAddWidget : GlanceAppWidget() {
             val eventColor = prefs[PREF_EVENT_COLOR] ?: EventType.DEFAULT_COLOR
             val eventIcon = prefs[PREF_EVENT_ICON] ?: "star"
 
-            Log.d(TAG, "QuickAddWidget composing: glanceId=$id eventId=$eventId eventName='$eventName' ts=${System.currentTimeMillis()}")
+            logD(TAG) { "QuickAddWidget composing: glanceId=$id eventId=$eventId eventName='$eventName' ts=${System.currentTimeMillis()}" }
 
             GlanceTheme(
                 colors = ColorProviders(
@@ -121,8 +122,15 @@ private fun QuickAddWidgetContent(
     val h = size.height.value
     val lim = minOf(w, h)
     val accent = Color(eventColor)
+    // eventId 0 = the bound event was deleted and the widget's state cleared; it
+    // still renders (relabeled by the clear), but must not promise an add action.
+    val configured = eventId != 0L
     val displayName = eventName.ifBlank { "Quick Add" }
-    val a11yLabel = if (eventName.isBlank()) "Add entry" else "Add $eventName entry"
+    val a11yLabel = when {
+        !configured -> displayName
+        eventName.isBlank() -> "Add entry"
+        else -> "Add $eventName entry"
+    }
 
     val actionIntent = Intent(context, QuickAddActivity::class.java).apply {
         putExtra(QuickAddActivity.EXTRA_EVENT_ID, eventId)
@@ -149,9 +157,9 @@ private fun QuickAddWidgetContent(
         // them centered. The row keeps a 2×1-style widget from collapsing to an
         // icon with no room for its name.
         if (w >= h * 1.6f && h < 120f) {
-            QuickAddRow(card, accent, eventIcon, displayName, w, h)
+            QuickAddRow(card, accent, eventIcon, displayName, w, h, showAddHint = configured)
         } else {
-            QuickAddColumn(card, accent, eventIcon, displayName, w, h)
+            QuickAddColumn(card, accent, eventIcon, displayName, w, h, showAddHint = configured)
         }
     }
 }
@@ -173,12 +181,13 @@ private fun QuickAddColumn(
     eventIcon: String,
     name: String,
     w: Float,
-    h: Float
+    h: Float,
+    showAddHint: Boolean
 ) {
     val lim = minOf(w, h)
     val m = chipMetricsFor(lim)
     val showName = lim >= 84f
-    val showAdd = h >= 132f && lim >= 100f
+    val showAdd = showAddHint && h >= 132f && lim >= 100f
 
     Column(
         modifier = card.padding(m.pad),
@@ -221,11 +230,12 @@ private fun QuickAddRow(
     eventIcon: String,
     name: String,
     w: Float,
-    h: Float
+    h: Float,
+    showAddHint: Boolean
 ) {
     val tile = if (h < 84f) 40.dp else 48.dp
     val glyph = if (h < 84f) 24.dp else 28.dp
-    val showAdd = w >= 230f
+    val showAdd = showAddHint && w >= 230f
 
     Row(
         modifier = card.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -306,11 +316,10 @@ class QuickAddWidgetReceiver : GlanceAppWidgetReceiver() {
             }
         }
 
-        Log.d(
-            TAG,
+        logD(TAG) {
             "onUpdate: ${appWidgetIds.size} requested, ${validIds.size} ready, " +
             "${skippedIds.size} deferred: $skippedIds"
-        )
+        }
 
         skippedIds.forEach { id ->
             Log.w(TAG, "onUpdate: scheduling 3s retry for appWidgetId=$id")
@@ -320,7 +329,7 @@ class QuickAddWidgetReceiver : GlanceAppWidgetReceiver() {
                     if (AppWidgetManager.getInstance(context).getAppWidgetInfo(id) != null) {
                         val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(id)
                         QuickAddWidget().update(context, glanceId)
-                        Log.d(TAG, "onUpdate retry: update complete for appWidgetId=$id")
+                        logD(TAG) { "onUpdate retry: update complete for appWidgetId=$id" }
                     } else {
                         Log.e(TAG, "onUpdate retry: appWidgetId=$id still not bound after 3s — giving up")
                     }
@@ -347,12 +356,12 @@ class QuickAddWidgetReceiver : GlanceAppWidgetReceiver() {
         newOptions: Bundle
     ) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        Log.d(TAG, "onAppWidgetOptionsChanged: appWidgetId=$appWidgetId ts=${System.currentTimeMillis()}")
+        logD(TAG) { "onAppWidgetOptionsChanged: appWidgetId=$appWidgetId ts=${System.currentTimeMillis()}" }
         receiverScope.launch {
             try {
                 val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(appWidgetId)
                 QuickAddWidget().update(context, glanceId)
-                Log.d(TAG, "onAppWidgetOptionsChanged: update complete for appWidgetId=$appWidgetId ts=${System.currentTimeMillis()}")
+                logD(TAG) { "onAppWidgetOptionsChanged: update complete for appWidgetId=$appWidgetId ts=${System.currentTimeMillis()}" }
             } catch (e: Exception) {
                 Log.e(TAG, "onAppWidgetOptionsChanged: update failed for appWidgetId=$appWidgetId", e)
             }

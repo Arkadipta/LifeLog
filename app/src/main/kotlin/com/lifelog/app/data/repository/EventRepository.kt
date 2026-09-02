@@ -4,15 +4,19 @@ import androidx.room.withTransaction
 import com.lifelog.app.data.db.LifeLogDatabase
 import com.lifelog.app.data.db.toDomain
 import com.lifelog.app.data.db.toEntity
+import com.lifelog.app.data.db.toRow
 import com.lifelog.app.data.db.dao.EventEntryDao
 import com.lifelog.app.data.db.dao.EventFieldDao
 import com.lifelog.app.data.db.dao.EventTypeDao
+import com.lifelog.app.data.db.entity.EventFieldEntity
+import com.lifelog.app.domain.model.EntryRow
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.EventType
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -26,6 +30,19 @@ class EventRepository @Inject constructor(
     private val eventEntryDao: EventEntryDao
 ) {
 
+    /**
+     * The event list, live. Four whole-table reads combined and joined in memory —
+     * deliberately not one field query per event type inside the transform, which
+     * is what this used to do: that ran N queries on every emission of any of the
+     * other flows, on a path six screens/widgets subscribe to (twice each on the
+     * Events and Timeline screens).
+     *
+     * Observing `event_fields` rather than reading it one-shot also fixes what the
+     * query count hid: with only the three flows below, an edit that touched just
+     * a field definition — [addFieldOption] adding a choice mid-entry — changed no
+     * observed table, so the list kept serving stale fields until an unrelated
+     * write woke it.
+     */
     fun observeAllEventTypes(): Flow<List<EventType>> =
         combine(
             eventTypeDao.observeAll(),
@@ -33,19 +50,32 @@ class EventRepository @Inject constructor(
             // entry re-emits the list with a fresh count without an event-type edit.
             eventTypeDao.observeEntryCounts(),
             // Drives "Recent activity" sorting; re-emits on any entry change too.
-            eventTypeDao.observeLatestEntryTimes()
-        ) { entities, counts, latestTimes ->
+            eventTypeDao.observeLatestEntryTimes(),
+            eventFieldDao.observeAll()
+        ) { entities, counts, latestTimes, fields ->
             val countByType = counts.associate { it.eventTypeId to it.count }
             val latestByType = latestTimes.associate { it.eventTypeId to it.latestAt }
+            val fieldsByType = fields.groupByEventType()
             entities.map { entity ->
-                val fields = eventFieldDao.getByEventType(entity.id).map { it.toDomain() }
-                entity.toDomain(fields, countByType[entity.id] ?: 0, latestByType[entity.id])
+                entity.toDomain(
+                    fields = fieldsByType[entity.id].orEmpty(),
+                    entryCount = countByType[entity.id] ?: 0,
+                    lastEntryAt = latestByType[entity.id]
+                )
             }
         }
 
+    /**
+     * One event type with its fields, live.
+     *
+     * [distinctUntilChanged] because Room invalidates per *table*, not per row:
+     * without it every write anywhere in `event_types` re-emitted this row
+     * unchanged, and each of those re-emissions tore down and re-subscribed the
+     * inner fields query as well.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun observeEventType(id: Long): Flow<EventType?> =
-        eventTypeDao.observeById(id).flatMapLatest { entity ->
+        eventTypeDao.observeById(id).distinctUntilChanged().flatMapLatest { entity ->
             eventFieldDao.observeByEventType(id).map { fieldEntities ->
                 entity?.toDomain(fieldEntities.map { it.toDomain() })
             }
@@ -84,47 +114,63 @@ class EventRepository @Inject constructor(
         eventTypeDao.deleteById(id)
     }
 
+    /**
+     * Appends [option] to a Choice/MultiSelect field's stored definition — a
+     * targeted single-row update rather than [saveEventType]'s wholesale field
+     * replacement, so an option added mid-entry can't race a concurrent edit of
+     * the other fields. Works from a fresh read of the row (not a caller-held
+     * copy) and returns the field as now persisted, or null when the field no
+     * longer exists. An already-present option is left as-is.
+     */
+    suspend fun addFieldOption(fieldId: Long, option: String): EventField? {
+        val stored = eventFieldDao.getById(fieldId)?.toDomain() ?: return null
+        if (option in stored.options) return stored
+        val updated = stored.copy(options = stored.options + option)
+        eventFieldDao.update(updated.toEntity())
+        return updated
+    }
+
+    /**
+     * One event type's entries, decoded, newest first — the event detail screen's
+     * list and its charts.
+     *
+     * Both inputs are [distinctUntilChanged] for the same reason as
+     * [observeEventType]: Room re-runs and re-emits a query whenever *any* row of
+     * a table it reads changes, so logging an entry under a different event type
+     * used to re-decode this one's whole history (two JSON parses a row) and
+     * re-process every chart on the screen with byte-identical input.
+     */
     fun observeEntriesForEventType(eventTypeId: Long): Flow<List<EventEntry>> {
-        val entityFlow = eventTypeDao.observeById(eventTypeId)
-        val entriesFlow = eventEntryDao.observeByEventType(eventTypeId)
+        val entityFlow = eventTypeDao.observeById(eventTypeId).distinctUntilChanged()
+        val entriesFlow = eventEntryDao.observeByEventType(eventTypeId).distinctUntilChanged()
         return combine(entityFlow, entriesFlow) { entity, entries ->
-            entries.map { e ->
-                e.toDomain(
-                    eventTypeName = entity?.name ?: "",
-                    eventTypeCategory = entity?.category ?: "",
-                    eventTypeColor = entity?.colorArgb ?: EventType.DEFAULT_COLOR,
-                    eventTypeIcon = entity?.iconName ?: "star"
-                )
-            }
+            entries.map { it.toDomain(entity) }
         }
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    fun observeAllEntries(): Flow<List<EventEntry>> =
-        eventEntryDao.observeAll().flatMapLatest { entries ->
-            eventTypeDao.observeAll().map { types ->
-                val typeMap = types.associateBy { it.id }
-                entries.map { e ->
-                    val type = typeMap[e.eventTypeId]
-                    e.toDomain(
-                        eventTypeName = type?.name ?: "",
-                        eventTypeCategory = type?.category ?: "",
-                        eventTypeColor = type?.colorArgb ?: EventType.DEFAULT_COLOR,
-                        eventTypeIcon = type?.iconName ?: "star"
-                    )
-                }
-            }
+    /**
+     * Every entry, newest first, as list rows with values still encoded — the
+     * Timeline's source. Two whole-table flows joined with [combine] rather than
+     * the entries flow flat-mapping the types flow: flat-mapping tore down and
+     * re-subscribed the type query (and re-ran it) on every single entry write,
+     * and cancelled an in-flight type emission whenever the two raced. Same shape
+     * P1 applied to [observeAllEventTypes].
+     *
+     * Rows are mapped with [toRow], so an emission costs one pass of field copies
+     * and no JSON parsing at all; the values of a row are decoded only if a card
+     * for it is actually drawn. Mapping the whole table eagerly here was the
+     * Timeline's dominant cost — it ran on the collector's thread, which for a
+     * `stateIn(viewModelScope, …)` collector is the main thread.
+     */
+    fun observeAllEntryRows(): Flow<List<EntryRow>> =
+        combine(eventEntryDao.observeAll(), eventTypeDao.observeAll()) { entries, types ->
+            val typeMap = types.associateBy { it.id }
+            entries.map { it.toRow(typeMap[it.eventTypeId]) }
         }
 
     suspend fun getEntry(id: Long): EventEntry? {
         val entity = eventEntryDao.getById(id) ?: return null
-        val type = eventTypeDao.getById(entity.eventTypeId)
-        return entity.toDomain(
-            eventTypeName = type?.name ?: "",
-            eventTypeCategory = type?.category ?: "",
-            eventTypeColor = type?.colorArgb ?: EventType.DEFAULT_COLOR,
-            eventTypeIcon = type?.iconName ?: "star"
-        )
+        return entity.toDomain(eventTypeDao.getById(entity.eventTypeId))
     }
 
     suspend fun saveEntry(entry: EventEntry): Long {
@@ -144,48 +190,31 @@ class EventRepository @Inject constructor(
         val entities = eventEntryDao.getRecent(limit)
         val typeIds = entities.map { it.eventTypeId }.distinct()
         val types = typeIds.mapNotNull { eventTypeDao.getById(it) }.associateBy { it.id }
-        return entities.map { e ->
-            val type = types[e.eventTypeId]
-            e.toDomain(
-                eventTypeName = type?.name ?: "",
-                eventTypeCategory = type?.category ?: "",
-                eventTypeColor = type?.colorArgb ?: EventType.DEFAULT_COLOR,
-                eventTypeIcon = type?.iconName ?: "star"
-            )
-        }
+        return entities.map { it.toDomain(types[it.eventTypeId]) }
     }
 
     suspend fun getAllEventTypesForExport(): List<EventType> {
+        // Same whole-table shape as observeAllEventTypes: three reads for the
+        // export, not the two-per-type (fields + count) this used to issue.
+        val fieldsByType = eventFieldDao.getAll().groupByEventType()
+        val countByType = eventTypeDao.getEntryCounts().associate { it.eventTypeId to it.count }
         return eventTypeDao.getAll().map { entity ->
-            val fields = eventFieldDao.getByEventType(entity.id).map { it.toDomain() }
-            val count = eventTypeDao.getEntryCount(entity.id)
-            entity.toDomain(fields, count)
+            entity.toDomain(
+                fields = fieldsByType[entity.id].orEmpty(),
+                entryCount = countByType[entity.id] ?: 0
+            )
         }
     }
 
     suspend fun getAllEntriesForEventType(eventTypeId: Long): List<EventEntry> {
         val type = eventTypeDao.getById(eventTypeId)
-        return eventEntryDao.getAllForExport(eventTypeId).map { e ->
-            e.toDomain(
-                eventTypeName = type?.name ?: "",
-                eventTypeCategory = type?.category ?: "",
-                eventTypeColor = type?.colorArgb ?: EventType.DEFAULT_COLOR,
-                eventTypeIcon = type?.iconName ?: "star"
-            )
-        }
+        return eventEntryDao.getAllForExport(eventTypeId).map { it.toDomain(type) }
     }
 
     suspend fun getRecentEntriesByEventType(eventTypeId: Long, limit: Int = 10): List<EventEntry> {
         val entities = eventEntryDao.getRecentByEventType(eventTypeId, limit)
         val type = eventTypeDao.getById(eventTypeId)
-        return entities.map { e ->
-            e.toDomain(
-                eventTypeName = type?.name ?: "",
-                eventTypeCategory = type?.category ?: "",
-                eventTypeColor = type?.colorArgb ?: EventType.DEFAULT_COLOR,
-                eventTypeIcon = type?.iconName ?: "star"
-            )
-        }
+        return entities.map { it.toDomain(type) }
     }
 
     suspend fun getRecentEntriesByCategory(category: String, limit: Int = 10): List<EventEntry> {
@@ -193,15 +222,7 @@ class EventRepository @Inject constructor(
         if (matchingTypes.isEmpty()) return emptyList()
         val typeIds = matchingTypes.map { it.id }
         val typeMap = matchingTypes.associateBy { it.id }
-        return eventEntryDao.getRecentByEventTypes(typeIds, limit).map { e ->
-            val type = typeMap[e.eventTypeId]
-            e.toDomain(
-                eventTypeName = type?.name ?: "",
-                eventTypeCategory = type?.category ?: "",
-                eventTypeColor = type?.colorArgb ?: EventType.DEFAULT_COLOR,
-                eventTypeIcon = type?.iconName ?: "star"
-            )
-        }
+        return eventEntryDao.getRecentByEventTypes(typeIds, limit).map { it.toDomain(typeMap[it.eventTypeId]) }
     }
 
     /**
@@ -209,11 +230,16 @@ class EventRepository @Inject constructor(
      * each list ordered by sortOrder. The timeline widget needs these to label
      * every stored value — an [EventEntry] only carries field id → value, so the
      * names ("Systolic", "Pulse", …) and units live on the field definitions.
+     *
+     * Every requested id gets an entry, empty when the type defines no fields.
      */
-    suspend fun getFieldsByEventType(eventTypeIds: List<Long>): Map<Long, List<EventField>> =
-        eventTypeIds.distinct().associateWith { id ->
-            eventFieldDao.getByEventType(id).map { it.toDomain() }
-        }
+    suspend fun getFieldsByEventType(eventTypeIds: List<Long>): Map<Long, List<EventField>> {
+        if (eventTypeIds.isEmpty()) return emptyMap()
+        // One read for the table beats one per requested id: the widget calls this
+        // with the type of every entry it renders, on every widget update.
+        val fieldsByType = eventFieldDao.getAll().groupByEventType()
+        return eventTypeIds.distinct().associateWith { fieldsByType[it].orEmpty() }
+    }
 
     suspend fun getAllCategories(): List<String> =
         eventTypeDao.getAll()
@@ -221,3 +247,15 @@ class EventRepository @Inject constructor(
             .distinct()
             .sorted()
 }
+
+/**
+ * Groups a whole-table field read by owning event type, mapping each row to its
+ * domain model.
+ *
+ * Both DAO reads behind this order by (eventTypeId, sortOrder) and [groupBy]
+ * preserves encounter order, so each type's list arrives in sortOrder without a
+ * second sort — a query that drops that ORDER BY silently scrambles field order
+ * in every form built from it.
+ */
+private fun List<EventFieldEntity>.groupByEventType(): Map<Long, List<EventField>> =
+    groupBy { it.eventTypeId }.mapValues { (_, rows) -> rows.map { it.toDomain() } }

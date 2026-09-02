@@ -18,7 +18,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.lifelog.app.domain.model.EventEntry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -30,7 +29,7 @@ import kotlin.math.abs
  * screens. It owns the date-picker visibility, knows which days actually hold
  * entries (so empty days can't be chosen), tracks the day at the top of the
  * viewport for preselection, and scrolls the list to a chosen day or back to
- * the newest entries. A screen only supplies its entry list, the list's
+ * the newest entries. A screen only supplies its prepared list, the list's
  * [LazyListState], and how many items precede the cards — all selection,
  * validation, and scrolling lives here so the two screens cannot drift apart.
  *
@@ -88,23 +87,21 @@ class DateNavigator internal constructor(
 
 /**
  * Creates the [DateNavigator] for a list and keeps its day positions in sync
- * with [entries]. Pass [groupByDate] = false when the list is sorted by
- * something other than time (date jumping then disables itself, while
- * jump-to-top stays available), and [leadingItemCount] for any items the screen
- * renders above the entry cards (e.g. a chart carousel).
+ * with [model], whose anchors were computed with the rest of the list. Pass
+ * [leadingItemCount] for any items the screen renders above the entry cards
+ * (e.g. a chart carousel). A model with no day groups is not chronological, so
+ * date jumping disables itself while jump-to-top stays available.
  */
 @Composable
 fun rememberDateNavigator(
-    entries: List<EventEntry>,
+    model: EntryListModel,
     listState: LazyListState,
-    groupByDate: Boolean = true,
     leadingItemCount: Int = 0
 ): DateNavigator {
     val scope = rememberCoroutineScope()
     val navigator = remember(listState) { DateNavigator(listState, scope) }
-    navigator.anchors = remember(entries, groupByDate, leadingItemCount) {
-        if (groupByDate) entryDateAnchors(entries, groupByDate = true, leadingItemCount)
-        else emptyList()
+    navigator.anchors = remember(model.anchors, leadingItemCount) {
+        model.anchors.offsetBy(leadingItemCount)
     }
     return navigator
 }

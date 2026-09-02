@@ -59,9 +59,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.domain.model.ChartConfig
-import com.lifelog.app.domain.model.EventEntry
+import com.lifelog.app.domain.model.EntryRow
 import com.lifelog.app.domain.model.FieldType
-import com.lifelog.app.domain.query.SortField
 import com.lifelog.app.ui.components.DeleteConfirmDialog
 import com.lifelog.app.ui.components.LifeLogFab
 import com.lifelog.app.ui.events.components.ChartCarousel
@@ -84,14 +83,14 @@ fun EventDetailScreen(
     LaunchedEffect(eventId) { viewModel.loadEvent(eventId) }
 
     val eventType by viewModel.eventType.collectAsStateWithLifecycle()
-    val entries by viewModel.entries.collectAsStateWithLifecycle()
+    val entryList by viewModel.entryList.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val charts by viewModel.charts.collectAsStateWithLifecycle()
     val chartDataMap by viewModel.chartDataMap.collectAsStateWithLifecycle()
 
     var showEntrySheet by remember { mutableStateOf(false) }
     var editingEntryId by remember { mutableStateOf<Long?>(null) }
-    var deleteTarget by remember { mutableStateOf<EventEntry?>(null) }
+    var deleteTarget by remember { mutableStateOf<EntryRow?>(null) }
     var searchActive by remember { mutableStateOf(false) }
     var showChartConfigSheet by remember { mutableStateOf(false) }
     var editingChart by remember { mutableStateOf<ChartConfig?>(null) }
@@ -100,13 +99,6 @@ fun EventDetailScreen(
     var showFilterSortSheet by remember { mutableStateOf(false) }
 
     val entryQuery by viewModel.entryQuery.collectAsStateWithLifecycle()
-
-    // Sticky day headers only make sense while the list is chronological;
-    // a field-value sort interleaves dates, so cards carry their own date.
-    val groupByDate = remember(entryQuery) {
-        val sortField = entryQuery.sort?.field
-        sortField == null || sortField is SortField.Timestamp
-    }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -149,9 +141,8 @@ fun EventDetailScreen(
     // cards, so it is the lone offset the date navigator needs.
     val leadingItemCount = if (showChartCarousel) 1 else 0
     val dateNavigator = rememberDateNavigator(
-        entries = entries,
+        model = entryList,
         listState = listState,
-        groupByDate = groupByDate,
         leadingItemCount = leadingItemCount
     )
 
@@ -218,7 +209,7 @@ fun EventDetailScreen(
                                     }
                                 )
                             }
-                            if (entries.isNotEmpty()) {
+                            if (entryList.rows.isNotEmpty()) {
                                 DropdownMenuItem(
                                     text = { Text("Jump to top") },
                                     leadingIcon = { Icon(Icons.Rounded.VerticalAlignTop, null) },
@@ -325,7 +316,7 @@ fun EventDetailScreen(
                 ) {}
             }
 
-            if (entries.isEmpty() && searchQuery.isBlank() && !showChartCarousel) {
+            if (entryList.rows.isEmpty() && searchQuery.isBlank() && !showChartCarousel) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -349,7 +340,7 @@ fun EventDetailScreen(
                     )
                     Spacer(Modifier.weight(0.62f))
                 }
-            } else if (entries.isEmpty() && searchQuery.isNotBlank()) {
+            } else if (entryList.rows.isEmpty() && searchQuery.isNotBlank()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
                         "No entries match \"$searchQuery\"",
@@ -387,7 +378,7 @@ fun EventDetailScreen(
                     }
 
                     // Empty entries state when carousel is shown
-                    if (entries.isEmpty() && searchQuery.isBlank()) {
+                    if (entryList.rows.isEmpty() && searchQuery.isBlank()) {
                         item(key = "entries_empty") {
                             Column(
                                 modifier = Modifier
@@ -415,14 +406,13 @@ fun EventDetailScreen(
                     }
 
                     entryCardItems(
-                        entries = entries,
+                        model = entryList,
                         fieldsFor = { eventType?.fields ?: emptyList() },
                         onEdit = {
                             editingEntryId = it.id
                             showEntrySheet = true
                         },
-                        onDeleteRequest = { deleteTarget = it },
-                        groupByDate = groupByDate
+                        onDeleteRequest = { deleteTarget = it }
                     )
                 }
             }
@@ -442,8 +432,7 @@ fun EventDetailScreen(
 
     if (showEntrySheet) {
         EntryFormSheet(
-            eventTypeId = eventId,
-            editingEntryId = editingEntryId,
+            mode = editingEntryId?.let { EntryFormMode.Edit(it) } ?: EntryFormMode.New(eventId),
             onDismiss = { showEntrySheet = false }
         )
     }
@@ -472,9 +461,16 @@ fun EventDetailScreen(
 
     if (showDeleteEventDialog) {
         eventType?.let { target ->
+            val linkedReminders by viewModel.linkedActiveReminderCount.collectAsStateWithLifecycle()
             DeleteConfirmDialog(
                 title = "Delete \"${target.name}\"?",
-                text = "This will permanently delete this event and all its entries.",
+                text = buildString {
+                    append("This will permanently delete this event and all its entries.")
+                    when {
+                        linkedReminders == 1 -> append(" Its linked reminder will be turned off.")
+                        linkedReminders > 1 -> append(" Its $linkedReminders linked reminders will be turned off.")
+                    }
+                },
                 onConfirm = {
                     viewModel.deleteEventType(target.id)
                     showDeleteEventDialog = false

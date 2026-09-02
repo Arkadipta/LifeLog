@@ -41,13 +41,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import android.text.format.Formatter
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifelog.app.export.BackupFrequency
+import com.lifelog.app.export.BackupLocationStatus
+import com.lifelog.app.export.ExportEngine
 import com.lifelog.app.export.ExportFormat
 import com.lifelog.app.ui.components.DialogOption
 import com.lifelog.app.ui.components.LifeLogCard
@@ -55,6 +59,7 @@ import com.lifelog.app.ui.components.SectionHeader
 import com.lifelog.app.ui.components.SingleChoiceDialog
 import com.lifelog.app.ui.theme.Spacing
 import com.lifelog.app.util.relativeTimeLabel
+import com.lifelog.app.util.toDisplayDateTime
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -69,6 +74,8 @@ fun SettingsScreen(
     val prefs by viewModel.prefs.collectAsStateWithLifecycle()
     val exportState by viewModel.exportState.collectAsStateWithLifecycle()
     val restoreState by viewModel.restoreState.collectAsStateWithLifecycle()
+    val autoBackups by viewModel.autoBackups.collectAsStateWithLifecycle()
+    val backupLocation by viewModel.backupLocationStatus.collectAsStateWithLifecycle()
     val systemInDarkTheme = isSystemInDarkTheme()
 
     // SAF launchers – one per format (MIME type is fixed at registration time)
@@ -90,9 +97,17 @@ fun SettingsScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri -> pendingRestoreUri = uri }
 
+    // Restore from an on-device auto-backup; same confirmation before importing.
+    var pendingRestoreBackup by remember { mutableStateOf<ExportEngine.AutoBackup?>(null) }
+
+    // Folder that future auto-backups are written into.
+    val backupFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri -> uri?.let(viewModel::setBackupFolder) }
+
     var showFormatPicker by remember { mutableStateOf(false) }
     var showFrequencyPicker by remember { mutableStateOf(false) }
-    var showBackupFormatPicker by remember { mutableStateOf(false) }
+    var showLocationPicker by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(exportState.exportSuccess, exportState.lastExportError) {
@@ -172,7 +187,7 @@ fun SettingsScreen(
                     )
                     SettingsClickItem(
                         title = "Auto-Backup Frequency",
-                        subtitle = "Saves backup to internal app storage",
+                        subtitle = "Keeps the last 7 database backups",
                         trailingContent = {
                             Text(
                                 prefs.backupFrequency.displayName,
@@ -182,19 +197,32 @@ fun SettingsScreen(
                         },
                         onClick = { showFrequencyPicker = true }
                     )
-                    if (prefs.backupFrequency != BackupFrequency.OFF) {
-                        SettingsClickItem(
-                            title = "Backup Format",
-                            subtitle = "Format used for automatic backups",
-                            trailingContent = {
-                                Text(
-                                    prefs.backupFormat.displayName,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.primary
+                    val locationUnreachable = backupLocation is BackupLocationStatus.FolderUnreachable
+                    SettingsClickItem(
+                        title = "Backup Location",
+                        subtitle = when (val location = backupLocation) {
+                            null -> "Checking…"
+                            BackupLocationStatus.AppStorage ->
+                                "App storage — backups are removed if you uninstall"
+                            is BackupLocationStatus.Folder -> location.name
+                            BackupLocationStatus.FolderUnreachable ->
+                                "Backup folder unreachable — tap to re-select. " +
+                                    "Backups go to app storage until then."
+                        },
+                        subtitleColor = if (locationUnreachable) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        trailingContent = if (locationUnreachable) {
+                            {
+                                Icon(
+                                    Icons.Rounded.WarningAmber,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error
                                 )
-                            },
-                            onClick = { showBackupFormatPicker = true }
-                        )
+                            }
+                        } else null,
+                        onClick = { showLocationPicker = true }
+                    )
+                    if (prefs.backupFrequency != BackupFrequency.OFF) {
                         SettingsItem(
                             title = "Last Backup",
                             subtitle = if (prefs.lastBackupAt == 0L) "Never"
@@ -219,6 +247,12 @@ fun SettingsScreen(
                         enabled = !restoreState.isRestoring && !restoreState.isRestarting,
                         onClick = { restoreLauncher.launch(arrayOf("*/*")) }
                     )
+                    SettingsClickItem(
+                        title = "Restore from Auto-Backup",
+                        subtitle = "Replace all current data with an automatic backup",
+                        enabled = !restoreState.isRestoring && !restoreState.isRestarting,
+                        onClick = viewModel::showAutoBackupPicker
+                    )
                 }
             }
         }
@@ -234,7 +268,7 @@ fun SettingsScreen(
                     label = format.displayName,
                     description = when (format) {
                         ExportFormat.SQLITE -> "Best for full restore. Exact database copy."
-                        ExportFormat.JSON -> "Version-aware structured text. Importable."
+                        ExportFormat.JSON -> "Structured text for other apps. Cannot be re-imported."
                         ExportFormat.ZIP_CSV -> "Human-readable. One CSV per event type."
                     }
                 )
@@ -266,54 +300,96 @@ fun SettingsScreen(
         )
     }
 
-    // ── Backup format picker ──────────────────────────────────────────────────
-    if (showBackupFormatPicker) {
+    // ── Backup location picker ────────────────────────────────────────────────
+    if (showLocationPicker) {
+        val usingFolder = backupLocation is BackupLocationStatus.Folder ||
+            backupLocation is BackupLocationStatus.FolderUnreachable
         SingleChoiceDialog(
-            title = "Backup Format",
-            options = ExportFormat.entries.map { DialogOption(it.displayName) },
-            selectedIndex = ExportFormat.entries.indexOf(prefs.backupFormat),
-            onDismiss = { showBackupFormatPicker = false },
+            title = "Backup Location",
+            options = listOf(
+                DialogOption(
+                    label = "App storage",
+                    description = "Private to LifeLog. Backups are removed when the app is uninstalled."
+                ),
+                DialogOption(
+                    label = "Folder I choose",
+                    description = "Backups survive uninstall. After reinstalling, bring one back via " +
+                        "“Restore from SQLite Database”, then pick the folder again."
+                )
+            ),
+            selectedIndex = if (usingFolder) 1 else 0,
+            onDismiss = { showLocationPicker = false },
             onSelect = { idx ->
-                viewModel.setBackupFormat(ExportFormat.entries[idx])
-                showBackupFormatPicker = false
+                showLocationPicker = false
+                if (idx == 0) viewModel.useAppStorageForBackups()
+                else backupFolderLauncher.launch(null)
             }
         )
     }
 
+    // ── Auto-backup picker ────────────────────────────────────────────────────
+    autoBackups?.let { backups ->
+        if (backups.isEmpty()) {
+            AlertDialog(
+                onDismissRequest = viewModel::dismissAutoBackupPicker,
+                title = { Text("No auto-backups yet") },
+                text = {
+                    Text(
+                        "No automatic backups were found. " +
+                            "Set an Auto-Backup Frequency above to start creating them."
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = viewModel::dismissAutoBackupPicker) { Text("OK") }
+                }
+            )
+        } else {
+            val context = LocalContext.current
+            SingleChoiceDialog(
+                title = "Choose Auto-Backup",
+                options = backups.map { backup ->
+                    DialogOption(
+                        label = backup.modifiedAt.toDisplayDateTime(),
+                        description = "${backup.modifiedAt.relativeTimeLabel()} · " +
+                            Formatter.formatShortFileSize(context, backup.sizeBytes) + " · " +
+                            when (backup.source) {
+                                is ExportEngine.AutoBackup.Source.AppStorage -> "App storage"
+                                is ExportEngine.AutoBackup.Source.Folder -> "Backup folder"
+                            }
+                    )
+                },
+                selectedIndex = -1,
+                onDismiss = viewModel::dismissAutoBackupPicker,
+                onSelect = { idx ->
+                    pendingRestoreBackup = backups[idx]
+                    viewModel.dismissAutoBackupPicker()
+                }
+            )
+        }
+    }
+
     // ── Restore confirmation ──────────────────────────────────────────────────
     pendingRestoreUri?.let { uri ->
-        AlertDialog(
-            onDismissRequest = { pendingRestoreUri = null },
-            icon = {
-                Icon(
-                    Icons.Rounded.WarningAmber,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error
-                )
+        RestoreConfirmDialog(
+            text = "All current app data will be permanently overwritten with the contents " +
+                "of the selected database. This action cannot be undone.\n\n" +
+                "Only restore a database that was exported from LifeLog.",
+            onConfirm = {
+                viewModel.restoreFromSqlite(uri)
+                pendingRestoreUri = null
             },
-            title = { Text("Restore from backup?") },
-            text = {
-                Text(
-                    "All current app data will be permanently overwritten with the contents " +
-                        "of the selected database. This action cannot be undone.\n\n" +
-                        "Only restore a database that was exported from LifeLog."
-                )
+            onDismiss = { pendingRestoreUri = null }
+        )
+    }
+    pendingRestoreBackup?.let { backup ->
+        RestoreConfirmDialog(
+            text = "All current app data will be permanently overwritten with the backup " +
+                "from ${backup.modifiedAt.toDisplayDateTime()}. This action cannot be undone.",
+            onConfirm = {
+                viewModel.restoreFromAutoBackup(backup)
+                pendingRestoreBackup = null
             },
-            confirmButton = {
-                FilledTonalButton(
-                    onClick = {
-                        viewModel.restoreFromSqlite(uri)
-                        pendingRestoreUri = null
-                    },
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                ) { Text("Overwrite & Restore") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingRestoreUri = null }) { Text("Cancel") }
-            }
+            onDismiss = { pendingRestoreBackup = null }
         )
     }
 
@@ -367,6 +443,39 @@ fun SettingsScreen(
 }
 
 // ── Private composables ───────────────────────────────────────────────────────
+
+/** Destructive-restore confirmation, shared by the SAF and auto-backup paths. */
+@Composable
+private fun RestoreConfirmDialog(
+    text: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                Icons.Rounded.WarningAmber,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error
+            )
+        },
+        title = { Text("Restore from backup?") },
+        text = { Text(text) },
+        confirmButton = {
+            FilledTonalButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                )
+            ) { Text("Overwrite & Restore") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
 
 @Composable
 private fun SettingsSectionLabel(title: String) {
@@ -432,6 +541,7 @@ private fun SettingsToggleItem(
 private fun SettingsClickItem(
     title: String,
     subtitle: String,
+    subtitleColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     trailingContent: @Composable (() -> Unit)? = null,
     enabled: Boolean = true,
     onClick: () -> Unit
@@ -448,7 +558,7 @@ private fun SettingsClickItem(
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = subtitleColor
             )
         },
         trailingContent = trailingContent,

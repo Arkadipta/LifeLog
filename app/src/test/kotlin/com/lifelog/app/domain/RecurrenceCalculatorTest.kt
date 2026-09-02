@@ -6,10 +6,12 @@ import com.lifelog.app.domain.model.RecurrenceType
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.Calendar
+import java.util.TimeZone
 
 /**
  * Unit tests for RecurrenceCalculator covering all recurrence types and edge cases.
- * Uses wall-clock Calendar math — DST and leap-year behaviour inherits from the JVM.
+ * Uses wall-clock Calendar math; the DST section at the bottom pins what that means
+ * on either side of a transition rather than leaving it to inherit from the JVM.
  */
 class RecurrenceCalculatorTest {
 
@@ -23,6 +25,17 @@ class RecurrenceCalculatorTest {
 
     private fun calGet(epochMs: Long, field: Int): Int =
         Calendar.getInstance().apply { timeInMillis = epochMs }.get(field)
+
+    /** Runs [block] with the JVM default zone forced to [zoneId], then restores it. */
+    private fun inZone(zoneId: String, block: () -> Unit) {
+        val original = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone(zoneId))
+        try {
+            block()
+        } finally {
+            TimeZone.setDefault(original)
+        }
+    }
 
     // ── NONE ─────────────────────────────────────────────────────────────────
 
@@ -265,6 +278,150 @@ class RecurrenceCalculatorTest {
         assertEquals(15, calGet(trigger, Calendar.DAY_OF_MONTH))
     }
 
+    // ── computeReactivationTrigger (re-enabling a disabled reminder) ─────────
+
+    @Test fun `reactivation keeps stored trigger that is still in the future`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val stored = now + 3600_000L
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        assertEquals(stored, RecurrenceCalculator.computeReactivationTrigger(rule, stored, now))
+    }
+
+    @Test fun `reactivation recomputes elapsed DAILY trigger instead of arming the past`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)   // 10:00, past the 8:00 slot
+        val stored = now - 2 * 3600_000L
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        val trigger = RecurrenceCalculator.computeReactivationTrigger(rule, stored, now)
+        assertTrue(trigger > now)
+        assertEquals(11, calGet(trigger, Calendar.DAY_OF_MONTH)) // tomorrow 8 AM
+        assertEquals(8, calGet(trigger, Calendar.HOUR_OF_DAY))
+    }
+
+    @Test fun `reactivation treats stored trigger equal to now as elapsed`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val rule = RecurrenceRule(type = RecurrenceType.INTERVAL, intervalMinutes = 90)
+        assertEquals(now + 90 * 60_000L, RecurrenceCalculator.computeReactivationTrigger(rule, now, now))
+    }
+
+    @Test fun `reactivation restarts INTERVAL countdown from now`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val rule = RecurrenceRule(type = RecurrenceType.INTERVAL, intervalMinutes = 120)
+        val trigger = RecurrenceCalculator.computeReactivationTrigger(rule, now - 1, now)
+        assertEquals(now + 120 * 60_000L, trigger)
+    }
+
+    @Test fun `reactivation restarts TIME_SINCE_LAST countdown from now`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val rule = RecurrenceRule(type = RecurrenceType.TIME_SINCE_LAST, timeSinceLastMinutes = 4 * 60)
+        val trigger = RecurrenceCalculator.computeReactivationTrigger(rule, now - 5_000, now)
+        assertEquals(now + 4 * 3600_000L, trigger)
+    }
+
+    @Test fun `reactivation re-arms elapsed one-shot for next time-of-day occurrence`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)   // 10:00, past the 9:00 slot
+        val rule = RecurrenceRule(type = RecurrenceType.NONE, timeOfDayMinutes = 9 * 60)
+        val trigger = RecurrenceCalculator.computeReactivationTrigger(rule, now - 3600_000L, now)
+        assertEquals(11, calGet(trigger, Calendar.DAY_OF_MONTH)) // tomorrow 9 AM
+        assertEquals(9, calGet(trigger, Calendar.HOUR_OF_DAY))
+    }
+
+    @Test fun `reactivation elapsed one-shot stays today when its time is still ahead`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 7, 0)    // 07:00, before the 9:00 slot
+        val rule = RecurrenceRule(type = RecurrenceType.NONE, timeOfDayMinutes = 9 * 60)
+        val trigger = RecurrenceCalculator.computeReactivationTrigger(rule, now - 3600_000L, now)
+        assertEquals(10, calGet(trigger, Calendar.DAY_OF_MONTH)) // today 9 AM
+        assertEquals(9, calGet(trigger, Calendar.HOUR_OF_DAY))
+    }
+
+    @Test fun `reactivation recomputes elapsed WEEKLY trigger to next matching day`() {
+        // 2025-06-12 is a Thursday; rule fires Mondays at 9:00
+        val thursday = calOf(2025, Calendar.JUNE, 12, 20, 0)
+        val rule = RecurrenceRule(
+            type = RecurrenceType.WEEKLY,
+            timeOfDayMinutes = 9 * 60,
+            daysOfWeek = listOf(1) // Monday
+        )
+        val trigger = RecurrenceCalculator.computeReactivationTrigger(rule, thursday - 7 * 86_400_000L, thursday)
+        assertEquals(16, calGet(trigger, Calendar.DAY_OF_MONTH)) // Monday June 16
+        assertEquals(Calendar.MONDAY, calGet(trigger, Calendar.DAY_OF_WEEK))
+    }
+
+    // ── computeRescheduleTrigger (bulk re-arm: boot, restore, clock changes) ─
+
+    @Test fun `reschedule keeps a future trigger when the clock is unchanged`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val stored = now + 3600_000L
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        assertEquals(stored, RecurrenceCalculator.computeRescheduleTrigger(rule, stored, now))
+    }
+
+    @Test fun `reschedule recomputes an elapsed DAILY trigger instead of arming the past`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val stored = now - 26 * 3600_000L   // missed yesterday's 8:00 while powered off
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        val trigger = RecurrenceCalculator.computeRescheduleTrigger(rule, stored, now)
+        assertTrue(trigger > now)
+        assertEquals(11, calGet(trigger, Calendar.DAY_OF_MONTH)) // tomorrow 8 AM, no boot blast
+        assertEquals(8, calGet(trigger, Calendar.HOUR_OF_DAY))
+    }
+
+    @Test fun `reschedule re-anchors a future wall-clock trigger after a clock change`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        // Epoch armed under the old zone: still ahead, but landing on 5:00 local instead of 8:00.
+        val stored = calOf(2025, Calendar.JUNE, 11, 5, 0)
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        val trigger = RecurrenceCalculator.computeRescheduleTrigger(rule, stored, now, clockChanged = true)
+        assertEquals(11, calGet(trigger, Calendar.DAY_OF_MONTH))
+        assertEquals(8, calGet(trigger, Calendar.HOUR_OF_DAY))
+    }
+
+    @Test fun `reschedule keeps a future INTERVAL trigger across a clock change`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val stored = now + 45 * 60_000L   // elapsed-duration rule: the epoch stays valid
+        val rule = RecurrenceRule(type = RecurrenceType.INTERVAL, intervalMinutes = 90)
+        assertEquals(stored, RecurrenceCalculator.computeRescheduleTrigger(rule, stored, now, clockChanged = true))
+    }
+
+    @Test fun `reschedule keeps a future TIME_SINCE_LAST trigger across a clock change`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val stored = now + 2 * 3600_000L
+        val rule = RecurrenceRule(type = RecurrenceType.TIME_SINCE_LAST, timeSinceLastMinutes = 4 * 60)
+        assertEquals(stored, RecurrenceCalculator.computeRescheduleTrigger(rule, stored, now, clockChanged = true))
+    }
+
+    @Test fun `reschedule restarts an elapsed INTERVAL from now`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val rule = RecurrenceRule(type = RecurrenceType.INTERVAL, intervalMinutes = 120)
+        assertEquals(now + 120 * 60_000L, RecurrenceCalculator.computeRescheduleTrigger(rule, now - 1, now))
+    }
+
+    @Test fun `reschedule restarts an elapsed TIME_SINCE_LAST countdown from now`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val rule = RecurrenceRule(type = RecurrenceType.TIME_SINCE_LAST, timeSinceLastMinutes = 4 * 60)
+        assertEquals(now + 4 * 3600_000L, RecurrenceCalculator.computeRescheduleTrigger(rule, now - 5_000, now))
+    }
+
+    @Test fun `reschedule treats a stored trigger equal to now as elapsed`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val rule = RecurrenceRule(type = RecurrenceType.INTERVAL, intervalMinutes = 90)
+        assertEquals(now + 90 * 60_000L, RecurrenceCalculator.computeRescheduleTrigger(rule, now, now))
+    }
+
+    @Test fun `reschedule keeps an elapsed one-shot so it fires once, late`() {
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val stored = now - 3600_000L
+        val rule = RecurrenceRule(type = RecurrenceType.NONE, timeOfDayMinutes = 9 * 60)
+        assertEquals(stored, RecurrenceCalculator.computeRescheduleTrigger(rule, stored, now))
+    }
+
+    @Test fun `reschedule keeps a future one-shot across a clock change`() {
+        // The rule stores only a time-of-day; the epoch is the sole record of the chosen date.
+        val now = calOf(2025, Calendar.JUNE, 10, 10, 0)
+        val stored = now + 86_400_000L
+        val rule = RecurrenceRule(type = RecurrenceType.NONE, timeOfDayMinutes = 9 * 60)
+        assertEquals(stored, RecurrenceCalculator.computeRescheduleTrigger(rule, stored, now, clockChanged = true))
+    }
+
     // ── describeRule ─────────────────────────────────────────────────────────
 
     @Test fun `describeRule WEEKLY correctly formats days`() {
@@ -292,5 +449,304 @@ class RecurrenceCalculatorTest {
     @Test fun `describeRule TIME_SINCE_LAST`() {
         val rule = RecurrenceRule(type = RecurrenceType.TIME_SINCE_LAST, timeSinceLastMinutes = 48 * 60)
         assertEquals("48h after last entry", RecurrenceCalculator.describeRule(rule))
+    }
+
+    @Test fun `describeRule calls a rule with no month filter monthly whatever its type`() {
+        // A YEARLY rule that lost its months fires every month; the card used to say "every year".
+        val rule = RecurrenceRule(
+            type = RecurrenceType.YEARLY,
+            timeOfDayMinutes = 9 * 60,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfMonth = listOf(15)
+        )
+        assertEquals("15th of every month at 9 AM", RecurrenceCalculator.describeRule(rule))
+    }
+
+    // ── computeInitialTrigger honours the rule's days, not just its time ─────
+
+    @Test fun `initial MONTHLY trigger waits for the chosen day, not today at that time`() {
+        val now = calOf(2026, Calendar.JULY, 28, 2, 0)     // 02:00, well before the 08:00 slot
+        val rule = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            timeOfDayMinutes = 8 * 60,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfMonth = listOf(15)
+        )
+        val trigger = RecurrenceCalculator.computeInitialTrigger(rule, now)!!
+        assertEquals(Calendar.AUGUST, calGet(trigger, Calendar.MONTH))
+        assertEquals(15, calGet(trigger, Calendar.DAY_OF_MONTH))
+        assertEquals(8, calGet(trigger, Calendar.HOUR_OF_DAY))
+    }
+
+    @Test fun `initial MONTHLY trigger is today when today is the chosen day`() {
+        val now = calOf(2026, Calendar.JULY, 15, 2, 0)
+        val rule = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            timeOfDayMinutes = 8 * 60,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfMonth = listOf(15)
+        )
+        val trigger = RecurrenceCalculator.computeInitialTrigger(rule, now)!!
+        assertEquals(Calendar.JULY, calGet(trigger, Calendar.MONTH))
+        assertEquals(15, calGet(trigger, Calendar.DAY_OF_MONTH))
+    }
+
+    @Test fun `initial WEEKLY trigger waits for the chosen weekday`() {
+        // 2025-06-12 is a Thursday, 06:00; rule fires Mondays at 09:00
+        val thursday = calOf(2025, Calendar.JUNE, 12, 6, 0)
+        val rule = RecurrenceRule(
+            type = RecurrenceType.WEEKLY,
+            timeOfDayMinutes = 9 * 60,
+            daysOfWeek = listOf(1)
+        )
+        val trigger = RecurrenceCalculator.computeInitialTrigger(rule, thursday)!!
+        assertEquals(Calendar.MONDAY, calGet(trigger, Calendar.DAY_OF_WEEK))
+        assertEquals(16, calGet(trigger, Calendar.DAY_OF_MONTH))
+    }
+
+    @Test fun `initial DAILY trigger is today when its time is still ahead, else tomorrow`() {
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        val early = RecurrenceCalculator.computeInitialTrigger(rule, calOf(2025, Calendar.JUNE, 10, 6, 0))!!
+        assertEquals(10, calGet(early, Calendar.DAY_OF_MONTH))
+        val late = RecurrenceCalculator.computeInitialTrigger(rule, calOf(2025, Calendar.JUNE, 10, 10, 0))!!
+        assertEquals(11, calGet(late, Calendar.DAY_OF_MONTH))
+    }
+
+    @Test fun `DAILY ignores a daysOfWeek list left over from the Weekly editor`() {
+        // Thursday 06:00, with Monday left in daysOfWeek: daily means today at 09:00.
+        val thursday = calOf(2025, Calendar.JUNE, 12, 6, 0)
+        val rule = RecurrenceRule(
+            type = RecurrenceType.DAILY,
+            timeOfDayMinutes = 9 * 60,
+            daysOfWeek = listOf(1)
+        )
+        val trigger = RecurrenceCalculator.computeNextTrigger(rule, thursday)!!
+        assertEquals(12, calGet(trigger, Calendar.DAY_OF_MONTH))
+        assertEquals(9, calGet(trigger, Calendar.HOUR_OF_DAY))
+        assertEquals("Daily at 9 AM", RecurrenceCalculator.describeRule(rule))
+    }
+
+    // ── validate (what the editor refuses to save) ────────────────────────────
+
+    @Test fun `validate accepts the default rule`() {
+        assertNull(RecurrenceCalculator.validate(RecurrenceRule()))
+    }
+
+    @Test fun `validate accepts NONE and DAILY which need only a time of day`() {
+        assertNull(RecurrenceCalculator.validate(RecurrenceRule(type = RecurrenceType.NONE)))
+        assertNull(RecurrenceCalculator.validate(RecurrenceRule(type = RecurrenceType.DAILY)))
+    }
+
+    @Test fun `validate rejects an INTERVAL of nothing`() {
+        val rule = RecurrenceRule(type = RecurrenceType.INTERVAL, intervalMinutes = 0)
+        assertNotNull(RecurrenceCalculator.validate(rule))
+    }
+
+    @Test fun `validate rejects an INTERVAL below the minimum`() {
+        val rule = RecurrenceRule(
+            type = RecurrenceType.INTERVAL,
+            intervalMinutes = RecurrenceRule.MIN_INTERVAL_MINUTES - 1
+        )
+        assertNotNull(RecurrenceCalculator.validate(rule))
+    }
+
+    @Test fun `validate accepts an INTERVAL at exactly the minimum`() {
+        val rule = RecurrenceRule(
+            type = RecurrenceType.INTERVAL,
+            intervalMinutes = RecurrenceRule.MIN_INTERVAL_MINUTES
+        )
+        assertNull(RecurrenceCalculator.validate(rule))
+    }
+
+    @Test fun `validate rejects a TIME_SINCE_LAST of nothing but accepts one minute`() {
+        val zero = RecurrenceRule(type = RecurrenceType.TIME_SINCE_LAST, timeSinceLastMinutes = 0)
+        assertNotNull(RecurrenceCalculator.validate(zero))
+        assertNull(RecurrenceCalculator.validate(zero.copy(timeSinceLastMinutes = 1)))
+    }
+
+    @Test fun `validate requires a day for WEEKLY`() {
+        val rule = RecurrenceRule(type = RecurrenceType.WEEKLY, daysOfWeek = emptyList())
+        assertNotNull(RecurrenceCalculator.validate(rule))
+        assertNull(RecurrenceCalculator.validate(rule.copy(daysOfWeek = listOf(1))))
+    }
+
+    @Test fun `validate requires a day of month for MONTHLY in DAY_OF_MONTH mode`() {
+        // Unguarded, this is the rule nextMonthlyTrigger answers with "30 days from now".
+        val rule = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfMonth = emptyList()
+        )
+        assertNotNull(RecurrenceCalculator.validate(rule))
+        assertNull(RecurrenceCalculator.validate(rule.copy(daysOfMonth = listOf(15))))
+    }
+
+    @Test fun `validate accepts the last-day-of-month sentinel`() {
+        val rule = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfMonth = listOf(-1)
+        )
+        assertNull(RecurrenceCalculator.validate(rule))
+    }
+
+    @Test fun `validate requires a weekday for MONTHLY in DAY_OF_WEEK mode`() {
+        val rule = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_WEEK,
+            daysOfWeek = emptyList()
+        )
+        assertNotNull(RecurrenceCalculator.validate(rule))
+        assertNull(RecurrenceCalculator.validate(rule.copy(daysOfWeek = listOf(1))))
+    }
+
+    @Test fun `validate ignores daysOfMonth in DAY_OF_WEEK mode and vice versa`() {
+        val dow = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_WEEK,
+            daysOfMonth = listOf(15)          // set, but this mode does not read it
+        )
+        assertNotNull(RecurrenceCalculator.validate(dow))
+        val dom = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfWeek = listOf(1)            // ditto
+        )
+        assertNotNull(RecurrenceCalculator.validate(dom))
+    }
+
+    @Test fun `validate requires months for YEARLY`() {
+        // With no month filter a YEARLY rule fires every month — that is a MONTHLY rule.
+        val rule = RecurrenceRule(
+            type = RecurrenceType.YEARLY,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfMonth = listOf(15),
+            months = emptyList()
+        )
+        assertNotNull(RecurrenceCalculator.validate(rule))
+        assertNull(RecurrenceCalculator.validate(rule.copy(months = listOf(1))))
+    }
+
+    @Test fun `validate lets MONTHLY keep an empty month filter`() {
+        val rule = RecurrenceRule(
+            type = RecurrenceType.MONTHLY,
+            dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+            daysOfMonth = listOf(15),
+            months = emptyList()
+        )
+        assertNull(RecurrenceCalculator.validate(rule))
+    }
+
+    // ── Daylight saving ───────────────────────────────────────────────────────
+    // Two kinds of rule meet here and must not be conflated. A wall-clock rule
+    // ("every day at 8 AM") keeps its local time and so spans 23 or 25 real
+    // hours across a transition; an elapsed-time rule ("every 6 hours") keeps
+    // its duration and so lands an hour off in wall-clock terms. All timings
+    // below are America/New_York 2026: forward Mar 8 (01:59 EST → 03:00 EDT),
+    // back Nov 1 (01:59 EDT → 01:00 EST).
+
+    private val NEW_YORK = "America/New_York"
+    private val HOUR_MS = 3_600_000L
+
+    @Test fun `DAILY keeps its local hour across a spring forward`() = inZone(NEW_YORK) {
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        val after = calOf(2026, Calendar.MARCH, 7, 9, 0)
+        val next = RecurrenceCalculator.computeNextTrigger(rule, after)!!
+
+        assertEquals(8, calGet(next, Calendar.DAY_OF_MONTH))
+        assertEquals(8, calGet(next, Calendar.HOUR_OF_DAY))
+        // 23 hours of wall clock, 22 of real time — naive millisecond arithmetic
+        // would have rung at 9 AM.
+        assertEquals(22 * HOUR_MS, next - after)
+    }
+
+    @Test fun `DAILY keeps its local hour across a fall back`() = inZone(NEW_YORK) {
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 8 * 60)
+        val after = calOf(2026, Calendar.OCTOBER, 31, 23, 0)
+        val next = RecurrenceCalculator.computeNextTrigger(rule, after)!!
+
+        assertEquals(1, calGet(next, Calendar.DAY_OF_MONTH))
+        assertEquals(8, calGet(next, Calendar.HOUR_OF_DAY))
+        assertEquals(10 * HOUR_MS, next - after) // 9 wall-clock hours, 10 real ones
+    }
+
+    @Test fun `WEEKLY lands on its weekday at its local hour when that day loses an hour`() =
+        inZone(NEW_YORK) {
+            // Mar 8 2026 is a Sunday and the spring-forward day.
+            val rule = RecurrenceRule(
+                type = RecurrenceType.WEEKLY,
+                daysOfWeek = listOf(0), // 0 = Sunday
+                timeOfDayMinutes = 8 * 60
+            )
+            val next = RecurrenceCalculator
+                .computeNextTrigger(rule, calOf(2026, Calendar.MARCH, 3, 12, 0))!!
+
+            assertEquals(Calendar.SUNDAY, calGet(next, Calendar.DAY_OF_WEEK))
+            assertEquals(8, calGet(next, Calendar.DAY_OF_MONTH))
+            assertEquals(8, calGet(next, Calendar.HOUR_OF_DAY))
+        }
+
+    @Test fun `MONTHLY keeps its local hour when the target day loses an hour`() =
+        inZone(NEW_YORK) {
+            val rule = RecurrenceRule(
+                type = RecurrenceType.MONTHLY,
+                dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+                daysOfMonth = listOf(8),
+                timeOfDayMinutes = 8 * 60
+            )
+            val next = RecurrenceCalculator
+                .computeNextTrigger(rule, calOf(2026, Calendar.MARCH, 1, 12, 0))!!
+
+            assertEquals(8, calGet(next, Calendar.DAY_OF_MONTH))
+            assertEquals(8, calGet(next, Calendar.HOUR_OF_DAY))
+        }
+
+    @Test fun `INTERVAL measures elapsed time, not wall clock, across a spring forward`() =
+        inZone(NEW_YORK) {
+            val rule = RecurrenceRule(type = RecurrenceType.INTERVAL, intervalMinutes = 6 * 60)
+            val after = calOf(2026, Calendar.MARCH, 8, 0, 30)
+            val next = RecurrenceCalculator.computeNextTrigger(rule, after)!!
+
+            // Six real hours later reads 07:30, not 06:30 — correct for "every
+            // 6 hours", and the reason this rule is deliberately not wall-clock.
+            assertEquals(6 * HOUR_MS, next - after)
+            assertEquals(7, calGet(next, Calendar.HOUR_OF_DAY))
+            assertEquals(30, calGet(next, Calendar.MINUTE))
+        }
+
+    @Test fun `TIME_SINCE_LAST measures elapsed time across a spring forward`() =
+        inZone(NEW_YORK) {
+            val rule = RecurrenceRule(
+                type = RecurrenceType.TIME_SINCE_LAST,
+                timeSinceLastMinutes = 6 * 60
+            )
+            val lastEntryAt = calOf(2026, Calendar.MARCH, 8, 0, 30)
+            val next = RecurrenceCalculator.computeNextTrigger(
+                rule, after = lastEntryAt + 60_000L, lastEntryAt = lastEntryAt
+            )!!
+
+            assertEquals(6 * HOUR_MS, next - lastEntryAt)
+            assertEquals(7, calGet(next, Calendar.HOUR_OF_DAY))
+        }
+
+    @Test fun `a time of day inside the skipped hour still fires that day`() = inZone(NEW_YORK) {
+        // 02:30 does not exist on Mar 8. What matters is that the reminder is
+        // not lost; which side of the gap it lands on depends on which branch
+        // of nextTimeOfDayOccurrence computed it, so both are pinned here.
+        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 2 * 60 + 30)
+
+        // Asked the day before: "same wall time tomorrow" steps back an hour.
+        val fromDayBefore = RecurrenceCalculator
+            .computeNextTrigger(rule, calOf(2026, Calendar.MARCH, 7, 12, 0))!!
+        assertEquals(8, calGet(fromDayBefore, Calendar.DAY_OF_MONTH))
+        assertEquals(1, calGet(fromDayBefore, Calendar.HOUR_OF_DAY))
+        assertEquals(30, calGet(fromDayBefore, Calendar.MINUTE))
+
+        // Asked on the day itself: the lenient set() resolves the gap forward.
+        val fromSameDay = RecurrenceCalculator
+            .computeNextTrigger(rule, calOf(2026, Calendar.MARCH, 8, 0, 10))!!
+        assertEquals(8, calGet(fromSameDay, Calendar.DAY_OF_MONTH))
+        assertEquals(3, calGet(fromSameDay, Calendar.HOUR_OF_DAY))
+        assertEquals(30, calGet(fromSameDay, Calendar.MINUTE))
     }
 }

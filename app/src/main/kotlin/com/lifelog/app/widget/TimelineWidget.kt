@@ -67,6 +67,7 @@ import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.ui.theme.DarkColorScheme
 import com.lifelog.app.ui.theme.LightColorScheme
 import com.lifelog.app.ui.theme.bestContentColor
+import com.lifelog.app.util.logD
 import com.lifelog.app.util.relativeTimeLabel
 import com.lifelog.app.util.toWidgetTimestamp
 import dagger.hilt.EntryPoint
@@ -111,14 +112,14 @@ class TimelineWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val startMs = System.currentTimeMillis()
-        Log.d(TAG, "provideGlance start: glanceId=$id thread=${Thread.currentThread().name} ts=$startMs")
+        logD(TAG) { "provideGlance start: glanceId=$id thread=${Thread.currentThread().name} ts=$startMs" }
 
         val repo = EntryPointAccessors.fromApplication(
             context.applicationContext,
             TimelineWidgetEntryPoint::class.java
         ).eventRepository()
 
-        Log.d(TAG, "provideGlance: calling provideContent glanceId=$id elapsed=${System.currentTimeMillis() - startMs}ms")
+        logD(TAG) { "provideGlance: calling provideContent glanceId=$id elapsed=${System.currentTimeMillis() - startMs}ms" }
 
         provideContent {
             // currentState<Preferences>() makes this composable reactive: Glance
@@ -143,11 +144,10 @@ class TimelineWidget : GlanceAppWidget() {
             var data by remember { mutableStateOf(TimelineData()) }
 
             LaunchedEffect(currentFilterMode, currentEventId, currentTag, refreshTs) {
-                Log.d(
-                    TAG,
+                logD(TAG) {
                     "LaunchedEffect: fetching entries filterMode=$currentFilterMode " +
                     "eventId=$currentEventId tag='$currentTag' refreshTs=$refreshTs ts=${System.currentTimeMillis()}"
-                )
+                }
                 data = if (currentFilterMode != null) {
                     try {
                         withContext(Dispatchers.IO) {
@@ -168,14 +168,13 @@ class TimelineWidget : GlanceAppWidget() {
                 } else {
                     TimelineData()
                 }
-                Log.d(TAG, "LaunchedEffect: fetched ${data.entries.size} entries ts=${System.currentTimeMillis()}")
+                logD(TAG) { "LaunchedEffect: fetched ${data.entries.size} entries ts=${System.currentTimeMillis()}" }
             }
 
-            Log.d(
-                TAG,
+            logD(TAG) {
                 "provideContent composing: glanceId=$id currentFilterMode=$currentFilterMode " +
                 "entries=${data.entries.size} ts=${System.currentTimeMillis()}"
-            )
+            }
 
             GlanceTheme(colors = ColorProviders(light = LightColorScheme, dark = DarkColorScheme)) {
                 if (currentFilterMode == null) {
@@ -625,11 +624,10 @@ class TimelineWidgetReceiver : GlanceAppWidgetReceiver() {
             }
         }
 
-        Log.d(
-            TAG,
+        logD(TAG) {
             "onUpdate: ${appWidgetIds.size} requested, ${validIds.size} ready, " +
             "${skippedIds.size} deferred (not yet bound): $skippedIds"
-        )
+        }
 
         // Retry deferred IDs after a short delay. Without this, any APPWIDGET_UPDATE
         // broadcast that arrives before the provider is fully bound is permanently lost
@@ -642,7 +640,7 @@ class TimelineWidgetReceiver : GlanceAppWidgetReceiver() {
                     if (AppWidgetManager.getInstance(context).getAppWidgetInfo(id) != null) {
                         val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(id)
                         TimelineWidget().update(context, glanceId)
-                        Log.d(TAG, "onUpdate retry: update complete for appWidgetId=$id")
+                        logD(TAG) { "onUpdate retry: update complete for appWidgetId=$id" }
                     } else {
                         Log.e(TAG, "onUpdate retry: appWidgetId=$id still not bound after 3s — giving up")
                     }
@@ -675,12 +673,12 @@ class TimelineWidgetReceiver : GlanceAppWidgetReceiver() {
         newOptions: Bundle
     ) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        Log.d(TAG, "onAppWidgetOptionsChanged: appWidgetId=$appWidgetId ts=${System.currentTimeMillis()}")
+        logD(TAG) { "onAppWidgetOptionsChanged: appWidgetId=$appWidgetId ts=${System.currentTimeMillis()}" }
         receiverScope.launch {
             try {
                 val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(appWidgetId)
                 TimelineWidget().update(context, glanceId)
-                Log.d(TAG, "onAppWidgetOptionsChanged: update complete for appWidgetId=$appWidgetId ts=${System.currentTimeMillis()}")
+                logD(TAG) { "onAppWidgetOptionsChanged: update complete for appWidgetId=$appWidgetId ts=${System.currentTimeMillis()}" }
             } catch (e: Exception) {
                 Log.e(TAG, "onAppWidgetOptionsChanged: update failed for appWidgetId=$appWidgetId", e)
             }

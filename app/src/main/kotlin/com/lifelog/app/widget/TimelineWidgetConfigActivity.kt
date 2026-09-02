@@ -3,7 +3,6 @@ package com.lifelog.app.widget
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -35,6 +34,7 @@ import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.theme.LifeLogTheme
 import com.lifelog.app.ui.components.IconTile
 import com.lifelog.app.util.iconForName
+import com.lifelog.app.util.logD
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -103,13 +103,12 @@ class TimelineWidgetConfigActivity : ComponentActivity() {
                             // AppWidgetManager; onAppWidgetOptionsChanged in the receiver will
                             // fire the correct render once the launcher adds the widget.
                             val knownIds = manager.getGlanceIds(TimelineWidget::class.java)
-                            Log.d(
-                                TAG,
+                            logD(TAG) {
                                 "onConfigured: appWidgetId=$appWidgetId glanceId=$glanceId " +
                                 "knownIds=$knownIds widgetAlreadyInHost=${knownIds.isNotEmpty()} " +
                                 "filterMode=$filterMode eventId=$eventTypeId " +
                                 "eventName='$eventName' tag='$tag'"
-                            )
+                            }
 
                             updateAppWidgetState(
                                 this@TimelineWidgetConfigActivity,
@@ -125,9 +124,9 @@ class TimelineWidgetConfigActivity : ComponentActivity() {
                                     this[TimelineWidget.PREF_EVENT_ICON]  = eventIcon
                                 }
                             }
-                            Log.d(TAG, "onConfigured: state written, triggering update ts=${System.currentTimeMillis()}")
+                            logD(TAG) { "onConfigured: state written, triggering update ts=${System.currentTimeMillis()}" }
                             TimelineWidget().update(this@TimelineWidgetConfigActivity, glanceId)
-                            Log.d(TAG, "onConfigured: update() returned ts=${System.currentTimeMillis()}")
+                            logD(TAG) { "onConfigured: update() returned ts=${System.currentTimeMillis()}" }
 
                             setResult(
                                 RESULT_OK,
