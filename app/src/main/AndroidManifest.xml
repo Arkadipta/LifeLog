@@ -154,6 +154,18 @@
                 android:resource="@xml/timeline_widget_info" />
         </receiver>
 
+        <!-- Repaints the Timeline widget when the 12/24-hour preference or the zone changes.
+             Same two actions ReminderReceiver declares, kept separate on purpose — see
+             WidgetClockReceiver for why, and for why TIME_SET is the 12/24-hour signal. -->
+        <receiver
+            android:name=".widget.WidgetClockReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
         <!-- WorkManager: disable default auto-init so HiltWorkerFactory (Configuration.Provider) is used -->
         <provider
             android:name="androidx.startup.InitializationProvider"
