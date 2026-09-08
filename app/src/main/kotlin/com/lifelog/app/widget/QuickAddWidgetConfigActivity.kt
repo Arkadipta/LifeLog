@@ -27,6 +27,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
+import com.lifelog.app.data.repository.UserPreferences
+import com.lifelog.app.data.repository.UserPreferencesRepository
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.theme.LifeLogTheme
 import com.lifelog.app.ui.components.IconTile
@@ -51,6 +53,8 @@ class QuickAddWidgetConfigViewModel @Inject constructor(
 @AndroidEntryPoint
 class QuickAddWidgetConfigActivity : ComponentActivity() {
 
+    @Inject lateinit var userPreferencesRepository: UserPreferencesRepository
+
     companion object {
         private const val TAG = "QuickAddWidgetConfig"
     }
@@ -73,7 +77,14 @@ class QuickAddWidgetConfigActivity : ComponentActivity() {
         setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
 
         setContent {
-            LifeLogTheme {
+            // A placement screen is an opaque window the launcher hands straight to the user and
+            // it has no splash to hold behind, so it takes the eagerly read theme if that has
+            // landed (it has, unless placing the widget started this process moments ago) and
+            // defaults otherwise — AlarmDismissActivity's tradeoff, not MainActivity's gate.
+            val prefs by userPreferencesRepository.loaded.collectAsState()
+            val theme = prefs ?: UserPreferences()
+
+            LifeLogTheme(amoledBlack = theme.useAmoledBlack, dynamicColor = theme.useDynamicColor) {
                 ConfigScreen(
                     onEventSelected = { eventType ->
                         lifecycleScope.launch {

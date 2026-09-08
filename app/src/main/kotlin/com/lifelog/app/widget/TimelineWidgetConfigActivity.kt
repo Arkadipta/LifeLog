@@ -30,6 +30,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
+import com.lifelog.app.data.repository.UserPreferences
+import com.lifelog.app.data.repository.UserPreferencesRepository
 import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.ui.theme.LifeLogTheme
 import com.lifelog.app.ui.components.IconTile
@@ -64,6 +66,8 @@ class TimelineWidgetConfigViewModel @Inject constructor(
 @AndroidEntryPoint
 class TimelineWidgetConfigActivity : ComponentActivity() {
 
+    @Inject lateinit var userPreferencesRepository: UserPreferencesRepository
+
     companion object {
         private const val TAG = "TimelineWidgetConfig"
     }
@@ -85,7 +89,12 @@ class TimelineWidgetConfigActivity : ComponentActivity() {
         setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
 
         setContent {
-            LifeLogTheme {
+            // Same tradeoff as QuickAddWidgetConfigActivity: opaque placement window, nothing to
+            // hold behind it, so fall back to defaults rather than draw an empty frame.
+            val prefs by userPreferencesRepository.loaded.collectAsState()
+            val theme = prefs ?: UserPreferences()
+
+            LifeLogTheme(amoledBlack = theme.useAmoledBlack, dynamicColor = theme.useDynamicColor) {
                 TimelineConfigScreen(
                     onConfigured = { filterMode, eventTypeId, eventName, tag, eventColor, eventIcon ->
                         lifecycleScope.launch {
