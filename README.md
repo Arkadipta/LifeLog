@@ -188,12 +188,12 @@ LifeLog 1.0 is a complete, self-contained tracker. Shipped in this release:
 - Home-screen timeline and quick-add widgets
 - SQLite, JSON, and CSV export, full restore, and CSV import
 - Light, dark, AMOLED, and dynamic-color theming
+- Layouts that adapt to tablets, foldables, and landscape
 
 Ideas under consideration for future releases:
 
 - Optional, end-to-end encrypted backup and sync
 - Additional chart types and richer dashboards
-- Tablet and landscape layouts
 - Localization and accessibility refinements
 
 Have an idea? Open an issue and start the conversation.

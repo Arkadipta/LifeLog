@@ -78,6 +78,8 @@ fun EventDetailScreen(
     eventId: Long,
     onNavigateBack: () -> Unit,
     onNavigateToEdit: (Long) -> Unit,
+    // False when the list this event was opened from is on screen beside it.
+    showBackButton: Boolean = true,
     viewModel: EventDetailViewModel = hiltViewModel()
 ) {
     LaunchedEffect(eventId) { viewModel.loadEvent(eventId) }
@@ -168,8 +170,10 @@ fun EventDetailScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
+                    if (showBackButton) {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back")
+                        }
                     }
                 },
                 actions = {

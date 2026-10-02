@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Alarm
@@ -246,6 +248,11 @@ private fun AlarmScreen(
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
+                // Held to a phone's width, centred: stretched across a tablet the two
+                // answers become bars a thumb has to cross the whole screen between.
+                .wrapContentWidth()
+                .widthIn(max = 480.dp)
+                .fillMaxWidth()
                 .padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
