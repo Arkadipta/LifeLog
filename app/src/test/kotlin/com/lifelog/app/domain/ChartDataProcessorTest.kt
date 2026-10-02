@@ -229,6 +229,71 @@ class ChartDataProcessorTest {
         assertEquals(11, data.bucketTimestamps.size)
     }
 
+    // ── Bucket fill ───────────────────────────────────────────────────────────
+    // Buckets are filled by one walk over the sorted entries instead of by
+    // re-filtering the whole list once per bucket (P4), so the half-open
+    // boundaries, the entries no bucket covers, and unordered input all have to
+    // keep behaving exactly as they did.
+
+    @Test
+    fun `an entry on a bucket boundary belongs to the later bucket`() {
+        // Midnight opening the column two days before the anchor day.
+        val boundary = midnight(NOW - 2 * DAY)
+        val entries = listOf(entry(boundary - 1, 10.0), entry(boundary, 20.0))
+        val data = cartesian(ChartDataProcessor.process(config(days = 7), entries, fields, NOW))
+
+        val points = data.series.single().points
+        assertEquals(listOf(3, 4), points.map { it.bucketIndex })
+        assertEquals(10.0, points.first().value, 0.001)
+        assertEquals(20.0, points.last().value, 0.001)
+    }
+
+    @Test
+    fun `an entry dated past the last bucket lands in none of them`() {
+        val entries = listOf(entry(NOW - DAY, 10.0), entry(NOW + 2 * DAY, 99.0))
+        val data = cartesian(ChartDataProcessor.process(config(days = 7), entries, fields, NOW))
+
+        // A future-dated entry passes the window filter but no bucket covers it:
+        // it is dropped, never folded into the anchor day's column.
+        val points = data.series.single().points
+        assertEquals(listOf(5), points.map { it.bucketIndex })
+        assertEquals(10.0, points.single().value, 0.001)
+    }
+
+    @Test
+    fun `entries bucket the same whatever order they arrive in`() {
+        val chronological = (6 downTo 0).map { entry(NOW - it * DAY, 10.0 + it) }
+        val shuffled = listOf(3, 0, 6, 1, 5, 2, 4).map { chronological[it] }
+
+        val sorted = cartesian(ChartDataProcessor.process(config(days = 7), chronological, fields, NOW))
+        val unsorted = cartesian(ChartDataProcessor.process(config(days = 7), shuffled, fields, NOW))
+
+        assertEquals(listOf(0, 1, 2, 3, 4, 5, 6), sorted.series.single().points.map { it.bucketIndex })
+        assertEquals(sorted.series.single().points, unsorted.series.single().points)
+    }
+
+    @Test
+    fun `every windowed entry lands in exactly one bucket`() {
+        // Summing entries worth 1.0 each: the total comes to the entry count
+        // only if no entry is dropped between buckets or counted in two.
+        val summed = config().copy(aggregation = AggregationStrategy.SUM)
+        val cases = mapOf<Int?, List<Long>>(
+            1 to (0..5).map { NOW - it * HOUR },        // hourly buckets, today
+            7 to (0..6).map { NOW - it * DAY },         // daily buckets
+            30 to (0..8).map { NOW - it * 3 * DAY },    // weekly buckets
+            365 to (0..10).map { NOW - it * 30 * DAY }, // monthly buckets
+            null to (0..10).map { NOW - it * 30 * DAY } // ALL: span-based bins
+        )
+        for ((days, timestamps) in cases) {
+            val entries = timestamps.map { entry(it, 1.0) }
+            val data = cartesian(
+                ChartDataProcessor.process(summed.copy(timeRangeDays = days), entries, fields, NOW)
+            )
+            val total = data.series.single().points.sumOf { it.value }
+            assertEquals("timeRangeDays=$days", timestamps.size.toDouble(), total, 0.001)
+        }
+    }
+
     // ── Existing behavior kept ────────────────────────────────────────────────
 
     @Test
@@ -380,6 +445,30 @@ class ChartDataProcessorTest {
     }
 
     @Test
+    fun `heatmap groups by day whatever order entries arrive in`() {
+        // Two days interleaved: the day cursor that replaced the per-entry
+        // midnight lookup (P5) has to put each entry on its own day, and LATEST
+        // still has to see each day's values in chronological order.
+        val entries = listOf(
+            entry(NOW - DAY, 1.0),            // yesterday noon
+            entry(NOW, 3.0),                  // today noon
+            entry(NOW - DAY - 3 * HOUR, 2.0), // yesterday 09:00
+            entry(NOW - 3 * HOUR, 4.0)        // today 09:00
+        )
+        val data = heatmap(
+            ChartDataProcessor.process(
+                heatmapConfig(agg = AggregationStrategy.LATEST), entries, heatmapFields, NOW
+            )
+        )
+
+        assertEquals(2, data.daysWithData)
+        assertEquals(3.0, data.dayAt(NOW)!!.value!!, 0.001)
+        assertEquals(1.0, data.dayAt(NOW - DAY)!!.value!!, 0.001)
+        assertEquals(2, data.dayAt(NOW)!!.entryCount)
+        assertEquals(2, data.dayAt(NOW - DAY)!!.entryCount)
+    }
+
+    @Test
     fun `heatmap counts contributing entries per day`() {
         val entries = listOf(entry(NOW, 20.0), entry(NOW - 2 * HOUR, 10.0), entry(NOW - 4 * HOUR, 30.0))
         val data = heatmap(ChartDataProcessor.process(heatmapConfig(), entries, heatmapFields, NOW))
@@ -504,5 +593,156 @@ class ChartDataProcessorTest {
             heatmapConfig(fieldIds = listOf(MEAL)), listOf(entry(NOW, 70.0, meal = "Lunch")), heatmapFields, NOW
         )
         assertEquals(ChartData.StaleConfig, choice)
+    }
+
+    // ── Window ↔ display alignment ────────────────────────────────────────────
+    // The entry filter must admit exactly the span the chart lays out, no more
+    // (invisible entries holding the anchor / skewing heatmap scales) and no
+    // less (entries clipped out of the oldest bucket).
+
+    @Test
+    fun `month window admits exactly the bucketed four weeks plus today`() {
+        val windowStart = midnight(NOW) - 4 * 7 * DAY // oldest bucket start
+        val entries = listOf(
+            entry(windowStart, 10.0),     // first instant of the oldest bucket
+            entry(windowStart - 1, 99.0), // 1ms earlier: belongs to no bucket
+            entry(NOW - DAY, 5.0)
+        )
+        val data = cartesian(ChartDataProcessor.process(config(days = 30), entries, fields, NOW))
+
+        assertNull(data.anchoredEndMs)
+        val points = data.series.single().points
+        assertEquals(listOf(0, 3), points.map { it.bucketIndex })
+        // The out-of-window entry aggregates into nothing (bucket 0 holds 10.0
+        // alone, not a 10/99 mean).
+        assertEquals(10.0, points.first().value, 0.001)
+    }
+
+    @Test
+    fun `week window starts at the oldest daily bucket`() {
+        val windowStart = midnight(NOW) - 6 * DAY
+        val entries = listOf(
+            entry(windowStart, 10.0),
+            entry(windowStart - 1, 99.0),
+            entry(NOW - HOUR, 5.0)
+        )
+        val data = cartesian(ChartDataProcessor.process(config(days = 7), entries, fields, NOW))
+
+        val points = data.series.single().points
+        assertEquals(listOf(0, 6), points.map { it.bucketIndex })
+        assertEquals(10.0, points.first().value, 0.001)
+    }
+
+    @Test
+    fun `year window admits exactly the twelve bucketed months`() {
+        // NOW is May 20 2026, so the oldest bucket is June 2025.
+        val june1 = Calendar.getInstance().apply {
+            set(2025, Calendar.JUNE, 1, 0, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val entries = listOf(
+            entry(june1, 10.0),
+            entry(june1 - 1, 99.0), // May 31 2025: within 365*24h of NOW, unbucketed
+            entry(NOW - DAY, 5.0)
+        )
+        val data = cartesian(ChartDataProcessor.process(config(days = 365), entries, fields, NOW))
+
+        assertNull(data.anchoredEndMs)
+        val points = data.series.single().points
+        assertEquals(listOf(0, 11), points.map { it.bucketIndex })
+        assertEquals(10.0, points.first().value, 0.001)
+    }
+
+    @Test
+    fun `data just outside the month buckets slides the window back`() {
+        // 29d1h ago: inside the old 30*24h filter but before the oldest bucket,
+        // which used to hold the anchor at now and render an empty chart.
+        val only = NOW - 29 * DAY - HOUR
+        val data = cartesian(
+            ChartDataProcessor.process(config(days = 30), listOf(entry(only, 70.0)), fields, NOW)
+        )
+
+        assertEquals(only, data.anchoredEndMs)
+        assertEquals(70.0, data.series.single().points.single().value, 0.001)
+    }
+
+    @Test
+    fun `year data older than the bucketed months slides the window back`() {
+        // ~360 days ago (May 25 2025): within 365*24h of NOW but before the
+        // June 2025 start of the bucketed year.
+        val only = NOW - 360 * DAY
+        val data = cartesian(
+            ChartDataProcessor.process(config(days = 365), listOf(entry(only, 70.0)), fields, NOW)
+        )
+
+        assertEquals(only, data.anchoredEndMs)
+        assertEquals(11, data.series.single().points.single().bucketIndex)
+    }
+
+    @Test
+    fun `day chart slides back to the most recent active day`() {
+        // Only entry is yesterday 22:00 — inside the old 24h filter but before
+        // today's hourly buckets.
+        val only = NOW - 14 * HOUR
+        val data = cartesian(
+            ChartDataProcessor.process(config(days = 1), listOf(entry(only, 70.0)), fields, NOW)
+        )
+
+        assertEquals(only, data.anchoredEndMs)
+        assertEquals(24, data.bucketTimestamps.size)
+        assertEquals(70.0, data.series.single().points.single().value, 0.001)
+    }
+
+    @Test
+    fun `leap year window keeps the first day of the oldest month`() {
+        // Mar 31 2024 buckets Apr 2023..Mar 2024 — 366 days across the leap
+        // February, one more than the old 365*24h filter admitted, so entries
+        // on Apr 1 2023 were clipped out of the bucket they belong to.
+        val anchor = Calendar.getInstance().apply {
+            set(2024, Calendar.MARCH, 31, 23, 30, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val aprilNoon = Calendar.getInstance().apply {
+            set(2023, Calendar.APRIL, 1, 12, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val entries = listOf(entry(aprilNoon, 10.0), entry(anchor - DAY, 5.0))
+        val data = cartesian(ChartDataProcessor.process(config(days = 365), entries, fields, anchor))
+
+        assertEquals(listOf(0, 11), data.series.single().points.map { it.bucketIndex })
+        assertEquals(10.0, data.series.single().points.first().value, 0.001)
+    }
+
+    @Test
+    fun `heatmap scale ignores entries older than its day grid`() {
+        // 29d18h ago falls on the 30th day back — outside a 30-day grid ending
+        // today — but inside the old 30*24h filter, where it inflated max and
+        // the day count without a legitimate cell.
+        val outside = NOW - 29 * DAY - 18 * HOUR
+        val entries = listOf(entry(outside, 100.0), entry(NOW, 5.0), entry(NOW - 2 * DAY, 9.0))
+        val data = heatmap(
+            ChartDataProcessor.process(heatmapConfig(days = 30), entries, heatmapFields, NOW)
+        )
+
+        assertEquals(9.0, data.maxValue, 0.001)
+        assertEquals(5.0, data.minValue, 0.001)
+        assertEquals(2, data.daysWithData)
+    }
+
+    @Test
+    fun `pie covers the last calendar days of its range`() {
+        val edgeDay = Calendar.getInstance().apply {
+            timeInMillis = midnight(NOW)
+            add(Calendar.DAY_OF_YEAR, -29)
+        }.timeInMillis
+        val entries = listOf(
+            entry(edgeDay, 3.0, meal = "Edge"),                     // first admitted instant
+            entry(NOW - 29 * DAY - 18 * HOUR, 100.0, meal = "Old"), // 30th day back: out
+            entry(NOW - DAY, 5.0, meal = "Lunch")
+        )
+        val cfg = config(type = ChartType.PIE, days = 30, groupBy = MEAL)
+        val data = ChartDataProcessor.process(cfg, entries, fields, NOW) as ChartData.Pie
+
+        assertEquals(setOf("Edge", "Lunch"), data.slices.map { it.label }.toSet())
     }
 }

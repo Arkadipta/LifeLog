@@ -3,7 +3,6 @@ package com.lifelog.app.widget
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -28,10 +27,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
+import com.lifelog.app.data.repository.UserPreferences
+import com.lifelog.app.data.repository.UserPreferencesRepository
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.ui.ReadableWidth
 import com.lifelog.app.ui.theme.LifeLogTheme
 import com.lifelog.app.ui.components.IconTile
 import com.lifelog.app.util.iconForName
+import com.lifelog.app.util.logD
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -50,6 +53,8 @@ class QuickAddWidgetConfigViewModel @Inject constructor(
 
 @AndroidEntryPoint
 class QuickAddWidgetConfigActivity : ComponentActivity() {
+
+    @Inject lateinit var userPreferencesRepository: UserPreferencesRepository
 
     companion object {
         private const val TAG = "QuickAddWidgetConfig"
@@ -73,57 +78,65 @@ class QuickAddWidgetConfigActivity : ComponentActivity() {
         setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
 
         setContent {
-            LifeLogTheme {
-                ConfigScreen(
-                    onEventSelected = { eventType ->
-                        lifecycleScope.launch {
-                            val manager = GlanceAppWidgetManager(this@QuickAddWidgetConfigActivity)
-                            // getGlanceIdBy() creates the state entry for this appWidgetId even
-                            // on first placement (before Glance has initialised a session).
-                            // getGlanceIds().firstOrNull() would return null for a brand-new
-                            // widget, silently skipping the write and leaving the widget without
-                            // any configured event.
-                            val glanceId = manager.getGlanceIdBy(appWidgetId)
-                            // Diagnostic: knownIds empty = widget not yet in host (initial
-                            // placement). update() below may be silently dropped; the
-                            // onAppWidgetOptionsChanged callback in the receiver will fire
-                            // the correct render once the launcher adds the widget.
-                            val knownIds = manager.getGlanceIds(QuickAddWidget::class.java)
-                            Log.d(
-                                TAG,
-                                "onEventSelected: appWidgetId=$appWidgetId glanceId=$glanceId " +
-                                "knownIds=$knownIds widgetAlreadyInHost=${knownIds.isNotEmpty()} " +
-                                "eventId=${eventType.id} eventName='${eventType.name}'"
-                            )
+            // A placement screen is an opaque window the launcher hands straight to the user and
+            // it has no splash to hold behind, so it takes the eagerly read theme if that has
+            // landed (it has, unless placing the widget started this process moments ago) and
+            // defaults otherwise — AlarmDismissActivity's tradeoff, not MainActivity's gate.
+            val prefs by userPreferencesRepository.loaded.collectAsState()
+            val theme = prefs ?: UserPreferences()
 
-                            updateAppWidgetState(
-                                this@QuickAddWidgetConfigActivity,
-                                PreferencesGlanceStateDefinition,
-                                glanceId
-                            ) { prefs ->
-                                prefs.toMutablePreferences().apply {
-                                    this[QuickAddWidget.PREF_EVENT_ID]    = eventType.id
-                                    this[QuickAddWidget.PREF_EVENT_NAME]  = eventType.name
-                                    this[QuickAddWidget.PREF_EVENT_COLOR] = eventType.colorArgb
-                                    this[QuickAddWidget.PREF_EVENT_ICON]  = eventType.iconName
+            LifeLogTheme(amoledBlack = theme.useAmoledBlack, dynamicColor = theme.useDynamicColor) {
+                ReadableWidth {
+                    ConfigScreen(
+                        onEventSelected = { eventType ->
+                            lifecycleScope.launch {
+                                val manager = GlanceAppWidgetManager(this@QuickAddWidgetConfigActivity)
+                                // getGlanceIdBy() creates the state entry for this appWidgetId even
+                                // on first placement (before Glance has initialised a session).
+                                // getGlanceIds().firstOrNull() would return null for a brand-new
+                                // widget, silently skipping the write and leaving the widget without
+                                // any configured event.
+                                val glanceId = manager.getGlanceIdBy(appWidgetId)
+                                // Diagnostic: knownIds empty = widget not yet in host (initial
+                                // placement). update() below may be silently dropped; the
+                                // onAppWidgetOptionsChanged callback in the receiver will fire
+                                // the correct render once the launcher adds the widget.
+                                val knownIds = manager.getGlanceIds(QuickAddWidget::class.java)
+                                logD(TAG) {
+                                    "onEventSelected: appWidgetId=$appWidgetId glanceId=$glanceId " +
+                                    "knownIds=$knownIds widgetAlreadyInHost=${knownIds.isNotEmpty()} " +
+                                    "eventId=${eventType.id} eventName='${eventType.name}'"
                                 }
-                            }
-                            Log.d(TAG, "onEventSelected: state written, triggering update ts=${System.currentTimeMillis()}")
-                            QuickAddWidget().update(this@QuickAddWidgetConfigActivity, glanceId)
-                            Log.d(TAG, "onEventSelected: update() returned ts=${System.currentTimeMillis()}")
 
-                            setResult(
-                                RESULT_OK,
-                                Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                            )
+                                updateAppWidgetState(
+                                    this@QuickAddWidgetConfigActivity,
+                                    PreferencesGlanceStateDefinition,
+                                    glanceId
+                                ) { prefs ->
+                                    prefs.toMutablePreferences().apply {
+                                        this[QuickAddWidget.PREF_EVENT_ID]    = eventType.id
+                                        this[QuickAddWidget.PREF_EVENT_NAME]  = eventType.name
+                                        this[QuickAddWidget.PREF_EVENT_COLOR] = eventType.colorArgb
+                                        this[QuickAddWidget.PREF_EVENT_ICON]  = eventType.iconName
+                                    }
+                                }
+                                logD(TAG) { "onEventSelected: state written, triggering update ts=${System.currentTimeMillis()}" }
+                                QuickAddWidget().update(this@QuickAddWidgetConfigActivity, glanceId)
+                                logD(TAG) { "onEventSelected: update() returned ts=${System.currentTimeMillis()}" }
+
+                                setResult(
+                                    RESULT_OK,
+                                    Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                                )
+                                finish()
+                            }
+                        },
+                        onCancel = {
+                            setResult(RESULT_CANCELED)
                             finish()
                         }
-                    },
-                    onCancel = {
-                        setResult(RESULT_CANCELED)
-                        finish()
-                    }
-                )
+                    )
+                }
             }
         }
     }

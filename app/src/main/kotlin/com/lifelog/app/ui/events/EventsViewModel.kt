@@ -8,7 +8,6 @@ import com.lifelog.app.domain.EventFilterUseCase
 import com.lifelog.app.domain.model.EventFilterState
 import com.lifelog.app.domain.model.EventSortOption
 import com.lifelog.app.domain.model.EventType
-import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,8 +23,7 @@ import javax.inject.Inject
 class EventsViewModel @Inject constructor(
     private val repository: EventRepository,
     private val filterUseCase: EventFilterUseCase,
-    private val prefsRepo: UserPreferencesRepository,
-    private val widgetUpdater: WidgetUpdater
+    private val prefsRepo: UserPreferencesRepository
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -59,14 +57,5 @@ class EventsViewModel @Inject constructor(
 
     fun setSortOption(option: EventSortOption) {
         viewModelScope.launch { prefsRepo.setEventSortOption(option) }
-    }
-
-    fun deleteEventType(id: Long) {
-        viewModelScope.launch {
-            repository.deleteEventType(id)
-            // Deleting an event type removes its entries from the timeline and may
-            // leave a QuickAddWidget pointing at a now-deleted event — refresh all.
-            widgetUpdater.refreshAll()
-        }
     }
 }

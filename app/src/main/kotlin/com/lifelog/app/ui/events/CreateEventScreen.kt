@@ -60,6 +60,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -118,8 +119,13 @@ fun CreateEventScreen(
         if (state.isSaved) onNavigateBack()
     }
 
-    var showAddFieldSheet by remember { mutableStateOf(false) }
-    var editingFieldIndex by remember { mutableStateOf<Int?>(null) }
+    var showAddFieldSheet by rememberSaveable { mutableStateOf(false) }
+    var editingFieldIndex by rememberSaveable { mutableStateOf<Int?>(null) }
+    // Hoisted out of AppearancePicker (rather than local remember there) because that
+    // composable is invoked from inside a LazyColumn item{} block, whose per-item
+    // rememberSaveable scoping does not reliably restore across Activity recreation.
+    var showColorSheet by rememberSaveable { mutableStateOf(false) }
+    var showIconSheet by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -214,7 +220,11 @@ fun CreateEventScreen(
                     colorArgb = state.colorArgb,
                     iconName = state.iconName,
                     onColorSelect = viewModel::setColor,
-                    onIconSelect = viewModel::setIcon
+                    onIconSelect = viewModel::setIcon,
+                    showColorSheet = showColorSheet,
+                    onShowColorSheetChange = { showColorSheet = it },
+                    showIconSheet = showIconSheet,
+                    onShowIconSheetChange = { showIconSheet = it }
                 )
             }
 
@@ -329,10 +339,12 @@ private fun AppearancePicker(
     colorArgb: Int,
     iconName: String,
     onColorSelect: (Int) -> Unit,
-    onIconSelect: (String) -> Unit
+    onIconSelect: (String) -> Unit,
+    showColorSheet: Boolean,
+    onShowColorSheetChange: (Boolean) -> Unit,
+    showIconSheet: Boolean,
+    onShowIconSheetChange: (Boolean) -> Unit
 ) {
-    var showColorSheet by remember { mutableStateOf(false) }
-    var showIconSheet by remember { mutableStateOf(false) }
     val accent = Color(colorArgb)
 
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
@@ -343,14 +355,14 @@ private fun AppearancePicker(
         ) {
             AppearanceTile(
                 label = "Color",
-                onClick = { showColorSheet = true },
+                onClick = { onShowColorSheetChange(true) },
                 modifier = Modifier.weight(1f)
             ) {
                 ColorSwatch(accent, size = Sizing.iconTileSmall)
             }
             AppearanceTile(
                 label = "Icon",
-                onClick = { showIconSheet = true },
+                onClick = { onShowIconSheetChange(true) },
                 modifier = Modifier.weight(1f)
             ) {
                 IconTile(icon = iconForName(iconName), tint = accent, size = Sizing.iconTileSmall)
@@ -361,15 +373,15 @@ private fun AppearancePicker(
     if (showColorSheet) {
         ColorPickerSheet(
             selected = colorArgb,
-            onSelect = { onColorSelect(it); showColorSheet = false },
-            onDismiss = { showColorSheet = false }
+            onSelect = { onColorSelect(it); onShowColorSheetChange(false) },
+            onDismiss = { onShowColorSheetChange(false) }
         )
     }
     if (showIconSheet) {
         IconPickerSheet(
             selected = iconName,
-            onSelect = { onIconSelect(it); showIconSheet = false },
-            onDismiss = { showIconSheet = false }
+            onSelect = { onIconSelect(it); onShowIconSheetChange(false) },
+            onDismiss = { onShowIconSheetChange(false) }
         )
     }
 }

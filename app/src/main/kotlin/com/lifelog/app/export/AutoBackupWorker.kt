@@ -28,7 +28,7 @@ class AutoBackupWorker @AssistedInject constructor(
         if (prefs.backupFrequency == BackupFrequency.OFF) return Result.success()
 
         return try {
-            exportEngine.createAutoBackup(prefs.backupFormat)
+            exportEngine.createAutoBackup()
             prefsRepo.setLastBackupAt(System.currentTimeMillis())
             Result.success()
         } catch (e: Exception) {

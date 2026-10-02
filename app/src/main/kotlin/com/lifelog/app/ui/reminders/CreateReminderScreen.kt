@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -45,6 +46,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,9 +86,21 @@ fun CreateReminderScreen(
         if (state.isSaved) onNavigateBack()
     }
 
-    var showTimePicker by remember { mutableStateOf(false) }
-    var showEventPicker by remember { mutableStateOf(false) }
-    var showSnoozeSheet by remember { mutableStateOf(false) }
+    var showTimePicker by rememberSaveable { mutableStateOf(false) }
+    var showEventPicker by rememberSaveable { mutableStateOf(false) }
+    var showSnoozeSheet by rememberSaveable { mutableStateOf(false) }
+
+    // Save reports both problems at once but they sit at opposite ends of a scrolling form, so
+    // bring the first one into view — otherwise a rejected save just looks like a dead button.
+    // Whatever the rule needs is always the last content item: the sub-editor for the chosen type.
+    val listState = rememberLazyListState()
+    LaunchedEffect(state.titleError, state.recurrenceError) {
+        when {
+            state.titleError != null -> listState.animateScrollToItem(0)
+            state.recurrenceError != null ->
+                listState.animateScrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -119,6 +133,7 @@ fun CreateReminderScreen(
         }
     ) { padding ->
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
@@ -205,14 +220,10 @@ fun CreateReminderScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     SectionHeader("Repeat")
+                    // Driven by the enum itself: a hand-written subset silently dropped Daily and
+                    // Yearly, and Daily is the default — so a new reminder opened with no chip lit.
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                        items(listOf(
-                            RecurrenceType.NONE,
-                            RecurrenceType.WEEKLY,
-                            RecurrenceType.MONTHLY,
-                            RecurrenceType.INTERVAL,
-                            RecurrenceType.TIME_SINCE_LAST
-                        )) { type ->
+                        items(RecurrenceType.entries) { type ->
                             FilterChip(
                                 selected = state.recurrenceRule.type == type,
                                 onClick = { viewModel.setRecurrenceType(type) },
@@ -228,32 +239,37 @@ fun CreateReminderScreen(
                 item {
                     val hours = state.recurrenceRule.intervalMinutes / 60
                     val mins  = state.recurrenceRule.intervalMinutes % 60
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = hours.toString(),
-                            onValueChange = { v ->
-                                val h = v.toIntOrNull() ?: 0
-                                viewModel.setIntervalMinutes(h * 60 + mins)
-                            },
-                            label = { Text("Hours") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
-                        OutlinedTextField(
-                            value = mins.toString(),
-                            onValueChange = { v ->
-                                val m = (v.toIntOrNull() ?: 0).coerceIn(0, 59)
-                                viewModel.setIntervalMinutes(hours * 60 + m)
-                            },
-                            label = { Text("Minutes") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                        )
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = hours.toString(),
+                                onValueChange = { v ->
+                                    val h = v.toIntOrNull() ?: 0
+                                    viewModel.setIntervalMinutes(h * 60 + mins)
+                                },
+                                label = { Text("Hours") },
+                                isError = state.recurrenceError != null,
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                            OutlinedTextField(
+                                value = mins.toString(),
+                                onValueChange = { v ->
+                                    val m = (v.toIntOrNull() ?: 0).coerceIn(0, 59)
+                                    viewModel.setIntervalMinutes(hours * 60 + m)
+                                },
+                                label = { Text("Minutes") },
+                                isError = state.recurrenceError != null,
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                        }
+                        RecurrenceProblem(state.recurrenceError)
                     }
                 }
             }
@@ -275,6 +291,7 @@ fun CreateReminderScreen(
                                     viewModel.setTimeSinceLastTotalMinutes(h * 60 + mins)
                                 },
                                 label = { Text("Hours after last entry") },
+                                isError = state.recurrenceError != null,
                                 modifier = Modifier.weight(1f),
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
@@ -286,11 +303,13 @@ fun CreateReminderScreen(
                                     viewModel.setTimeSinceLastTotalMinutes(hours * 60 + m)
                                 },
                                 label = { Text("Min") },
+                                isError = state.recurrenceError != null,
                                 modifier = Modifier.weight(1f),
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                             )
                         }
+                        RecurrenceProblem(state.recurrenceError)
                         Text(
                             "Fires automatically N hours after the last linked entry. Resets on each new entry.",
                             style = MaterialTheme.typography.bodySmall,
@@ -323,6 +342,7 @@ fun CreateReminderScreen(
                     RecurrenceRuleEditor(
                         rule = state.recurrenceRule,
                         onRuleChange = viewModel::setRecurrenceRule,
+                        errorMessage = state.recurrenceError,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -370,6 +390,21 @@ fun CreateReminderScreen(
             onDismiss = { showSnoozeSheet = false }
         )
     }
+}
+
+/**
+ * The reason a save was refused, shown under the control that owns it. Null renders nothing, so
+ * call sites can place it unconditionally.
+ */
+@Composable
+internal fun RecurrenceProblem(message: String?, modifier: Modifier = Modifier) {
+    if (message == null) return
+    Text(
+        text = message,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error,
+        modifier = modifier
+    )
 }
 
 /** Tappable setting card with a leading icon tile, label, and current value. */

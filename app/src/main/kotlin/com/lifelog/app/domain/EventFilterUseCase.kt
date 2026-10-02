@@ -1,6 +1,6 @@
 package com.lifelog.app.domain
 
-import com.lifelog.app.domain.model.EventEntry
+import com.lifelog.app.domain.model.EntryRow
 import com.lifelog.app.domain.model.EventFilterState
 import com.lifelog.app.domain.model.EventSortOption
 import com.lifelog.app.domain.model.EventType
@@ -10,11 +10,18 @@ import javax.inject.Singleton
 @Singleton
 class EventFilterUseCase @Inject constructor() {
 
-    fun filterEntries(
-        entries: List<EventEntry>,
+    /**
+     * Narrows an entry list by tag and free text. Generic over [EntryRow] so the
+     * caller keeps its own element type, and — load-bearing for the Timeline —
+     * reads only plain columns: matching never touches [EntryRow.fieldValues], so
+     * filtering a list does not decode it. Searching field *values* is Event
+     * Detail's own concern, where entries are decoded anyway.
+     */
+    fun <T : EntryRow> filterEntries(
+        entries: List<T>,
         query: String,
         filterState: EventFilterState
-    ): List<EventEntry> = entries
+    ): List<T> = entries
         .let { list ->
             if (filterState.selectedTags.isEmpty()) list
             else list.filter { it.eventTypeCategory in filterState.selectedTags }

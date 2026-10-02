@@ -1,6 +1,5 @@
 package com.lifelog.app.ui.events
 
-import android.text.format.DateFormat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -43,7 +42,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -53,12 +51,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import com.lifelog.app.domain.model.EventEntry
+import com.lifelog.app.domain.model.EntryRow
 import com.lifelog.app.domain.model.EventField
 import com.lifelog.app.domain.model.FieldValue
 import com.lifelog.app.domain.model.legacyMismatchOf
 import com.lifelog.app.ui.components.LifeLogCard
 import com.lifelog.app.ui.components.SwipeActionBackground
+import com.lifelog.app.ui.is24HourFormat
 import com.lifelog.app.ui.theme.accentTileColors
 import com.lifelog.app.ui.theme.rememberAccentOnSurface
 import com.lifelog.app.ui.theme.Motion
@@ -68,11 +67,14 @@ import com.lifelog.app.util.relativeTimeLabel
 import com.lifelog.app.util.toClockParts
 import com.lifelog.app.util.toDisplayDate
 import com.lifelog.app.util.toUtcDateMillis
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * The one entry-card system shared by the Timeline and Event Detail screens.
- * Both render entries through [entryCardItems], so layout, spacing, swipe
- * actions, and expansion behavior cannot drift apart between the two.
+ * Both prepare their lists with [entryListModel] and render them through
+ * [entryCardItems], so layout, spacing, swipe actions, expansion behavior, and
+ * day grouping cannot drift apart between the two.
  *
  * Card anatomy: a tinted time tile leads (the sticky [EntryDateHeader] above
  * the group carries the date, so the card never repeats it), field previews
@@ -100,85 +102,133 @@ private fun fieldDisplayValue(field: EventField, value: FieldValue): String {
 }
 
 /**
- * Emits the standard entry list: day groups under sticky [EntryDateHeader]s,
- * each entry a [SwipeableEntryCard] with shared paddings. Set [groupByDate]
- * false when the list is not in chronological order (e.g. sorted by a field
- * value) — headers disappear and each card carries its own date caption.
+ * One day of entries as the list draws it: the sticky header's [label], the UTC
+ * key the M3 date picker speaks, and the cards beneath it in list order.
  */
-@OptIn(ExperimentalFoundationApi::class)
-fun LazyListScope.entryCardItems(
-    entries: List<EventEntry>,
-    fieldsFor: (EventEntry) -> List<EventField>,
-    onEdit: (EventEntry) -> Unit,
-    onDeleteRequest: (EventEntry) -> Unit,
-    showEventName: Boolean = false,
-    groupByDate: Boolean = true
-) {
-    if (groupByDate) {
-        entries.groupBy { it.createdAt.toDisplayDate() }.forEach { (date, dayEntries) ->
-            stickyHeader(key = "header_$date") { EntryDateHeader(date) }
-            items(dayEntries, key = { it.id }) { entry ->
-                EntryListItem(entry, fieldsFor(entry), showEventName, false, onEdit, onDeleteRequest)
-            }
+data class EntryDayGroup(
+    val label: String,
+    val utcDateMillis: Long,
+    val entries: List<EntryRow>
+)
+
+/**
+ * An entry list prepared for display: the flat [rows], the day groups the cards
+ * render under, and where each group lands in the list.
+ *
+ * Built once per data change by the view models, on a background dispatcher —
+ * see [entryListModel] for why the screens must not build it themselves.
+ *
+ * [days] and [anchors] are empty when the list is not chronological (Event
+ * Detail sorted by a field value); cards then render flat, each carrying its own
+ * date caption, and date jumping disables itself.
+ *
+ * Deliberately not `@Immutable`: it holds [EntryRow]s whose values may still be
+ * undecoded JSON, so Compose treating it as unstable — comparing it by instance
+ * rather than by `equals` — is what keeps a skip check off the whole table.
+ */
+data class EntryListModel(
+    val rows: List<EntryRow> = emptyList(),
+    val days: List<EntryDayGroup> = emptyList(),
+    val anchors: List<EntryDateAnchor> = emptyList()
+)
+
+/**
+ * Prepares [rows] for an entry list, doing every per-entry pass the screens need
+ * exactly once. Pass [groupByDate] = false when the list is not in chronological
+ * order (e.g. sorted by a field value).
+ *
+ * **Call this off the main thread** (the view models do, inside their
+ * `flowOn(Dispatchers.Default)` pipelines). Grouping formats a date per entry,
+ * and a `LazyListScope` content lambda re-runs whenever its screen recomposes —
+ * grouping there meant that O(entries) date pass ran on the main thread on every
+ * keystroke, twice over, since the [DateNavigator] grouped again for its jump
+ * targets.
+ */
+fun entryListModel(rows: List<EntryRow>, groupByDate: Boolean = true): EntryListModel {
+    val days = if (groupByDate) groupEntriesByDay(rows) else emptyList()
+    return EntryListModel(rows, days, entryDateAnchors(days))
+}
+
+/**
+ * Splits [entries] into day groups, keeping list order. Days are keyed by the
+ * device's local calendar date rather than by the formatted label, so grouping
+ * cannot depend on what the display pattern happens to show; the label is then
+ * formatted once per day instead of once per entry.
+ */
+fun groupEntriesByDay(entries: List<EntryRow>): List<EntryDayGroup> {
+    if (entries.isEmpty()) return emptyList()
+    val zone = ZoneId.systemDefault()
+    return entries
+        .groupBy { Instant.ofEpochMilli(it.createdAt).atZone(zone).toLocalDate() }
+        .map { (_, dayEntries) ->
+            val first = dayEntries.first().createdAt
+            EntryDayGroup(first.toDisplayDate(), first.toUtcDateMillis(), dayEntries)
         }
-    } else {
-        items(entries, key = { it.id }) { entry ->
-            EntryListItem(entry, fieldsFor(entry), showEventName, true, onEdit, onDeleteRequest)
-        }
-    }
 }
 
 /**
  * Where a single day group sits inside an [entryCardItems] list, so a
  * [DateNavigator] can scroll straight to it. [index] is the flat
- * [LazyListScope] position of the group's sticky header (or its first card when
- * ungrouped), offset by [leadingItemCount] for items a screen emits before the
- * cards. [utcDateMillis] keys the day in UTC to line up with the M3 picker.
+ * [LazyListScope] position of the group's sticky header, counted from the first
+ * entry card — a screen that emits items above the cards shifts them with
+ * [offsetBy]. [utcDateMillis] keys the day in UTC to line up with the M3 picker.
  */
 data class EntryDateAnchor(val utcDateMillis: Long, val index: Int)
 
 /**
- * The list position of every day group, in render order. Mirrors the grouping
- * in [entryCardItems] exactly — they live together so a computed jump target
- * can never drift from what is actually laid out. When [groupByDate] is false
- * the list is not chronological, so the first card of each contiguous date run
- * anchors instead of a header.
+ * The list position of every day in [days], in render order. Counts exactly what
+ * [entryCardItems] emits per group — one sticky header plus one item per entry —
+ * off the same group list, so a computed jump target cannot drift from what is
+ * actually laid out.
  */
-fun entryDateAnchors(
-    entries: List<EventEntry>,
-    groupByDate: Boolean = true,
-    leadingItemCount: Int = 0
-): List<EntryDateAnchor> {
-    if (entries.isEmpty()) return emptyList()
-    val anchors = mutableListOf<EntryDateAnchor>()
-    var index = leadingItemCount
-    if (groupByDate) {
-        entries.groupBy { it.createdAt.toDisplayDate() }.forEach { (_, dayEntries) ->
-            anchors += EntryDateAnchor(dayEntries.first().createdAt.toUtcDateMillis(), index)
-            index += 1 + dayEntries.size // sticky header + one item per entry
+fun entryDateAnchors(days: List<EntryDayGroup>): List<EntryDateAnchor> {
+    var index = 0
+    return days.map { day ->
+        EntryDateAnchor(day.utcDateMillis, index).also { index += 1 + day.entries.size }
+    }
+}
+
+/** These anchors shifted past the [leadingItemCount] items a screen renders
+ *  above its entry cards (Event Detail's chart carousel). */
+fun List<EntryDateAnchor>.offsetBy(leadingItemCount: Int): List<EntryDateAnchor> =
+    if (leadingItemCount == 0) this else map { it.copy(index = it.index + leadingItemCount) }
+
+/**
+ * Emits the standard entry list: day groups under sticky [EntryDateHeader]s,
+ * each entry a [SwipeableEntryCard] with shared paddings. A [model] with no day
+ * groups is not chronological, so headers disappear and each card carries its
+ * own date caption.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+fun LazyListScope.entryCardItems(
+    model: EntryListModel,
+    fieldsFor: (EntryRow) -> List<EventField>,
+    onEdit: (EntryRow) -> Unit,
+    onDeleteRequest: (EntryRow) -> Unit,
+    showEventName: Boolean = false
+) {
+    if (model.days.isNotEmpty()) {
+        model.days.forEach { day ->
+            stickyHeader(key = "header_${day.utcDateMillis}") { EntryDateHeader(day.label) }
+            items(day.entries, key = { it.id }) { entry ->
+                EntryListItem(entry, fieldsFor(entry), showEventName, false, onEdit, onDeleteRequest)
+            }
         }
     } else {
-        var lastDate: String? = null
-        entries.forEach { entry ->
-            val date = entry.createdAt.toDisplayDate()
-            if (date != lastDate) {
-                anchors += EntryDateAnchor(entry.createdAt.toUtcDateMillis(), index)
-                lastDate = date
-            }
-            index++
+        items(model.rows, key = { it.id }) { entry ->
+            EntryListItem(entry, fieldsFor(entry), showEventName, true, onEdit, onDeleteRequest)
         }
     }
-    return anchors
 }
 
 @Composable
 private fun LazyItemScope.EntryListItem(
-    entry: EventEntry,
+    entry: EntryRow,
     fields: List<EventField>,
     showEventName: Boolean,
     showFullDate: Boolean,
-    onEdit: (EventEntry) -> Unit,
-    onDeleteRequest: (EventEntry) -> Unit
+    onEdit: (EntryRow) -> Unit,
+    onDeleteRequest: (EntryRow) -> Unit
 ) {
     SwipeableEntryCard(
         entry = entry,
@@ -222,7 +272,7 @@ fun EntryDateHeader(date: String, modifier: Modifier = Modifier) {
  */
 @Composable
 fun SwipeableEntryCard(
-    entry: EventEntry,
+    entry: EntryRow,
     fields: List<EventField>,
     onEdit: () -> Unit,
     onDeleteRequest: () -> Unit,
@@ -273,7 +323,7 @@ fun SwipeableEntryCard(
  */
 @Composable
 fun EntryCard(
-    entry: EventEntry,
+    entry: EntryRow,
     fields: List<EventField>,
     modifier: Modifier = Modifier,
     showEventName: Boolean = false,
@@ -442,8 +492,7 @@ fun EntryCard(
  */
 @Composable
 private fun TimeTile(timestamp: Long, accent: Color) {
-    val context = LocalContext.current
-    val is24Hour = remember(context) { DateFormat.is24HourFormat(context) }
+    val is24Hour = is24HourFormat()
     val (clock, meridiem) = remember(timestamp, is24Hour) { timestamp.toClockParts(is24Hour) }
     val tile = accentTileColors(accent)
     Surface(shape = MaterialTheme.shapes.medium, color = tile.container) {

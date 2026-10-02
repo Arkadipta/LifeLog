@@ -34,10 +34,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.lifelog.app.domain.model.EventEntry
+import com.lifelog.app.domain.model.EntryRow
 import com.lifelog.app.ui.components.DeleteConfirmDialog
 import com.lifelog.app.ui.components.EmptyStatePlaceholder
 import com.lifelog.app.ui.components.TagFilterRow
+import com.lifelog.app.ui.events.EntryFormMode
 import com.lifelog.app.ui.events.EntryFormSheet
 import com.lifelog.app.ui.events.JumpToDateDialog
 import com.lifelog.app.ui.events.entryCardItems
@@ -50,16 +51,16 @@ fun TimelineScreen(
     onNavigateToEvent: (Long) -> Unit,
     viewModel: TimelineViewModel = hiltViewModel()
 ) {
-    val entries by viewModel.entries.collectAsStateWithLifecycle()
+    val entryList by viewModel.entryList.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val filterState by viewModel.filterState.collectAsStateWithLifecycle()
     val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
     val fieldsMap by viewModel.fieldsMap.collectAsStateWithLifecycle()
-    var deleteTarget by remember { mutableStateOf<EventEntry?>(null) }
+    var deleteTarget by remember { mutableStateOf<EntryRow?>(null) }
     var editingEntryId by remember { mutableStateOf<Long?>(null) }
 
     val listState = rememberLazyListState()
-    val dateNavigator = rememberDateNavigator(entries = entries, listState = listState)
+    val dateNavigator = rememberDateNavigator(model = entryList, listState = listState)
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -69,7 +70,7 @@ fun TimelineScreen(
                 title = { Text("Timeline") },
                 scrollBehavior = scrollBehavior,
                 actions = {
-                    if (entries.isNotEmpty()) {
+                    if (entryList.rows.isNotEmpty()) {
                         IconButton(onClick = { dateNavigator.jumpToTop() }) {
                             Icon(Icons.Rounded.VerticalAlignTop, "Jump to latest")
                         }
@@ -127,14 +128,14 @@ fun TimelineScreen(
                 modifier = Modifier.padding(bottom = Spacing.xs)
             )
 
-            if (entries.isEmpty() && searchQuery.isBlank() && !filterState.hasActiveFilters) {
+            if (entryList.rows.isEmpty() && searchQuery.isBlank() && !filterState.hasActiveFilters) {
                 EmptyStatePlaceholder(
                     icon = Icons.Rounded.Timeline,
                     title = "No entries yet",
                     subtitle = "Create events and add entries to see them here",
                     modifier = Modifier.fillMaxSize()
                 )
-            } else if (entries.isEmpty()) {
+            } else if (entryList.rows.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     val message = when {
                         searchQuery.isNotBlank() && filterState.hasActiveFilters ->
@@ -155,7 +156,7 @@ fun TimelineScreen(
                     contentPadding = PaddingValues(bottom = Spacing.xl)
                 ) {
                     entryCardItems(
-                        entries = entries,
+                        model = entryList,
                         fieldsFor = { entry -> fieldsMap[entry.eventTypeId].orEmpty() },
                         onEdit = { editingEntryId = it.id },
                         onDeleteRequest = { deleteTarget = it },
@@ -170,8 +171,7 @@ fun TimelineScreen(
 
     editingEntryId?.let { entryId ->
         EntryFormSheet(
-            eventTypeId = 0L,
-            editingEntryId = entryId,
+            mode = EntryFormMode.Edit(entryId),
             onDismiss = { editingEntryId = null },
             onViewHistory = { eventId ->
                 editingEntryId = null

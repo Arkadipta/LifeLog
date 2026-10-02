@@ -60,6 +60,18 @@ class ReminderRepository @Inject constructor(
         reminderDao.setActive(id, isActive)
     }
 
+    /**
+     * Unlink and deactivate every reminder pointing at [eventTypeId], returning
+     * the ids that were linked so the caller can cancel their armed alarms.
+     * Part of event-type deletion — see ReminderCoordinator.detachFromEventType.
+     */
+    suspend fun detachFromEventType(eventTypeId: Long): List<Long> =
+        reminderDao.detachFromEventType(eventTypeId)
+
+    /** Live count of active reminders linked to [eventTypeId] (delete-dialog disclosure). */
+    fun observeActiveCountForEventType(eventTypeId: Long): Flow<Int> =
+        reminderDao.observeActiveCountByEventType(eventTypeId)
+
     suspend fun updateNextTrigger(id: Long, nextTriggerAt: Long) {
         reminderDao.updateNextTrigger(id, nextTriggerAt)
     }

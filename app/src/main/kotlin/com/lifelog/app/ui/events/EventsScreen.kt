@@ -39,6 +39,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -63,6 +65,8 @@ fun EventsScreen(
     onNavigateToCreate: () -> Unit,
     onNavigateToEvent: (Long) -> Unit,
     onNavigateToSettings: () -> Unit,
+    // The event open in the detail pane beside this list, when there is one to mark.
+    selectedEventId: Long? = null,
     viewModel: EventsViewModel = hiltViewModel()
 ) {
     val eventTypes by viewModel.eventTypes.collectAsStateWithLifecycle()
@@ -176,6 +180,7 @@ fun EventsScreen(
                         EventTypeCard(
                             eventType = eventType,
                             onClick = { onNavigateToEvent(eventType.id) },
+                            selected = eventType.id == selectedEventId,
                             modifier = Modifier.animateItem()
                         )
                     }
@@ -227,13 +232,20 @@ private fun EventSortAction(
 private fun EventTypeCard(
     eventType: EventType,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selected: Boolean = false
 ) {
     val color = Color(eventType.colorArgb)
 
     LifeLogCard(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier
+            .fillMaxWidth()
+            // Announced only where it is true: outside the two-pane layout nothing is ever
+            // selected, and "not selected" on every card would be noise.
+            .then(if (selected) Modifier.semantics { this.selected = true } else Modifier),
+        containerColor = if (selected) MaterialTheme.colorScheme.surfaceContainerHighest
+                         else MaterialTheme.colorScheme.surfaceContainer
     ) {
         Row(
             modifier = Modifier

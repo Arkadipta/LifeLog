@@ -14,11 +14,10 @@ import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import com.lifelog.app.domain.model.Reminder
 
 /**
  * Foreground service that owns the alarm's SINGLE audio source (a looping [MediaPlayer]) and the
- * ongoing full-screen-intent notification.
+ * notifications of every alarm currently ringing.
  *
  * Why a service instead of keeping the MediaPlayer in [AlarmDismissActivity]:
  *  - Audio keeps ringing if the user backgrounds the alarm screen (e.g. presses Home); an Activity
@@ -27,18 +26,33 @@ import com.lifelog.app.domain.model.Reminder
  *    back to the alarm screen, and its Dismiss/Snooze actions work even when no Activity is showing.
  *  - A single owner of the player guarantees one audio source — no "reverb".
  *
+ * **Alarms overlap**, so this service is shared by however many are unanswered at once: it holds
+ * them in [RingingAlarms], rings one sound for all of them, and stops only once the last one is
+ * answered. Each has its own notification (see [showNotification]) and is dismissed by id
+ * ([stop]), because a reminder the user never answered must not be silenced by another one's
+ * Dismiss button.
+ *
  * Started from [ReminderReceiver] while it handles the exact-alarm broadcast. Exact alarms
  * (setAlarmClock) are exempt from the background foreground-service-start restriction on Android
  * 12+, so this start is allowed.
  */
 class AlarmService : Service() {
 
+    private val ringing = RingingAlarms()
     private var mediaPlayer: MediaPlayer? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private val autoStop = Handler(Looper.getMainLooper())
-    private val autoStopRunnable = Runnable { stopSelf() }
+    private val autoStops = mutableMapOf<Long, Runnable>()
+
+    /** Notification id the service is currently in the foreground for; null until it enters it. */
+    private var foregroundNotificationId: Int? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // START_NOT_STICKY shouldn't recreate us with a null intent, but guard anyway.
@@ -46,38 +60,84 @@ class AlarmService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        startAlarm(intent)
+        startAlarm(intent.toRingingAlarm())
         // Don't resurrect a killed alarm with stale state — a re-fire comes from a fresh broadcast.
         return START_NOT_STICKY
     }
 
-    private fun startAlarm(intent: Intent) {
-        val reminderId     = intent.getLongExtra(EXTRA_REMINDER_ID, -1L)
-        val title          = intent.getStringExtra(EXTRA_TITLE) ?: "LifeLog Alarm"
-        val message        = intent.getStringExtra(EXTRA_MESSAGE) ?: ""
-        val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, reminderId.toInt())
-        val eventTypeId    = intent.getLongExtra(EXTRA_EVENT_TYPE_ID, -1L).takeIf { it != -1L }
-        val snoozeMinutes  = intent.getIntExtra(EXTRA_SNOOZE_MINUTES, Reminder.DEFAULT_SNOOZE_MINUTES)
+    private fun startAlarm(alarm: RingingAlarm) {
+        ringing.add(alarm)
+        showNotification(alarm)
+        acquireWakeLock()
+        startAudio()
+        scheduleAutoStop(alarm)
+    }
 
-        // Enter the foreground with the ongoing alarm notification. specialUse is the catch-all FGS
-        // type for use cases (an alarm) not covered by a dedicated type; it must match the manifest.
-        val notification = NotificationHelper.buildAlarmNotification(
-            this, notificationId, title, message, reminderId, eventTypeId, snoozeMinutes
-        )
+    /**
+     * Shows [alarm]. The [front][RingingAlarms.front] alarm's notification is the service's
+     * foreground notification; every other one posts its own. Both carry the same full-screen
+     * intent and the same Dismiss/Snooze actions, so they look and behave alike — the split
+     * exists because a service has exactly one foreground notification, and handing that slot to
+     * a second alarm cancels the first's.
+     */
+    private fun showNotification(alarm: RingingAlarm) {
+        if (ringing.front?.reminderId == alarm.reminderId) {
+            enterForeground(alarm)
+        } else {
+            NotificationHelper.showAlarmNotification(this, alarm)
+        }
+    }
+
+    /**
+     * Puts [alarm]'s notification in the foreground slot. Re-designating removes the notification
+     * that held it before, so this is also how an answered front alarm's notification goes away.
+     */
+    private fun enterForeground(alarm: RingingAlarm) {
+        // specialUse is the catch-all FGS type for use cases (an alarm) not covered by a dedicated
+        // type; it must match the manifest.
         val serviceType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         } else {
             0
         }
-        ServiceCompat.startForeground(this, notificationId, notification, serviceType)
+        ServiceCompat.startForeground(
+            this,
+            alarm.notificationId,
+            NotificationHelper.buildAlarmNotification(this, alarm),
+            serviceType
+        )
+        foregroundNotificationId = alarm.notificationId
+    }
 
-        acquireWakeLock()
-        startAudio()
+    /**
+     * One alarm was answered (Dismiss / Snooze / Add Entry) or rang itself out. Anything else
+     * still ringing keeps its audio and its notification; the service stops only when the last
+     * one goes.
+     */
+    private fun stopAlarm(reminderId: Long) {
+        val answered = ringing.remove(reminderId) ?: return
+        autoStops.remove(reminderId)?.let(autoStop::removeCallbacks)
 
-        // Safety net: never ring forever. Mirrors how system alarms auto-silence; a forgotten alarm
-        // must not hold a wake lock / drain the battery indefinitely.
-        autoStop.removeCallbacks(autoStopRunnable)
-        autoStop.postDelayed(autoStopRunnable, MAX_RING_MS)
+        val front = ringing.front
+        when {
+            // Nothing left: onDestroy stops the audio and takes the foreground notification with it.
+            front == null -> stopSelf()
+            // The answered alarm held the foreground slot — handing it on removes its notification.
+            answered.notificationId == foregroundNotificationId -> enterForeground(front)
+            else -> NotificationHelper.cancelNotification(this, answered.notificationId)
+        }
+    }
+
+    /**
+     * Safety net: never ring forever. Mirrors how system alarms auto-silence; a forgotten alarm
+     * must not hold a wake lock / drain the battery indefinitely. Per alarm, so one that comes due
+     * late gets its own full window instead of inheriting what is left of an earlier one's.
+     */
+    private fun scheduleAutoStop(alarm: RingingAlarm) {
+        autoStops.remove(alarm.reminderId)?.let(autoStop::removeCallbacks)
+        val silence = Runnable { stopAlarm(alarm.reminderId) }
+        autoStops[alarm.reminderId] = silence
+        autoStop.postDelayed(silence, MAX_RING_MS)
     }
 
     private fun startAudio() {
@@ -106,15 +166,15 @@ class AlarmService : Service() {
     }
 
     private fun acquireWakeLock() {
-        if (wakeLock?.isHeld == true) return
         val pm = getSystemService(PowerManager::class.java) ?: return
         // PARTIAL_WAKE_LOCK keeps the CPU running so audio continues if the screen turns off while
         // ringing (a foreground service alone does not prevent the CPU from sleeping). The timeout
-        // is a backstop in case stop() is somehow never called.
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKELOCK_TAG).apply {
-            setReferenceCounted(false)
-            acquire(MAX_RING_MS)
-        }
+        // is a backstop in case the alarm is somehow never stopped; acquiring again on the existing
+        // (non-reference-counted) lock re-arms that timeout rather than nesting, so a late alarm is
+        // never cut short by an earlier one's deadline.
+        val lock = wakeLock ?: pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKELOCK_TAG)
+            .also { it.setReferenceCounted(false); wakeLock = it }
+        lock.acquire(MAX_RING_MS)
     }
 
     private fun releaseWakeLock() {
@@ -123,9 +183,19 @@ class AlarmService : Service() {
     }
 
     override fun onDestroy() {
-        // Reached via stopService() (Dismiss/Snooze) or stopSelf() (auto-stop). Tear everything down
+        // Reached via stopSelf() once the last alarm is answered or rings out. Tear everything down
         // here so cleanup happens regardless of how the service was stopped.
-        autoStop.removeCallbacks(autoStopRunnable)
+        instance = null
+        autoStop.removeCallbacksAndMessages(null)
+        autoStops.clear()
+        // stopForeground below removes the foreground notification only. Anything else still
+        // ringing — a stop that wasn't an answer, e.g. the system tearing the service down —
+        // would otherwise leave an ongoing notification behind with nothing to dismiss it.
+        ringing.all.forEach { alarm ->
+            if (alarm.notificationId != foregroundNotificationId) {
+                NotificationHelper.cancelNotification(this, alarm.notificationId)
+            }
+        }
         mediaPlayer?.let { mp ->
             try { mp.stop() } catch (_: Exception) {}
             mp.release()
@@ -137,55 +207,52 @@ class AlarmService : Service() {
     }
 
     companion object {
-        const val EXTRA_REMINDER_ID     = "reminder_id"
-        const val EXTRA_TITLE           = "title"
-        const val EXTRA_MESSAGE         = "message"
-        const val EXTRA_NOTIFICATION_ID = "notification_id"
-        const val EXTRA_EVENT_TYPE_ID   = "event_type_id"
-        const val EXTRA_SNOOZE_MINUTES  = "snooze_minutes"
-
         private const val WAKELOCK_TAG = "lifelog:alarm"
 
         // Auto-silence after 10 minutes. Tune/remove if the alarm should ring indefinitely.
         private const val MAX_RING_MS = 10 * 60 * 1000L
 
-        fun start(
-            context: Context,
-            reminderId: Long,
-            title: String,
-            message: String,
-            notificationId: Int,
-            eventTypeId: Long?,
-            snoozeMinutes: Int = Reminder.DEFAULT_SNOOZE_MINUTES
-        ) {
-            val intent = Intent(context, AlarmService::class.java).apply {
-                putExtra(EXTRA_REMINDER_ID, reminderId)
-                putExtra(EXTRA_TITLE, title)
-                putExtra(EXTRA_MESSAGE, message)
-                putExtra(EXTRA_NOTIFICATION_ID, notificationId)
-                putExtra(EXTRA_EVENT_TYPE_ID, eventTypeId ?: -1L)
-                putExtra(EXTRA_SNOOZE_MINUTES, snoozeMinutes)
-            }
+        /**
+         * The live service, or null while nothing is ringing.
+         *
+         * Answering one of several ringing alarms has to reach the service that holds them all,
+         * and must never *start* it — a command Intent would, and a started-service command from
+         * a notification-action broadcast is the background start that stopService() was chosen
+         * to sidestep in the first place. Everything that talks to the service ([ReminderReceiver],
+         * [AlarmDismissActivity]) lives in this same process and calls from the main thread, where
+         * onCreate/onDestroy also run, so this is a plain main-thread hand-off and not shared state.
+         */
+        private var instance: AlarmService? = null
+
+        /**
+         * The alarm currently at the front of the ringing queue, or null if none is — what
+         * [AlarmDismissActivity] shows after the user answers the one on screen.
+         */
+        fun ringingNow(): RingingAlarm? = instance?.ringing?.front
+
+        fun start(context: Context, alarm: RingingAlarm) {
+            val intent = alarm.putInto(Intent(context, AlarmService::class.java))
             try {
                 ContextCompat.startForegroundService(context, intent)
             } catch (_: Exception) {
                 // Background FGS start disallowed (rare for exact alarms). Fall back to a plain
                 // notification so the full-screen UI / lock-screen path still works — without looping
                 // audio, since nothing owns a player in this path.
-                NotificationHelper.showAlarmNotification(
-                    context, notificationId, title, message, reminderId, eventTypeId, snoozeMinutes
-                )
+                NotificationHelper.showAlarmNotification(context, alarm)
             }
         }
 
         /**
-         * Stops the alarm: tears down audio + wake lock and removes the notification (via onDestroy).
-         * Uses stopService (not a started ACTION) because stopService is exempt from the background
-         * start restriction, so it works from a notification-action broadcast too. No-op if the
-         * service isn't running.
+         * Stops [reminderId] ringing: its notification goes, and the audio + wake lock with it if
+         * it was the last one ringing.
+         *
+         * Per reminder, not a blanket stop: a Dismiss belongs to the alarm it was posted for, and
+         * stopping the service outright silenced every other alarm the user hadn't answered yet.
+         * A no-op when that reminder isn't ringing — including when nothing is, which is the
+         * non-alarm reminder case where the service was never started.
          */
-        fun stop(context: Context) {
-            context.stopService(Intent(context, AlarmService::class.java))
+        fun stop(reminderId: Long) {
+            instance?.stopAlarm(reminderId)
         }
     }
 }

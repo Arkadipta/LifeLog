@@ -21,12 +21,15 @@ private val WEEK_POSITIONS = listOf(1 to "1st", 2 to "2nd", 3 to "3rd", 4 to "4t
 /**
  * A self-contained recurrence rule editor.
  * Caller passes the current [rule] and receives an updated copy via [onRuleChange].
+ * [errorMessage] is the reason a save was refused (see `RecurrenceCalculator.validate`) and is
+ * rendered at the foot of whichever sub-editor is showing.
  */
 @Composable
 fun RecurrenceRuleEditor(
     rule: RecurrenceRule,
     onRuleChange: (RecurrenceRule) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    errorMessage: String? = null
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         when (rule.type) {
@@ -38,17 +41,12 @@ fun RecurrenceRuleEditor(
                         onRuleChange(rule.copy(daysOfWeek = updated.sorted()))
                     }
                 )
-                if (rule.daysOfWeek.isEmpty()) {
-                    Text(
-                        "No days selected — fires every day.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
             RecurrenceType.MONTHLY, RecurrenceType.YEARLY -> {
                 MonthSelectorRow(
                     selected = rule.months,
+                    // "All months" is what makes a rule monthly, so a Yearly rule is not offered it.
+                    allowAllMonths = rule.type != RecurrenceType.YEARLY,
                     onToggle = { m ->
                         val updated = if (m in rule.months) rule.months - m else rule.months + m
                         onRuleChange(rule.copy(months = updated.sorted()))
@@ -87,6 +85,7 @@ fun RecurrenceRuleEditor(
             RecurrenceType.TIME_SINCE_LAST -> { /* duration field lives in parent screen */ }
             RecurrenceType.NONE, RecurrenceType.DAILY -> { /* no sub-options needed */ }
         }
+        RecurrenceProblem(errorMessage)
     }
 }
 
@@ -95,6 +94,7 @@ fun RecurrenceRuleEditor(
 @Composable
 private fun MonthSelectorRow(
     selected: List<Int>,
+    allowAllMonths: Boolean,
     onToggle: (Int) -> Unit,
     onSelectAll: () -> Unit,
     onSelectEven: () -> Unit,
@@ -104,12 +104,14 @@ private fun MonthSelectorRow(
         SectionHeader("Months")
 
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            item {
-                FilterChip(
-                    selected = selected.isEmpty(),
-                    onClick = onSelectAll,
-                    label = { Text("All") }
-                )
+            if (allowAllMonths) {
+                item {
+                    FilterChip(
+                        selected = selected.isEmpty(),
+                        onClick = onSelectAll,
+                        label = { Text("All") }
+                    )
+                }
             }
             item {
                 FilterChip(

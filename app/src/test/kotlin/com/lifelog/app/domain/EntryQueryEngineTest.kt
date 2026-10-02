@@ -99,6 +99,99 @@ class EntryQueryEngineTest {
         assertFalse(result.any { it.id == 4L })
     }
 
+    // ── Numeric tolerance (L5) ────────────────────────────────────────────────
+    //
+    // Filters compare through compareNumeric, which answers "is this the number the
+    // user typed?" rather than "are these bit-identical Doubles?".
+
+    /** The value a user would type as 0.3, arrived at by arithmetic: 0.30000000000000004. */
+    private val accumulated = 0.1 + 0.2
+
+    @Test fun `numeric EQUALS matches a value carrying floating-point error`() {
+        val drifted = listOf(entry(10, values = arrayOf(SYSTOLIC to FieldValue.Numeric(accumulated))))
+        val condition = FilterCondition.NumericFilter(SYSTOLIC, "Systolic", NumericOperator.EQUALS, 0.3)
+        assertTrue("premise: exact equality would miss it", 0.3 != accumulated)
+        val result = EntryQueryEngine.apply(drifted, EntryQuery(listOf(condition)))
+        assertEquals(listOf(10L), result.map { it.id })
+    }
+
+    @Test fun `numeric NOT_EQUALS excludes a value carrying floating-point error`() {
+        val drifted = listOf(entry(10, values = arrayOf(SYSTOLIC to FieldValue.Numeric(accumulated))))
+        val condition = FilterCondition.NumericFilter(SYSTOLIC, "Systolic", NumericOperator.NOT_EQUALS, 0.3)
+        val result = EntryQueryEngine.apply(drifted, EntryQuery(listOf(condition)))
+        assertTrue(result.isEmpty())
+    }
+
+    @Test fun `tolerance scales with magnitude instead of being a fixed window`() {
+        // 1e-9 relative: 1_000_000 tolerates ~1e-3, while 1.0 tolerates only ~1e-9.
+        val large = listOf(entry(10, values = arrayOf(SYSTOLIC to FieldValue.Numeric(1_000_000.0000001))))
+        val largeEq = FilterCondition.NumericFilter(SYSTOLIC, "Systolic", NumericOperator.EQUALS, 1_000_000.0)
+        assertEquals(listOf(10L), EntryQueryEngine.apply(large, EntryQuery(listOf(largeEq))).map { it.id })
+
+        val small = listOf(entry(11, values = arrayOf(SYSTOLIC to FieldValue.Numeric(1.0000001))))
+        val smallEq = FilterCondition.NumericFilter(SYSTOLIC, "Systolic", NumericOperator.EQUALS, 1.0)
+        assertTrue(EntryQueryEngine.apply(small, EntryQuery(listOf(smallEq))).isEmpty())
+    }
+
+    @Test fun `genuinely different values stay different`() {
+        // The tolerance must never fuse two numbers a user could tell apart.
+        val condition = FilterCondition.NumericFilter(SYSTOLIC, "Systolic", NumericOperator.EQUALS, 120.001)
+        val result = EntryQueryEngine.apply(entries, EntryQuery(listOf(condition)))
+        assertTrue(result.isEmpty())
+    }
+
+    @Test fun `the six numeric operators cannot disagree`() {
+        // Exactly one of <, ≈, > holds, so >= is the union of > and ≈, and NOT_EQUALS is
+        // the exact complement of EQUALS — for a near-tie as much as for a clear one.
+        val near = listOf(entry(10, values = arrayOf(SYSTOLIC to FieldValue.Numeric(accumulated))))
+        fun matches(op: NumericOperator) = EntryQueryEngine
+            .apply(near, EntryQuery(listOf(FilterCondition.NumericFilter(SYSTOLIC, "Systolic", op, 0.3))))
+            .isNotEmpty()
+
+        assertTrue(matches(NumericOperator.EQUALS))
+        assertFalse(matches(NumericOperator.NOT_EQUALS))
+        assertFalse(matches(NumericOperator.GREATER_THAN))
+        assertTrue(matches(NumericOperator.GREATER_THAN_OR_EQUAL))
+        assertFalse(matches(NumericOperator.LESS_THAN))
+        assertTrue(matches(NumericOperator.LESS_THAN_OR_EQUAL))
+    }
+
+    @Test fun `a stored NaN is excluded by every operator, negative ones included`() {
+        // Reachable today: CSV inference calls toDoubleOrNull, which accepts "NaN".
+        assertTrue("NaN".toDoubleOrNull()?.isNaN() == true)
+        val corrupt = listOf(entry(10, values = arrayOf(SYSTOLIC to FieldValue.Numeric(Double.NaN))))
+        NumericOperator.entries.forEach { op ->
+            val condition = FilterCondition.NumericFilter(SYSTOLIC, "Systolic", op, 120.0)
+            val result = EntryQueryEngine.apply(corrupt, EntryQuery(listOf(condition)))
+            assertTrue("NaN leaked into a $op result", result.isEmpty())
+        }
+    }
+
+    @Test fun `a stored infinity is excluded by every operator`() {
+        assertTrue("Infinity".toDoubleOrNull()?.isInfinite() == true)
+        val corrupt = listOf(entry(10, values = arrayOf(SYSTOLIC to FieldValue.Numeric(Double.POSITIVE_INFINITY))))
+        NumericOperator.entries.forEach { op ->
+            val condition = FilterCondition.NumericFilter(SYSTOLIC, "Systolic", op, 120.0)
+            val result = EntryQueryEngine.apply(corrupt, EntryQuery(listOf(condition)))
+            assertTrue("Infinity leaked into a $op result", result.isEmpty())
+        }
+    }
+
+    @Test fun `a non-finite filter value matches nothing rather than everything`() {
+        val condition = FilterCondition.NumericFilter(SYSTOLIC, "Systolic", NumericOperator.NOT_EQUALS, Double.NaN)
+        assertTrue(EntryQueryEngine.apply(entries, EntryQuery(listOf(condition))).isEmpty())
+    }
+
+    @Test fun `sorting keeps a total order when a value is NaN`() {
+        // Sorting is deliberately exact, and Double.compareTo is a total order — a NaN
+        // must not corrupt the comparator, it just lands last.
+        val withNaN = entries + entry(10, values = arrayOf(SYSTOLIC to FieldValue.Numeric(Double.NaN)))
+        val spec = SortSpecification(SortField.NumericField(SYSTOLIC, "Systolic"), SortDirection.ASCENDING)
+        val result = EntryQueryEngine.apply(withNaN, EntryQuery(sort = spec))
+        // 120, 130, 140, NaN, then the entry with no value at all
+        assertEquals(listOf(1L, 3L, 2L, 10L, 4L), result.map { it.id })
+    }
+
     // ── Boolean filter tests ──────────────────────────────────────────────────
 
     @Test fun `boolean EQUALS true filters correctly`() {

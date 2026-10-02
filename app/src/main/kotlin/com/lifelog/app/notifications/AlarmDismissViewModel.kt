@@ -21,6 +21,9 @@ class AlarmDismissViewModel @Inject constructor(
     val nextTriggerAt: StateFlow<Long?> = _nextTriggerAt.asStateFlow()
 
     fun loadNextTrigger(reminderId: Long) {
+        // Clear immediately so a second alarm (singleInstance, delivered via onNewIntent) never
+        // shows the previous reminder's "Next" label while its own trigger is being looked up.
+        _nextTriggerAt.value = null
         viewModelScope.launch {
             val reminder = reminderRepository.getById(reminderId) ?: return@launch
             // TIME_SINCE_LAST reminders reset on entry, not on a fixed schedule

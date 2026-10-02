@@ -11,9 +11,12 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.lifelog.app.ui.LocalIs24HourFormat
+import com.lifelog.app.ui.rememberIs24HourFormat
 
 internal val DarkColorScheme = darkColorScheme(
     primary = Purple80,
@@ -100,10 +103,14 @@ fun LifeLogTheme(
         baseColorScheme
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = LifeLogTypography,
-        shapes = LifeLogShapes,
-        content = content
-    )
+    // Every Compose surface in the app is wrapped in this theme, so providing the hour
+    // format here is what makes one observer serve the whole UI — see LocalIs24HourFormat.
+    CompositionLocalProvider(LocalIs24HourFormat provides rememberIs24HourFormat()) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = LifeLogTypography,
+            shapes = LifeLogShapes,
+            content = content
+        )
+    }
 }
