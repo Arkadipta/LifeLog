@@ -285,14 +285,23 @@ object RecurrenceCalculator {
         return if (candidate > base) candidate else calAtTime(base, timeOfDayMinutes, dayOffset = 1)
     }
 
+    /**
+     * Pick the day first, then the time on it — the order is what decides a time of day that the
+     * target day does not have (02:30 on a spring-forward day). Setting the time and then adding
+     * a day keeps the wall clock by taking the offset change back out, which lands an hour
+     * *before* the gap, while setting the time on the day itself resolves leniently to an hour
+     * *after* it; mixing the two made the same reminder ring at 01:30 or 03:30 depending on which
+     * day its trigger was computed. Day-then-time is also the order the weekly and monthly
+     * paths use, so every rule now resolves the gap the same way: forward.
+     */
     private fun calAtTime(base: Long, timeOfDayMinutes: Int, dayOffset: Int = 0): Long =
         Calendar.getInstance().apply {
             timeInMillis = base
+            if (dayOffset != 0) add(Calendar.DAY_OF_YEAR, dayOffset)
             set(Calendar.HOUR_OF_DAY, timeOfDayMinutes / 60)
             set(Calendar.MINUTE, timeOfDayMinutes % 60)
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
-            if (dayOffset != 0) add(Calendar.DAY_OF_YEAR, dayOffset)
         }.timeInMillis
 
     fun describeRule(rule: RecurrenceRule): String {

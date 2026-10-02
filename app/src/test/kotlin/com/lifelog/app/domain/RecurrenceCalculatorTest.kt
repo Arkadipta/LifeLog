@@ -729,24 +729,95 @@ class RecurrenceCalculatorTest {
             assertEquals(7, calGet(next, Calendar.HOUR_OF_DAY))
         }
 
-    @Test fun `a time of day inside the skipped hour still fires that day`() = inZone(NEW_YORK) {
-        // 02:30 does not exist on Mar 8. What matters is that the reminder is
-        // not lost; which side of the gap it lands on depends on which branch
-        // of nextTimeOfDayOccurrence computed it, so both are pinned here.
-        val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 2 * 60 + 30)
+    // 02:30 does not exist on Mar 8. Every path resolves it the same way — forward, to 03:30,
+    // the hour the clocks actually show next — whichever day the trigger was computed on.
 
-        // Asked the day before: "same wall time tomorrow" steps back an hour.
-        val fromDayBefore = RecurrenceCalculator
-            .computeNextTrigger(rule, calOf(2026, Calendar.MARCH, 7, 12, 0))!!
-        assertEquals(8, calGet(fromDayBefore, Calendar.DAY_OF_MONTH))
-        assertEquals(1, calGet(fromDayBefore, Calendar.HOUR_OF_DAY))
-        assertEquals(30, calGet(fromDayBefore, Calendar.MINUTE))
+    private val IN_THE_GAP = 2 * 60 + 30
 
-        // Asked on the day itself: the lenient set() resolves the gap forward.
-        val fromSameDay = RecurrenceCalculator
-            .computeNextTrigger(rule, calOf(2026, Calendar.MARCH, 8, 0, 10))!!
-        assertEquals(8, calGet(fromSameDay, Calendar.DAY_OF_MONTH))
-        assertEquals(3, calGet(fromSameDay, Calendar.HOUR_OF_DAY))
-        assertEquals(30, calGet(fromSameDay, Calendar.MINUTE))
+    private fun assertMar8At0330(trigger: Long) {
+        assertEquals(Calendar.MARCH, calGet(trigger, Calendar.MONTH))
+        assertEquals(8, calGet(trigger, Calendar.DAY_OF_MONTH))
+        assertEquals(3, calGet(trigger, Calendar.HOUR_OF_DAY))
+        assertEquals(30, calGet(trigger, Calendar.MINUTE))
     }
+
+    @Test fun `a time of day inside the skipped hour resolves the same from either day`() =
+        inZone(NEW_YORK) {
+            val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = IN_THE_GAP)
+
+            // Asked the day before (after that day's 02:30, so "tomorrow" is the answer) and on
+            // the day itself. These used to disagree: 01:30 and 03:30.
+            val fromDayBefore = RecurrenceCalculator
+                .computeNextTrigger(rule, calOf(2026, Calendar.MARCH, 7, 12, 0))!!
+            val fromSameDay = RecurrenceCalculator
+                .computeNextTrigger(rule, calOf(2026, Calendar.MARCH, 8, 0, 10))!!
+
+            assertMar8At0330(fromDayBefore)
+            assertEquals(fromDayBefore, fromSameDay)
+        }
+
+    @Test fun `a DAILY rule inside the skipped hour fires once that day and returns to its time`() =
+        inZone(NEW_YORK) {
+            val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = IN_THE_GAP)
+
+            // Walk the chain the receiver walks: each firing computes the next from itself.
+            val mar7 = RecurrenceCalculator
+                .computeNextTrigger(rule, calOf(2026, Calendar.MARCH, 7, 0, 0))!!
+            val mar8 = RecurrenceCalculator.computeNextTrigger(rule, mar7)!!
+            val mar9 = RecurrenceCalculator.computeNextTrigger(rule, mar8)!!
+
+            assertEquals(7, calGet(mar7, Calendar.DAY_OF_MONTH))
+            assertEquals(2, calGet(mar7, Calendar.HOUR_OF_DAY))
+            assertMar8At0330(mar8)
+            assertEquals(24 * HOUR_MS, mar8 - mar7) // 25 wall-clock hours, 24 real ones
+            assertEquals(9, calGet(mar9, Calendar.DAY_OF_MONTH))
+            assertEquals(2, calGet(mar9, Calendar.HOUR_OF_DAY))
+            assertEquals(30, calGet(mar9, Calendar.MINUTE))
+        }
+
+    @Test fun `a one-shot inside the skipped hour resolves forward too`() = inZone(NEW_YORK) {
+        val rule = RecurrenceRule(type = RecurrenceType.NONE, timeOfDayMinutes = IN_THE_GAP)
+
+        assertMar8At0330(
+            RecurrenceCalculator.computeInitialTrigger(rule, calOf(2026, Calendar.MARCH, 7, 12, 0))!!
+        )
+        assertMar8At0330(
+            RecurrenceCalculator.computeInitialTrigger(rule, calOf(2026, Calendar.MARCH, 8, 0, 10))!!
+        )
+    }
+
+    @Test fun `WEEKLY and MONTHLY resolve the skipped hour the way DAILY does`() =
+        inZone(NEW_YORK) {
+            val after = calOf(2026, Calendar.MARCH, 7, 12, 0)
+            val weekly = RecurrenceRule(
+                type = RecurrenceType.WEEKLY,
+                daysOfWeek = listOf(0), // Mar 8 2026 is a Sunday
+                timeOfDayMinutes = IN_THE_GAP
+            )
+            val monthly = RecurrenceRule(
+                type = RecurrenceType.MONTHLY,
+                dayOfMonthMode = DayOfMonthMode.DAY_OF_MONTH,
+                daysOfMonth = listOf(8),
+                timeOfDayMinutes = IN_THE_GAP
+            )
+
+            assertMar8At0330(RecurrenceCalculator.computeNextTrigger(weekly, after)!!)
+            assertMar8At0330(RecurrenceCalculator.computeNextTrigger(monthly, after)!!)
+        }
+
+    @Test fun `a time of day inside the repeated hour fires once on the fall-back day`() =
+        inZone(NEW_YORK) {
+            // 01:30 happens twice on Nov 1. Whichever one is chosen, the firing after it must be
+            // the next day's — not the second 01:30 an hour later.
+            val rule = RecurrenceRule(type = RecurrenceType.DAILY, timeOfDayMinutes = 60 + 30)
+            val nov1 = RecurrenceCalculator
+                .computeNextTrigger(rule, calOf(2026, Calendar.OCTOBER, 31, 12, 0))!!
+            val nov2 = RecurrenceCalculator.computeNextTrigger(rule, nov1)!!
+
+            assertEquals(1, calGet(nov1, Calendar.DAY_OF_MONTH))
+            assertEquals(1, calGet(nov1, Calendar.HOUR_OF_DAY))
+            assertEquals(2, calGet(nov2, Calendar.DAY_OF_MONTH))
+            assertEquals(1, calGet(nov2, Calendar.HOUR_OF_DAY))
+            assertEquals(30, calGet(nov2, Calendar.MINUTE))
+        }
 }
