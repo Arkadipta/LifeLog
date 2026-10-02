@@ -53,7 +53,6 @@ import com.lifelog.app.util.logD
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class QuickAddWidget : GlanceAppWidget() {
@@ -321,25 +320,10 @@ class QuickAddWidgetReceiver : GlanceAppWidgetReceiver() {
             "${skippedIds.size} deferred: $skippedIds"
         }
 
-        skippedIds.forEach { id ->
-            Log.w(TAG, "onUpdate: scheduling 3s retry for appWidgetId=$id")
-            receiverScope.launch {
-                delay(3_000L)
-                try {
-                    if (AppWidgetManager.getInstance(context).getAppWidgetInfo(id) != null) {
-                        val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(id)
-                        QuickAddWidget().update(context, glanceId)
-                        logD(TAG) { "onUpdate retry: update complete for appWidgetId=$id" }
-                    } else {
-                        Log.e(TAG, "onUpdate retry: appWidgetId=$id still not bound after 3s — giving up")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "onUpdate retry: failed for appWidgetId=$id", e)
-                }
-            }
-        }
-
-        if (validIds.isNotEmpty()) {
+        if (skippedIds.isNotEmpty()) {
+            Log.w(TAG, "onUpdate: scheduling 3s retry for appWidgetIds=$skippedIds")
+            updateWithBindingRetry(context, glanceAppWidget, TAG, validIds, skippedIds)
+        } else if (validIds.isNotEmpty()) {
             super.onUpdate(context, appWidgetManager, validIds.toIntArray())
         }
     }

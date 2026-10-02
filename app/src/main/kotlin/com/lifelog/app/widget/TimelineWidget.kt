@@ -77,7 +77,6 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -632,25 +631,13 @@ class TimelineWidgetReceiver : GlanceAppWidgetReceiver() {
         // Retry deferred IDs after a short delay. Without this, any APPWIDGET_UPDATE
         // broadcast that arrives before the provider is fully bound is permanently lost
         // because updatePeriodMillis=0 means there is no periodic fallback.
-        skippedIds.forEach { id ->
-            Log.w(TAG, "onUpdate: scheduling 3s retry for appWidgetId=$id")
-            receiverScope.launch {
-                delay(3_000L)
-                try {
-                    if (AppWidgetManager.getInstance(context).getAppWidgetInfo(id) != null) {
-                        val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(id)
-                        TimelineWidget().update(context, glanceId)
-                        logD(TAG) { "onUpdate retry: update complete for appWidgetId=$id" }
-                    } else {
-                        Log.e(TAG, "onUpdate retry: appWidgetId=$id still not bound after 3s — giving up")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "onUpdate retry: failed for appWidgetId=$id", e)
-                }
-            }
-        }
-
-        if (validIds.isNotEmpty()) {
+        //
+        // Either/or, never both: the retry must hold the broadcast's goAsync token to
+        // survive its delay, super.onUpdate takes that same token, and there is only one.
+        if (skippedIds.isNotEmpty()) {
+            Log.w(TAG, "onUpdate: scheduling 3s retry for appWidgetIds=$skippedIds")
+            updateWithBindingRetry(context, glanceAppWidget, TAG, validIds, skippedIds)
+        } else if (validIds.isNotEmpty()) {
             super.onUpdate(context, appWidgetManager, validIds.toIntArray())
         }
     }
