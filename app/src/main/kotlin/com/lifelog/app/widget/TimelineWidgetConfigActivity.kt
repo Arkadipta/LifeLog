@@ -3,7 +3,6 @@ package com.lifelog.app.widget
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -31,10 +30,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewModelScope
 import com.lifelog.app.data.repository.EventRepository
+import com.lifelog.app.data.repository.UserPreferences
+import com.lifelog.app.data.repository.UserPreferencesRepository
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.ui.ReadableWidth
 import com.lifelog.app.ui.theme.LifeLogTheme
 import com.lifelog.app.ui.components.IconTile
 import com.lifelog.app.util.iconForName
+import com.lifelog.app.util.logD
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,6 +67,8 @@ class TimelineWidgetConfigViewModel @Inject constructor(
 @AndroidEntryPoint
 class TimelineWidgetConfigActivity : ComponentActivity() {
 
+    @Inject lateinit var userPreferencesRepository: UserPreferencesRepository
+
     companion object {
         private const val TAG = "TimelineWidgetConfig"
     }
@@ -85,62 +90,68 @@ class TimelineWidgetConfigActivity : ComponentActivity() {
         setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId))
 
         setContent {
-            LifeLogTheme {
-                TimelineConfigScreen(
-                    onConfigured = { filterMode, eventTypeId, eventName, tag, eventColor, eventIcon ->
-                        lifecycleScope.launch {
-                            val manager = GlanceAppWidgetManager(this@TimelineWidgetConfigActivity)
-                            // getGlanceIdBy() creates a state entry for this appWidgetId even on
-                            // first placement (before provideGlance has ever run). Using
-                            // getGlanceIds().firstOrNull() would return null for brand-new
-                            // widgets, silently skipping the write and leaving the widget showing
-                            // the unconfigured placeholder forever.
-                            val glanceId = manager.getGlanceIdBy(appWidgetId)
-                            // Diagnostic: knownIds is the set of widgets already registered
-                            // in the AppWidget host. If it is EMPTY here, the widget has not
-                            // yet been committed to the home screen (initial placement). In
-                            // that case the update() call below may be silently dropped by
-                            // AppWidgetManager; onAppWidgetOptionsChanged in the receiver will
-                            // fire the correct render once the launcher adds the widget.
-                            val knownIds = manager.getGlanceIds(TimelineWidget::class.java)
-                            Log.d(
-                                TAG,
-                                "onConfigured: appWidgetId=$appWidgetId glanceId=$glanceId " +
-                                "knownIds=$knownIds widgetAlreadyInHost=${knownIds.isNotEmpty()} " +
-                                "filterMode=$filterMode eventId=$eventTypeId " +
-                                "eventName='$eventName' tag='$tag'"
-                            )
+            // Same tradeoff as QuickAddWidgetConfigActivity: opaque placement window, nothing to
+            // hold behind it, so fall back to defaults rather than draw an empty frame.
+            val prefs by userPreferencesRepository.loaded.collectAsState()
+            val theme = prefs ?: UserPreferences()
 
-                            updateAppWidgetState(
-                                this@TimelineWidgetConfigActivity,
-                                PreferencesGlanceStateDefinition,
-                                glanceId
-                            ) { prefs ->
-                                prefs.toMutablePreferences().apply {
-                                    this[TimelineWidget.PREF_FILTER_MODE] = filterMode
-                                    this[TimelineWidget.PREF_EVENT_ID]    = eventTypeId
-                                    this[TimelineWidget.PREF_EVENT_NAME]  = eventName
-                                    this[TimelineWidget.PREF_TAG]         = tag
-                                    this[TimelineWidget.PREF_EVENT_COLOR] = eventColor
-                                    this[TimelineWidget.PREF_EVENT_ICON]  = eventIcon
+            LifeLogTheme(amoledBlack = theme.useAmoledBlack, dynamicColor = theme.useDynamicColor) {
+                ReadableWidth {
+                    TimelineConfigScreen(
+                        onConfigured = { filterMode, eventTypeId, eventName, tag, eventColor, eventIcon ->
+                            lifecycleScope.launch {
+                                val manager = GlanceAppWidgetManager(this@TimelineWidgetConfigActivity)
+                                // getGlanceIdBy() creates a state entry for this appWidgetId even on
+                                // first placement (before provideGlance has ever run). Using
+                                // getGlanceIds().firstOrNull() would return null for brand-new
+                                // widgets, silently skipping the write and leaving the widget showing
+                                // the unconfigured placeholder forever.
+                                val glanceId = manager.getGlanceIdBy(appWidgetId)
+                                // Diagnostic: knownIds is the set of widgets already registered
+                                // in the AppWidget host. If it is EMPTY here, the widget has not
+                                // yet been committed to the home screen (initial placement). In
+                                // that case the update() call below may be silently dropped by
+                                // AppWidgetManager; onAppWidgetOptionsChanged in the receiver will
+                                // fire the correct render once the launcher adds the widget.
+                                val knownIds = manager.getGlanceIds(TimelineWidget::class.java)
+                                logD(TAG) {
+                                    "onConfigured: appWidgetId=$appWidgetId glanceId=$glanceId " +
+                                    "knownIds=$knownIds widgetAlreadyInHost=${knownIds.isNotEmpty()} " +
+                                    "filterMode=$filterMode eventId=$eventTypeId " +
+                                    "eventName='$eventName' tag='$tag'"
                                 }
-                            }
-                            Log.d(TAG, "onConfigured: state written, triggering update ts=${System.currentTimeMillis()}")
-                            TimelineWidget().update(this@TimelineWidgetConfigActivity, glanceId)
-                            Log.d(TAG, "onConfigured: update() returned ts=${System.currentTimeMillis()}")
 
-                            setResult(
-                                RESULT_OK,
-                                Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                            )
+                                updateAppWidgetState(
+                                    this@TimelineWidgetConfigActivity,
+                                    PreferencesGlanceStateDefinition,
+                                    glanceId
+                                ) { prefs ->
+                                    prefs.toMutablePreferences().apply {
+                                        this[TimelineWidget.PREF_FILTER_MODE] = filterMode
+                                        this[TimelineWidget.PREF_EVENT_ID]    = eventTypeId
+                                        this[TimelineWidget.PREF_EVENT_NAME]  = eventName
+                                        this[TimelineWidget.PREF_TAG]         = tag
+                                        this[TimelineWidget.PREF_EVENT_COLOR] = eventColor
+                                        this[TimelineWidget.PREF_EVENT_ICON]  = eventIcon
+                                    }
+                                }
+                                logD(TAG) { "onConfigured: state written, triggering update ts=${System.currentTimeMillis()}" }
+                                TimelineWidget().update(this@TimelineWidgetConfigActivity, glanceId)
+                                logD(TAG) { "onConfigured: update() returned ts=${System.currentTimeMillis()}" }
+
+                                setResult(
+                                    RESULT_OK,
+                                    Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                                )
+                                finish()
+                            }
+                        },
+                        onCancel = {
+                            setResult(RESULT_CANCELED)
                             finish()
                         }
-                    },
-                    onCancel = {
-                        setResult(RESULT_CANCELED)
-                        finish()
-                    }
-                )
+                    )
+                }
             }
         }
     }

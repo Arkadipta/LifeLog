@@ -6,13 +6,17 @@ import androidx.lifecycle.viewModelScope
 import com.lifelog.app.csv.CsvManager
 import com.lifelog.app.data.repository.ChartRepository
 import com.lifelog.app.data.repository.EventRepository
+import com.lifelog.app.data.repository.ReminderRepository
 import com.lifelog.app.domain.ChartDataProcessor
 import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.ChartData
 import com.lifelog.app.domain.EntryQueryEngine
 import com.lifelog.app.domain.model.EventEntry
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.domain.model.StoredChartConfig
 import com.lifelog.app.domain.query.EntryQuery
+import com.lifelog.app.domain.query.SortField
+import com.lifelog.app.notifications.ReminderCoordinator
 import com.lifelog.app.widget.WidgetUpdater
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +30,9 @@ class EventDetailViewModel @Inject constructor(
     private val repository: EventRepository,
     private val chartRepository: ChartRepository,
     private val csvManager: CsvManager,
-    private val widgetUpdater: WidgetUpdater
+    private val widgetUpdater: WidgetUpdater,
+    private val reminderRepository: ReminderRepository,
+    private val reminderCoordinator: ReminderCoordinator
 ) : ViewModel() {
 
     private val eventIdFlow = MutableStateFlow<Long>(0)
@@ -42,12 +48,31 @@ class EventDetailViewModel @Inject constructor(
         .flatMapLatest { repository.observeEventType(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /**
+     * The event's entries, decoded once per change and shared by both consumers.
+     * Cold, this flow ran its query and re-decoded every row once per collector,
+     * and the list and the charts below are two collectors.
+     *
+     * [flowOn] has to sit upstream of [shareIn]: `shareIn` collects in the
+     * sharing scope, and `viewModelScope` dispatches on the main thread.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val _allEntries: Flow<List<EventEntry>> = eventIdFlow
         .filter { it != 0L }
         .flatMapLatest { repository.observeEntriesForEventType(it) }
+        .flowOn(Dispatchers.Default)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
-    val entries: StateFlow<List<EventEntry>> = combine(
+    /**
+     * The searched, filtered, sorted entries, laid out for the list. Sticky day
+     * headers only make sense while the list is chronological — a field-value
+     * sort interleaves dates, so the cards carry their own date instead.
+     *
+     * [flowOn] keeps the search scan, the query engine, and the day grouping off
+     * the main thread, which is where a `stateIn(viewModelScope, …)` collector
+     * would otherwise run all three.
+     */
+    val entryList: StateFlow<EntryListModel> = combine(
         _allEntries, _searchQuery, _entryQuery
     ) { all, q, query ->
         val searched = if (q.isBlank()) all
@@ -55,21 +80,41 @@ class EventDetailViewModel @Inject constructor(
             entry.note.contains(q, ignoreCase = true) ||
             entry.fieldValues.values.any { it.displayString().contains(q, ignoreCase = true) }
         }
-        EntryQueryEngine.apply(searched, query)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        val sortField = query.sort?.field
+        entryListModel(
+            rows = EntryQueryEngine.apply(searched, query),
+            groupByDate = sortField == null || sortField is SortField.Timestamp
+        )
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EntryListModel())
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val charts: StateFlow<List<ChartConfig>> = eventIdFlow
+    val charts: StateFlow<List<StoredChartConfig>> = eventIdFlow
         .filter { it != 0L }
         .flatMapLatest { chartRepository.observeCharts(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    // Drives the delete dialog's "N linked reminders will be turned off" line.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val linkedActiveReminderCount: StateFlow<Int> = eventIdFlow
+        .filter { it != 0L }
+        .flatMapLatest { reminderRepository.observeActiveCountForEventType(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /**
+     * Data for every readable chart on the screen. Rebuilt whenever the entries,
+     * the fields or the chart list change — each of those feeds every chart, so
+     * there is no finer thing to invalidate. What that leans on instead is that
+     * the inputs re-emit only when they really differ (see
+     * [EventRepository.observeEntriesForEventType]) and that one rebuild costs a
+     * pass over the entries, not a pass per bucket (see [ChartDataProcessor]).
+     */
     val chartDataMap: StateFlow<Map<String, ChartData>> = combine(
         charts, eventType, _allEntries
-    ) { configs, type, entries ->
+    ) { stored, type, entries ->
         val fields = type?.fields ?: emptyList()
-        configs.associate { config ->
-            config.id to ChartDataProcessor.process(config, entries, fields)
+        stored.filterIsInstance<StoredChartConfig.Readable>().associate {
+            it.config.id to ChartDataProcessor.process(it.config, entries, fields)
         }
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
@@ -93,7 +138,13 @@ class EventDetailViewModel @Inject constructor(
 
     fun deleteEventType(id: Long) {
         viewModelScope.launch {
+            // Reminders have no FK to event_types — detach them (unlink, deactivate,
+            // cancel alarms) before the row goes, so none ever holds a dead id.
+            reminderCoordinator.detachFromEventType(id)
             repository.deleteEventType(id)
+            // Unbind any QuickAddWidget for this event (it re-renders as part of
+            // the clear), then refresh timelines that showed its entries.
+            widgetUpdater.clearQuickAddForEvent(id)
             widgetUpdater.refreshTimeline()
         }
     }

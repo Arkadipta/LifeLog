@@ -1,13 +1,10 @@
 package com.lifelog.app.export
 
-enum class ExportFormat(
-    val mimeType: String,
-    val extension: String,
-    val displayName: String
-) {
-    SQLITE("application/octet-stream", "db", "SQLite Database"),
-    ZIP_CSV("application/zip", "zip", "ZIP Archive (CSV per event)"),
-    JSON("application/json", "json", "JSON")
+/** Formats offered by the manual "Export Now" flow. Auto-backups are always SQLite. */
+enum class ExportFormat(val displayName: String) {
+    SQLITE("SQLite Database"),
+    ZIP_CSV("ZIP Archive (CSV per event)"),
+    JSON("JSON")
 }
 
 enum class BackupFrequency(

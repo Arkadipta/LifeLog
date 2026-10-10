@@ -62,6 +62,16 @@ interface EventTypeDao {
     @Query("SELECT eventTypeId, MAX(createdAt) AS latestAt FROM event_entries GROUP BY eventTypeId")
     fun observeLatestEntryTimes(): Flow<List<LatestEntryByType>>
 
+    /**
+     * One-shot counterpart to [observeEntryCounts], for the export path — same
+     * GROUP BY, so types with zero entries are absent and callers default to 0.
+     * Reading all counts at once is what keeps
+     * [com.lifelog.app.data.repository.EventRepository.getAllEventTypesForExport]
+     * off a per-type [getEntryCount] call.
+     */
+    @Query("SELECT eventTypeId, COUNT(*) AS count FROM event_entries GROUP BY eventTypeId")
+    suspend fun getEntryCounts(): List<EntryCountByType>
+
     @Query("SELECT * FROM event_types ORDER BY id ASC")
     suspend fun getAll(): List<EventTypeEntity>
 }

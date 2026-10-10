@@ -10,7 +10,7 @@ import com.lifelog.app.domain.model.EventType
 import com.lifelog.app.domain.model.RecurrenceRule
 import com.lifelog.app.domain.model.RecurrenceType
 import com.lifelog.app.domain.model.Reminder
-import com.lifelog.app.notifications.ReminderScheduler
+import com.lifelog.app.notifications.ReminderCoordinator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,21 +29,28 @@ data class CreateReminderUiState(
     val snoozeMinutes: Int = Reminder.DEFAULT_SNOOZE_MINUTES,
     // TIME_SINCE_LAST: optional entry datetime that seeds the initial trigger calculation
     val timeSinceLastEventDateTime: Long? = null,
+    /** Carried through an edit untouched — the switch that owns it lives in the Reminders list. */
+    val isActive: Boolean = true,
     val eventTypes: List<EventType> = emptyList(),
     val isLoading: Boolean = false,
     val isSaved: Boolean = false,
-    val titleError: String? = null
+    val titleError: String? = null,
+    /** Set by [CreateReminderViewModel.save] when the rule cannot produce an occurrence. */
+    val recurrenceError: String? = null
 )
 
 @HiltViewModel
 class CreateReminderViewModel @Inject constructor(
     private val reminderRepository: ReminderRepository,
     private val eventRepository: EventRepository,
-    private val scheduler: ReminderScheduler
+    private val reminderCoordinator: ReminderCoordinator
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(CreateReminderUiState())
     val state: StateFlow<CreateReminderUiState> = _state.asStateFlow()
+
+    /** Guards one-time loading so a config change (e.g. rotation) doesn't clobber in-progress edits. */
+    private var reminderLoaded = false
 
     init {
         viewModelScope.launch {
@@ -54,6 +61,8 @@ class CreateReminderViewModel @Inject constructor(
     }
 
     fun loadReminder(id: Long) {
+        if (reminderLoaded) return
+        reminderLoaded = true
         viewModelScope.launch {
             val reminder = reminderRepository.getById(id) ?: return@launch
             _state.update {
@@ -64,7 +73,8 @@ class CreateReminderViewModel @Inject constructor(
                     eventTypeName = reminder.eventTypeName,
                     deliveryType = reminder.deliveryType,
                     recurrenceRule = reminder.recurrenceRule,
-                    snoozeMinutes = reminder.snoozeMinutes
+                    snoozeMinutes = reminder.snoozeMinutes,
+                    isActive = reminder.isActive
                 )
             }
         }
@@ -77,26 +87,33 @@ class CreateReminderViewModel @Inject constructor(
     fun setEventType(id: Long?, name: String?) = _state.update { it.copy(eventTypeId = id, eventTypeName = name) }
     fun setDeliveryType(v: DeliveryType) = _state.update { it.copy(deliveryType = v) }
 
-    fun setRecurrenceType(type: RecurrenceType) = _state.update {
-        it.copy(recurrenceRule = it.recurrenceRule.copy(type = type))
+    /**
+     * Every rule edit clears [CreateReminderUiState.recurrenceError]: the message names one thing
+     * to fix, so the moment the user touches the rule at all it has to be re-earned by [save].
+     */
+    private fun updateRule(transform: (RecurrenceRule) -> RecurrenceRule) = _state.update {
+        it.copy(recurrenceRule = transform(it.recurrenceRule), recurrenceError = null)
     }
 
-    fun setRecurrenceRule(rule: RecurrenceRule) = _state.update { it.copy(recurrenceRule = rule) }
+    fun setRecurrenceType(type: RecurrenceType) = updateRule { it.copy(type = type) }
+
+    fun setRecurrenceRule(rule: RecurrenceRule) = updateRule { rule }
 
     fun setSnoozeMinutes(minutes: Int) = _state.update {
         it.copy(snoozeMinutes = minutes.coerceIn(Reminder.MIN_SNOOZE_MINUTES, Reminder.MAX_SNOOZE_MINUTES))
     }
 
-    fun setTimeOfDay(minutes: Int) = _state.update {
-        it.copy(recurrenceRule = it.recurrenceRule.copy(timeOfDayMinutes = minutes))
+    fun setTimeOfDay(minutes: Int) = updateRule { it.copy(timeOfDayMinutes = minutes) }
+
+    // Durations are stored exactly as typed — a value below the minimum is rejected by save() with
+    // a message rather than silently coerced, which used to rewrite the field mid-keystroke (an
+    // emptied Hours box became "0h 1m") and hid the fact that 0h 0m armed a per-minute alarm.
+    fun setIntervalMinutes(totalMinutes: Int) = updateRule {
+        it.copy(intervalMinutes = totalMinutes.coerceAtLeast(0))
     }
 
-    fun setIntervalMinutes(totalMinutes: Int) = _state.update {
-        it.copy(recurrenceRule = it.recurrenceRule.copy(intervalMinutes = totalMinutes.coerceAtLeast(1)))
-    }
-
-    fun setTimeSinceLastTotalMinutes(totalMinutes: Int) = _state.update {
-        it.copy(recurrenceRule = it.recurrenceRule.copy(timeSinceLastMinutes = totalMinutes.coerceAtLeast(1)))
+    fun setTimeSinceLastTotalMinutes(totalMinutes: Int) = updateRule {
+        it.copy(timeSinceLastMinutes = totalMinutes.coerceAtLeast(0))
     }
 
     fun setTimeSinceLastEventDateTime(epochMs: Long?) = _state.update {
@@ -105,42 +122,40 @@ class CreateReminderViewModel @Inject constructor(
 
     // ── Save ──────────────────────────────────────────────────────────────────
 
+    /**
+     * Both checks run before anything is written, so a reminder can never be stored with a rule
+     * that has no occurrence to schedule. The two messages surface at opposite ends of the form
+     * and are reported together — the screen scrolls to whichever comes first.
+     */
     fun save(existingId: Long = 0L) {
         val title = _state.value.title.trim()
-        if (title.isBlank()) {
-            _state.update { it.copy(titleError = "Title is required") }
+        val titleError = "Title is required".takeIf { title.isBlank() }
+        val recurrenceError = RecurrenceCalculator.validate(_state.value.recurrenceRule)
+        if (titleError != null || recurrenceError != null) {
+            _state.update { it.copy(titleError = titleError, recurrenceError = recurrenceError) }
             return
         }
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             val current = _state.value
-            val nextTrigger = RecurrenceCalculator.computeInitialTrigger(
-                rule = current.recurrenceRule,
-                now = System.currentTimeMillis(),
+
+            // The coordinator computes the initial trigger, persists it, and reconciles the OS
+            // alarm — including cancelling a leftover one when the new rule has nothing to fire
+            // (an already-elapsed TIME_SINCE_LAST) or the reminder is switched off.
+            reminderCoordinator.save(
+                reminder = Reminder(
+                    id = existingId,
+                    eventTypeId = current.eventTypeId,
+                    eventTypeName = current.eventTypeName,
+                    title = title,
+                    message = current.message.trim(),
+                    deliveryType = current.deliveryType,
+                    recurrenceRule = current.recurrenceRule,
+                    snoozeMinutes = current.snoozeMinutes,
+                    isActive = current.isActive
+                ),
                 eventDateTime = current.timeSinceLastEventDateTime
-            ) ?: run {
-                // TIME_SINCE_LAST already elapsed — save as active but don't schedule immediately
-                System.currentTimeMillis()
-            }
-
-            val reminder = Reminder(
-                id = existingId,
-                eventTypeId = current.eventTypeId,
-                eventTypeName = current.eventTypeName,
-                title = title,
-                message = current.message.trim(),
-                deliveryType = current.deliveryType,
-                recurrenceRule = current.recurrenceRule,
-                snoozeMinutes = current.snoozeMinutes,
-                nextTriggerAt = nextTrigger,
-                isActive = true
             )
-            val id = reminderRepository.save(reminder)
-
-            // Only schedule if the trigger is in the future
-            if (nextTrigger > System.currentTimeMillis()) {
-                scheduler.schedule(reminder.copy(id = id))
-            }
 
             _state.update { it.copy(isLoading = false, isSaved = true) }
         }

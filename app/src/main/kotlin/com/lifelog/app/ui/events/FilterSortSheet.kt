@@ -457,7 +457,11 @@ private fun NumericFilterEditor(
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
-        val parsed = valueText.toDoubleOrNull()
+        // toDoubleOrNull accepts "NaN" and "Infinity", which a Decimal keyboard cannot
+        // produce but a paste or a hardware keyboard can. The engine refuses to judge a
+        // non-finite value, so such a filter would apply cleanly and then match nothing;
+        // leaving Apply disabled says so up front.
+        val parsed = valueText.toDoubleOrNull()?.takeIf { it.isFinite() }
         Button(
             onClick = {
                 if (parsed != null) {

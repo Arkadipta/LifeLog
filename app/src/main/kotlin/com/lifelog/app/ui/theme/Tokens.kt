@@ -45,6 +45,16 @@ object Sizing {
 
     /** Height of primary call-to-action buttons. */
     val cta = 56.dp
+
+    /**
+     * Widest a single column of content is allowed to grow. Past this a list row or a form
+     * field stops gaining anything from the extra room and just becomes a long line to read
+     * across, so wider windows centre the column instead of stretching it.
+     */
+    val singlePaneMax = 720.dp
+
+    /** Width of the list pane when a list and its detail sit side by side. */
+    val listPane = 360.dp
 }
 
 /**

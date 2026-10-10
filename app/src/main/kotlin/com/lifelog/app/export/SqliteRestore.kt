@@ -122,9 +122,15 @@ object SqliteRestore {
                 in Int.MIN_VALUE..0 -> return Validation.Invalid(
                     "This file was not created by LifeLog (unrecognized schema)."
                 )
+                // Above ours is ambiguous: a newer app release, or a pre-1.0 build
+                // (the 1.0 schema reset restarted numbering at 1, so legacy backups
+                // carry higher numbers that future releases will reuse). The number
+                // alone can't tell them apart, so the message must claim neither.
                 else -> return Validation.Invalid(
-                    "This backup was made by a newer version of LifeLog (schema v$version). " +
-                        "Please update the app before restoring."
+                    "This backup uses a database format (schema v$version) that this " +
+                        "version of LifeLog can't read. If it came from a newer version " +
+                        "of the app, update LifeLog and try again; backups from pre-1.0 " +
+                        "builds can no longer be restored."
                 )
             }
 
@@ -163,13 +169,6 @@ object SqliteRestore {
             if (c.moveToFirst()) c.getInt(0) else 0
         }
 
-    /** Delete this file's SQLite sidecars (-wal/-shm/-journal), if present. */
-    private fun File.deleteSidecars() {
-        File("$path-wal").delete()
-        File("$path-shm").delete()
-        File("$path-journal").delete()
-    }
-
     /**
      * Delete this SQLite file together with its sidecars. Validation opens files
      * read-only, which can still spawn -wal/-shm next to them, so plain delete()
@@ -177,7 +176,7 @@ object SqliteRestore {
      */
     private fun File.deleteWithSidecars() {
         delete()
-        deleteSidecars()
+        deleteSqliteSidecars()
     }
 
     // ── Apply (startup) ─────────────────────────────────────────────────────────
@@ -219,7 +218,7 @@ object SqliteRestore {
 
             // Stale WAL/SHM sidecars belong to the OLD database; replaying them
             // onto the restored file would corrupt it, so they must be removed.
-            live.deleteSidecars()
+            live.deleteSqliteSidecars()
 
             staged.copyTo(live, overwrite = true)
 
@@ -275,4 +274,15 @@ object SqliteRestore {
         }
         Runtime.getRuntime().exit(0)
     }
+}
+
+/**
+ * Delete this file's SQLite sidecars (-wal/-shm/-journal), if present — without
+ * touching the file itself. [SqliteRestore.validate] opens files read-only,
+ * which can still spawn -wal/-shm next to them.
+ */
+internal fun File.deleteSqliteSidecars() {
+    File("$path-wal").delete()
+    File("$path-shm").delete()
+    File("$path-journal").delete()
 }

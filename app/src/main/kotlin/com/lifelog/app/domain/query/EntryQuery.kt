@@ -8,8 +8,10 @@ package com.lifelog.app.domain.query
  *
  * Architecture note: keeping filters flat with a single top-level operator covers all
  * documented use cases (Calories > 300 AND Food Category == Dinner; Systolic > 130 OR
- * Diastolic > 90). A full expression tree (nested AND/OR/NOT) is supported by the
- * EntryQueryEngine via CompositeFilter and can be introduced without breaking this API.
+ * Diastolic > 90). A full expression tree (nested AND/OR/NOT) is deliberately not implemented:
+ * EntryQueryEngine evaluates [filters] with a single `all`/`any` over [logicalOperator] and has
+ * no notion of nesting. Adding one later means a composite [FilterCondition] variant — this
+ * class keeps its shape either way.
  */
 data class EntryQuery(
     val filters: List<FilterCondition> = emptyList(),

@@ -4,9 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.lifelog.app.data.repository.ReminderRepository
-import com.lifelog.app.domain.RecurrenceCalculator
 import com.lifelog.app.domain.model.DeliveryType
-import com.lifelog.app.domain.model.RecurrenceType
 import com.lifelog.app.domain.model.Reminder
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -18,13 +16,18 @@ import javax.inject.Inject
 class ReminderReceiver : BroadcastReceiver() {
 
     @Inject lateinit var reminderRepository: ReminderRepository
-    @Inject lateinit var reminderScheduler: ReminderScheduler
+    @Inject lateinit var reminderCoordinator: ReminderCoordinator
 
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_MY_PACKAGE_REPLACED,
-            ACTION_RESCHEDULE_ALL -> rescheduleAll()
+            ACTION_RESCHEDULE_ALL -> rescheduleAll(clockChanged = false)
+            // Armed alarms are absolute RTC epochs; when the zone or the wall clock moves
+            // underneath them, wall-clock rules must be re-anchored to the new local time or
+            // they keep firing at the old zone's instant (wrong local time until the next fire).
+            Intent.ACTION_TIMEZONE_CHANGED,
+            Intent.ACTION_TIME_CHANGED -> rescheduleAll(clockChanged = true)
             ACTION_REMINDER -> handleReminder(context, intent)
             ACTION_SNOOZE   -> handleSnooze(context, intent)
             ACTION_DISMISS  -> handleDismiss(context, intent)
@@ -47,20 +50,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (reminder == null || !reminder.isActive) return@launch
 
                 ring(context, reminder)
-
-                // TIME_SINCE_LAST reminders don't auto-reschedule; they reset on entry-logged event
-                if (reminder.recurrenceRule.type == RecurrenceType.TIME_SINCE_LAST) return@launch
-
-                val nextTrigger = RecurrenceCalculator.computeNextTrigger(
-                    rule = reminder.recurrenceRule,
-                    after = System.currentTimeMillis()
-                )
-                if (nextTrigger != null) {
-                    reminderRepository.updateNextTrigger(reminderId, nextTrigger)
-                    reminderScheduler.schedule(reminder.copy(nextTriggerAt = nextTrigger))
-                } else {
-                    reminderRepository.setActive(reminderId, false)
-                }
+                reminderCoordinator.onFired(reminder)
             } finally {
                 pending.finish()
             }
@@ -75,20 +65,27 @@ class ReminderReceiver : BroadcastReceiver() {
         val eventTypeId = reminder.eventTypeId
 
         if (reminder.deliveryType == DeliveryType.ALARM) {
+            val alarm = RingingAlarm(
+                reminderId = reminder.id,
+                title = title,
+                message = message,
+                notificationId = notifId,
+                eventTypeId = eventTypeId,
+                snoozeMinutes = reminder.snoozeMinutes
+            )
             // The foreground service owns the single audio source and posts the ongoing full-screen-
-            // intent notification. Exact alarms (setAlarmClock) get a temporary background-start
-            // allowlist when they fire, which holds for the duration of this broadcast (goAsync),
-            // so starting the service after the quick DB read above is still allowed.
-            AlarmService.start(context, reminder.id, title, message, notifId, eventTypeId, reminder.snoozeMinutes)
+            // intent notification (one per alarm ringing). Exact alarms (setAlarmClock) get a
+            // temporary background-start allowlist when they fire, which holds for the duration of
+            // this broadcast (goAsync), so starting the service after the quick DB read above is
+            // still allowed.
+            AlarmService.start(context, alarm)
             // setFullScreenIntent only auto-launches the activity when the screen is locked/off; while
             // the device is unlocked the system shows a heads-up notification instead and waits for a
             // tap. Launch the activity directly so the full-screen alarm appears in BOTH states.
             // AlarmDismissActivity is singleInstance, so this and any full-screen-intent launch
             // collapse into one instance.
             try {
-                context.startActivity(
-                    AlarmDismissActivity.createIntent(context, reminder.id, title, message, notifId, eventTypeId, reminder.snoozeMinutes)
-                )
+                context.startActivity(AlarmDismissActivity.createIntent(context, alarm))
             } catch (_: Exception) {
                 // Background-activity-launch blocked (rare): the full-screen-intent notification is the fallback.
             }
@@ -99,17 +96,17 @@ class ReminderReceiver : BroadcastReceiver() {
 
     private fun handleSnooze(context: Context, intent: Intent) {
         val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L).takeIf { it != -1L } ?: return
-        AlarmService.stop(context)   // stop alarm audio + remove the foreground-service notification (no-op for non-alarm)
+        // Stops THIS alarm — its audio if nothing else is ringing, its notification either way.
+        // The explicit cancel below is what removes a non-alarm reminder's notification, where no
+        // service was ever started.
+        AlarmService.stop(reminderId)
         NotificationHelper.cancelNotification(context, reminderId.toInt())
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val reminder = reminderRepository.getById(reminderId) ?: return@launch
-                // Per-reminder snooze: the configured duration is read straight from the DB row, so a
-                // stale intent extra can never override the user's setting. Snooze stays a transient
-                // one-shot re-arm — the stored nextTriggerAt / recurrence are intentionally untouched.
-                val snoozeUntil = System.currentTimeMillis() + reminder.snoozeMinutes * 60_000L
-                reminderScheduler.schedule(reminder.copy(nextTriggerAt = snoozeUntil))
+                // The snooze duration is read from the DB row inside the coordinator, so a stale
+                // intent extra can never override the user's setting.
+                reminderCoordinator.snooze(reminderId)
             } finally {
                 pending.finish()
             }
@@ -118,16 +115,15 @@ class ReminderReceiver : BroadcastReceiver() {
 
     private fun handleDismiss(context: Context, intent: Intent) {
         val reminderId = intent.getLongExtra(EXTRA_REMINDER_ID, -1L).takeIf { it != -1L } ?: return
-        AlarmService.stop(context)   // stop alarm audio + remove the foreground-service notification (no-op for non-alarm)
+        AlarmService.stop(reminderId)   // see handleSnooze: this alarm only, and a no-op for non-alarm
         NotificationHelper.cancelNotification(context, reminderId.toInt())
     }
 
-    private fun rescheduleAll() {
+    private fun rescheduleAll(clockChanged: Boolean) {
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val reminders = reminderRepository.getAllActive()
-                reminderScheduler.rescheduleAll(reminders)
+                reminderCoordinator.rescheduleAll(clockChanged)
             } finally {
                 pending.finish()
             }
@@ -141,11 +137,13 @@ class ReminderReceiver : BroadcastReceiver() {
         /** Re-arm OS alarms for all active reminders, e.g. after a database restore. */
         const val ACTION_RESCHEDULE_ALL = "com.lifelog.app.ACTION_RESCHEDULE_ALL"
 
-        const val EXTRA_REMINDER_ID   = "reminder_id"
-        const val EXTRA_TITLE         = "title"
-        const val EXTRA_MESSAGE       = "message"
-        const val EXTRA_EVENT_TYPE_ID = "event_type_id"
-        const val EXTRA_IS_ALARM      = "is_alarm"
+        /**
+         * The only extra this receiver's intents carry, and the only one they should: a fired
+         * alarm re-reads its reminder from the database in [handleReminder], so it sees a delete,
+         * a disable or an edit that happened after the alarm was armed. Any reminder detail copied
+         * into the intent would be a second, staler source for state the row already owns.
+         */
+        const val EXTRA_REMINDER_ID = "reminder_id"
 
         /**
          * The bare component + action that define a scheduled alarm's PendingIntent identity.
@@ -157,13 +155,8 @@ class ReminderReceiver : BroadcastReceiver() {
         fun alarmIntent(context: Context): Intent =
             Intent(context, ReminderReceiver::class.java).apply { action = ACTION_REMINDER }
 
-        fun buildIntent(context: Context, reminder: Reminder): Intent =
-            alarmIntent(context).apply {
-                putExtra(EXTRA_REMINDER_ID, reminder.id)
-                putExtra(EXTRA_TITLE, reminder.title)
-                putExtra(EXTRA_MESSAGE, reminder.message)
-                putExtra(EXTRA_EVENT_TYPE_ID, reminder.eventTypeId ?: -1L)
-                putExtra(EXTRA_IS_ALARM, reminder.deliveryType == DeliveryType.ALARM)
-            }
+        /** The alarm intent to schedule for [reminderId]: [alarmIntent] plus the id to look up. */
+        fun buildIntent(context: Context, reminderId: Long): Intent =
+            alarmIntent(context).apply { putExtra(EXTRA_REMINDER_ID, reminderId) }
     }
 }

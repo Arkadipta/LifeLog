@@ -16,12 +16,13 @@ import androidx.compose.ui.unit.dp
 import com.lifelog.app.domain.model.ChartConfig
 import com.lifelog.app.domain.model.ChartData
 import com.lifelog.app.domain.model.EventType
+import com.lifelog.app.domain.model.StoredChartConfig
 import com.lifelog.app.ui.components.SectionHeader
 import com.lifelog.app.ui.theme.Spacing
 
 @Composable
 fun ChartCarousel(
-    charts: List<ChartConfig>,
+    charts: List<StoredChartConfig>,
     chartDataMap: Map<String, ChartData>,
     eventType: EventType?,
     onAddChart: () -> Unit,
@@ -41,17 +42,26 @@ fun ChartCarousel(
             horizontalArrangement = Arrangement.spacedBy(Spacing.cardGap),
             contentPadding = PaddingValues(horizontal = Spacing.screenEdge)
         ) {
-            items(charts, key = { it.id }) { config ->
-                ChartCard(
-                    config = config,
-                    data = chartDataMap[config.id] ?: ChartData.Empty,
-                    eventAccentColor = eventAccentColor,
-                    onEdit = { onEditChart(config) },
-                    onDelete = { onDeleteChart(config.id) },
-                    modifier = Modifier
-                        .width(280.dp)
-                        .animateItem()
-                )
+            items(charts, key = { it.id }) { stored ->
+                val cardModifier = Modifier
+                    .width(280.dp)
+                    .animateItem()
+                when (stored) {
+                    is StoredChartConfig.Readable -> ChartCard(
+                        config = stored.config,
+                        data = chartDataMap[stored.id] ?: ChartData.Empty,
+                        eventAccentColor = eventAccentColor,
+                        onEdit = { onEditChart(stored.config) },
+                        onDelete = { onDeleteChart(stored.id) },
+                        modifier = cardModifier
+                    )
+                    // A corrupt row keeps its slot: there is nothing left to
+                    // edit, so the card only explains itself and offers delete.
+                    is StoredChartConfig.Unreadable -> UnreadableChartCard(
+                        onDelete = { onDeleteChart(stored.id) },
+                        modifier = cardModifier
+                    )
+                }
             }
             if (showAddCard) {
                 item(key = "add_chart") {

@@ -2,6 +2,7 @@ package com.lifelog.app.ui.settings
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
@@ -9,6 +10,7 @@ import com.lifelog.app.data.repository.UserPreferences
 import com.lifelog.app.data.repository.UserPreferencesRepository
 import com.lifelog.app.export.AutoBackupWorker
 import com.lifelog.app.export.BackupFrequency
+import com.lifelog.app.export.BackupLocationStatus
 import com.lifelog.app.export.ExportEngine
 import com.lifelog.app.export.ExportFormat
 import com.lifelog.app.export.ImportEngine
@@ -20,6 +22,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -49,11 +53,26 @@ class SettingsViewModel @Inject constructor(
     val prefs: StateFlow<UserPreferences> = prefsRepo.userPreferences
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UserPreferences())
 
+    /**
+     * Live status of the auto-backup location; null while the first check runs.
+     * Re-evaluated whenever the pref changes and whenever the screen is
+     * re-subscribed, so a folder that went missing shows up as unreachable.
+     */
+    val backupLocationStatus: StateFlow<BackupLocationStatus?> = prefsRepo.userPreferences
+        .map { it.backupDirUri }
+        .distinctUntilChanged()
+        .map { exportEngine.locationStatusFor(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     private val _exportState = MutableStateFlow(ExportUiState())
     val exportState: StateFlow<ExportUiState> = _exportState.asStateFlow()
 
     private val _restoreState = MutableStateFlow(RestoreUiState())
     val restoreState: StateFlow<RestoreUiState> = _restoreState.asStateFlow()
+
+    /** Auto-backups offered by the picker dialog; null while the dialog is hidden. */
+    private val _autoBackups = MutableStateFlow<List<ExportEngine.AutoBackup>?>(null)
+    val autoBackups: StateFlow<List<ExportEngine.AutoBackup>?> = _autoBackups.asStateFlow()
 
     fun setAmoledBlack(v: Boolean) = viewModelScope.launch { prefsRepo.setAmoledBlack(v) }
     fun setDynamicColor(v: Boolean) = viewModelScope.launch { prefsRepo.setDynamicColor(v) }
@@ -64,13 +83,15 @@ class SettingsViewModel @Inject constructor(
         AutoBackupWorker.schedule(wm, freq)
     }
 
-    fun setBackupFormat(format: ExportFormat) = viewModelScope.launch {
-        prefsRepo.setBackupFormat(format)
-        // Re-schedule if an active backup is running so it picks up the new format
-        val freq = prefs.value.backupFrequency
-        if (freq != BackupFrequency.OFF) {
-            AutoBackupWorker.schedule(WorkManager.getInstance(context), freq)
-        }
+    /** Point auto-backups at the folder picked via ACTION_OPEN_DOCUMENT_TREE. */
+    fun setBackupFolder(uri: Uri) = viewModelScope.launch {
+        runCatching { exportEngine.setBackupLocation(uri) }
+            .onFailure { Log.w("SettingsViewModel", "Could not persist backup folder", it) }
+    }
+
+    fun useAppStorageForBackups() = viewModelScope.launch {
+        runCatching { exportEngine.setBackupLocation(null) }
+            .onFailure { Log.w("SettingsViewModel", "Could not reset backup location", it) }
     }
 
     fun exportNow(uri: Uri, format: ExportFormat) = viewModelScope.launch {
@@ -92,24 +113,44 @@ class SettingsViewModel @Inject constructor(
         _exportState.update { it.copy(lastExportError = null, exportSuccess = false) }
     }
 
+    /** Load the on-device auto-backups and open the picker dialog. */
+    fun showAutoBackupPicker() = viewModelScope.launch {
+        _autoBackups.value = exportEngine.listAutoBackups()
+    }
+
+    fun dismissAutoBackupPicker() {
+        _autoBackups.value = null
+    }
+
     /**
      * Validate, stage, and (on success) apply a full restore from the chosen
      * SQLite database. On success the app is relaunched so Room re-opens the
      * restored database in a fresh process; the success message is shown after
      * the restart. On failure the current database is left untouched.
      */
-    fun restoreFromSqlite(uri: Uri) = viewModelScope.launch {
-        _restoreState.update { it.copy(isRestoring = true, error = null) }
-        when (val result = importEngine.restoreFromSqlite(uri)) {
-            is ImportEngine.RestoreResult.Error ->
-                _restoreState.update { it.copy(isRestoring = false, error = result.message) }
-            is ImportEngine.RestoreResult.Success -> {
-                _restoreState.update { it.copy(isRestoring = false, isRestarting = true) }
-                delay(1200) // let the "restarting" dialog register before the process dies
-                SqliteRestore.triggerRestart(context)
-            }
+    fun restoreFromSqlite(uri: Uri) = launchRestore { importEngine.restoreFromSqlite(uri) }
+
+    /** Same flow as [restoreFromSqlite], sourced from an auto-backup. */
+    fun restoreFromAutoBackup(backup: ExportEngine.AutoBackup) = launchRestore {
+        when (val source = backup.source) {
+            is ExportEngine.AutoBackup.Source.AppStorage -> importEngine.restoreFromFile(source.file)
+            is ExportEngine.AutoBackup.Source.Folder -> importEngine.restoreFromSqlite(source.uri)
         }
     }
+
+    private fun launchRestore(perform: suspend () -> ImportEngine.RestoreResult) =
+        viewModelScope.launch {
+            _restoreState.update { it.copy(isRestoring = true, error = null) }
+            when (val result = perform()) {
+                is ImportEngine.RestoreResult.Error ->
+                    _restoreState.update { it.copy(isRestoring = false, error = result.message) }
+                is ImportEngine.RestoreResult.Success -> {
+                    _restoreState.update { it.copy(isRestoring = false, isRestarting = true) }
+                    delay(1200) // let the "restarting" dialog register before the process dies
+                    SqliteRestore.triggerRestart(context)
+                }
+            }
+        }
 
     fun clearRestoreError() {
         _restoreState.update { it.copy(error = null) }
