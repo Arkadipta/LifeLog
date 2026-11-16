@@ -8,6 +8,11 @@ menu**; there is no long-press anywhere. Consequently **ARC-02** (long-press act
 **ARC-04** (entry archiving) are withdrawn; their ids are retired, not reused. Two specs
 remain: ARC-01 and ARC-03.
 
+**Revised 2026-11-16 (spec review, README §6).** ARC-01: the repository method that returns
+active events is renamed to say so, as ARC-D3 requires of the DAO. ARC-03: a reminder linked
+to an archived event cannot be switched back on while the event is archived (P-29, a default
+the owner can veto).
+
 Read [README.md](README.md) §1, §5 and §8 first. Paths are relative to
 `app/src/main/kotlin/com/lifelog/app/` unless they start with `app/`.
 
@@ -50,7 +55,7 @@ Read [README.md](README.md) §1, §5 and §8 first. Paths are relative to
 | Timeline widget | its entries hidden; a widget bound to it shows its empty state |
 | Quick-add widget, reminder "Add entry" | the widget stays bound; opening the form says "This event is archived" |
 | Event pickers (reminder editor, widget setup, Log Entry shortcut) | not offered |
-| Reminders linked to it | turned off on archive; still linked; event name still shown |
+| Reminders linked to it | turned off on archive; still linked; event name still shown; cannot be turned on again until the event is unarchived (P-29) |
 | CSV export | "Export to CSV" on its own screen works; skipped in the ZIP-of-CSV (P-10) |
 | SQLite / JSON export, restore | included (raw tables) |
 
@@ -109,8 +114,15 @@ existing read path return active events only. After this spec, setting the colum
 - `suspend fun archiveEventType(id: Long)`, `suspend fun unarchiveEventType(id: Long)`.
 - `fun observeArchivedEventTypes(): Flow<List<EventType>>` (with entry counts, the same join
   as `observeAllEventTypes`), `fun observeArchivedEventCount(): Flow<Int>`.
-- `observeAllEventTypes()` keeps its name and now means active events — which is what every
-  one of its callers wants.
+- `observeAllEventTypes()` is **renamed `observeActiveEventTypes()`** and returns active
+  events — which is what every one of its callers wants. The rename is ARC-D3 applied one
+  layer up: a method called "all" that silently means "active" is exactly the reuse hazard
+  that decision names, and the next caller who really wants every event would get it wrong
+  without a compile error. Seven call sites: `ui/events/EventsViewModel.kt:40,45`,
+  `ui/timeline/TimelineViewModel.kt:49,86`, `ui/reminders/CreateReminderViewModel.kt:57`,
+  `widget/TimelineWidgetConfigActivity.kt:54`, `widget/QuickAddWidgetConfigActivity.kt:50`.
+  No repository method named "all" remains for event types; one that includes archived events
+  must say so in its name, as the DAO's does.
 - `ReminderRepository.observeAll` switches to `observeAllIncludingArchived()` so a reminder
   linked to an archived event still shows that event's name.
 
@@ -134,7 +146,10 @@ existing read path return active events only. After this spec, setting the colum
   `@Query("UPDATE event_types SET archivedAt = :archivedAt WHERE id = :id")`.
 - `saveEventType` must already be the targeted update of ADH-01 (ARC-D5). If ADH-01 has not
   landed, do it as part of this spec.
-- Rename the two DAO methods and their call sites (`EventRepository.kt:48`, `:166`).
+- Rename the two DAO methods and their call sites (`EventRepository.kt:48`, `:166`), and
+  `EventRepository.observeAllEventTypes` → `observeActiveEventTypes` with its seven callers
+  (§3). KDoc and comments that name the old method (`EventFieldDao.kt:46`,
+  `TimelineViewModel.kt:46`, the repository's own) follow.
 - Export: `EventTypeRow.archivedAt: Long? = null`, mapped in `ExportEngine`; bump
   `EXPORT_SCHEMA_VERSION`. Change the ZIP-of-CSV description to
   "Human-readable. One CSV per event type. Archived events are not included."
@@ -154,8 +169,10 @@ One line of copy in the export-format dialog. Nothing else — but the Events li
 tags, pickers and widgets now honour the column.
 
 ### 7. Interactions with existing functionality
-- **`observeAllEventTypes`' query count** is pinned by `EventTypeFieldsQueryTest` (four
-  queries per emission); the added `WHERE` does not change it.
+- **The query count of `observeActiveEventTypes`** (née `observeAllEventTypes`) is pinned by
+  `EventTypeFieldsQueryTest` (four queries per emission); the added `WHERE` does not change
+  it. The test is updated for the new name. Other specs in this folder written before the
+  rename say `observeAllEventTypes`; they mean this method.
 - **Room invalidation**: the joined entry query observes `event_types` as well, so archiving
   an event re-emits the Timeline (wanted).
 - **Reminders**: `rescheduleTimeSinceLast` and `detachFromEventType` look events up by id —
@@ -190,6 +207,7 @@ P-10 (the ZIP-of-CSV export skips archived events) — on its default.
 ### 11. Acceptance criteria
 - [ ] Schema JSON committed; migration test green; upgrade over real data verified.
 - [ ] Every query in §3's table behaves as listed (tests).
+- [ ] No DAO or repository method whose name says "all" filters out archived events.
 - [ ] No write path other than `setArchivedAt` can change `archivedAt` (test, mutation-checked).
 - [ ] A hand-archived event disappears from every surface listed in §8 and nothing crashes.
 - [ ] JSON export carries the property; SQLite backup/restore round-trips an archived event.
@@ -253,6 +271,18 @@ and unarchive them — with reminders, widgets and charts behaving as decided.
 - **Unarchive** (banner or menu) returns the screen to normal at once. Reminders stay off; the
   user turns them back on from Reminders.
 
+**Reminders of an archived event stay off (P-29)**
+- While its event is archived, a linked reminder cannot be activated: the switch in the
+  Reminders list refuses with the snackbar "“Blood Pressure” is archived. Unarchive it to turn
+  this reminder on.", and saving it from the reminder editor saves it switched off, with the
+  same sentence shown as a caption under the event row.
+- Everything else about the reminder stays editable — title, schedule, delivery, and the
+  linked event itself. Re-linking it to an active event, or to "All Events (Global)", lifts
+  the restriction.
+- Why: P-08 turns these reminders off on archive, and an archived event accepts no new
+  entries. Left switchable, such a reminder would ring and offer an "Add entry" action that
+  can only answer "This event is archived".
+
 **New entries are refused**
 - The entry form opened for a *new* entry on an archived event closes immediately. From the
   quick-add widget or a reminder's "Add entry" the user sees the toast "This event is
@@ -277,7 +307,10 @@ and unarchive them — with reminders, widgets and charts behaving as decided.
 - Undo after the snackbar has gone: Unarchive from the banner or from Settings → Archived
   events (reminders are not re-enabled on that path).
 - A reminder linked to an archived event: listed in Reminders, off, with the event's name; its
-  editor still shows the event name; the picker does not offer archived events.
+  editor still shows the event name; the picker does not offer archived events; its switch
+  cannot be turned on (P-29).
+- `undoArchive` must unarchive **before** re-enabling the reminders, or the activation guard
+  refuses them.
 - Rotation while the snackbar is showing must not replay the archive.
 - Deleting an archived event works exactly as deleting an active one.
 
@@ -300,6 +333,16 @@ and unarchive them — with reminders, widgets and charts behaving as decided.
   through the existing `snackbarHostState`; banner, FAB, `showChartCarousel` and the overflow
   items keyed on `eventType?.isArchived`. `leadingItemCount` already follows
   `showChartCarousel` (:144), so jump-to-date keeps working.
+- **Activation guard** — in `ReminderCoordinator`, the one object that owns reminder state:
+  `setActive(reminder, isActive = true)` and `save(reminder)` for a reminder with
+  `isActive == true` first ask `reminderRepository.isEventArchived(reminder.eventTypeId)` (a
+  by-id read through the `eventTypeDao` the repository already holds; `false` for a null or
+  missing id). If archived: `setActive` changes nothing and returns `false`; `save` persists
+  the reminder with `isActive = false` and cancels its alarm (the branch `save` already has
+  for a switched-off reminder, `notifications/ReminderCoordinator.kt:62–66`). Both stay under
+  `rearmMutex`. `RemindersViewModel.toggleActive` (`ui/reminders/RemindersViewModel.kt:24`) turns a
+  `false` into the snackbar; `CreateReminderUiState` gains `eventTypeArchived` for the
+  caption. Undo-after-archive is unaffected: it unarchives first, then re-enables.
 - **`EntryViewModel.loadEventType`** — when the loaded event `isArchived`, set a new
   `eventTypeArchived` flag; `EntryFormSheet` gains `onEventArchived: () -> Unit = onDismiss`;
   `QuickAddActivity` passes a toast-and-finish beside `finishMissingEvent`. `loadEntry`
@@ -343,14 +386,18 @@ None beyond ARC-01. Three reminder DAO queries, no schema change.
 - Instrumented (pattern and id-range convention of `DetachFromEventTypeTest` /
   `ReminderCoordinatorTest`: test reminder ids in their own high block, real `AlarmManager`):
   `deactivateForEventType` turns off and cancels only the active linked reminders, returns
-  their ids, leaves `eventTypeId` set; undo re-arms exactly those.
+  their ids, leaves `eventTypeId` set; undo re-arms exactly those; `setActive(…, true)` on a
+  reminder of an archived event returns `false`, leaves the row off and arms nothing; `save`
+  of an active reminder linked to an archived event stores it off; both succeed again after
+  unarchive, and for a reminder re-linked to an active event.
 - JVM: the snackbar message for 0 / 1 / n reminders (extract as a pure function);
   `chartDataMap`'s "archived → empty" decision if extracted; an `OwningTabRouteTest` case for
   the new route (→ no tab).
 - Emulator: archive from the overflow → banner, no FAB, no charts, snackbar → Undo (event
   normal again, reminders on, `dumpsys alarm` shows them armed); archive → back → gone from
   Events and Timeline → Settings → Archived events → open → Unarchive → back in Events with
-  its charts; quick-add widget tap on an archived event → toast, widget still bound; Timeline
+  its charts; try to switch one of the event's reminders on while it is archived → refused
+  with the snackbar; quick-add widget tap on an archived event → toast, widget still bound; Timeline
   widget drops its entries; two-pane case; rotation during the snackbar; `font_scale 1.30`.
 
 ### 9. Dependencies
@@ -358,12 +405,16 @@ ARC-01.
 
 ### 10. Open questions / product decisions
 P-06 — where archived events are reached from (default: Settings → Archived events).
+P-29 — a reminder linked to an archived event cannot be switched on (default: refused, as §3;
+the alternative is to leave the switch alone and let such a reminder ring as a plain
+notification).
 Decided and applied: P-07, P-08, P-09.
 
 ### 11. Acceptance criteria
 - [ ] Archive and Unarchive are in Event Detail's overflow menu; nothing was added to the Events list or the Timeline.
 - [ ] An archived event shows a banner, no add-entry button and no charts; its chart configurations survive a round trip.
 - [ ] Linked active reminders are turned off on archive with their alarms cancelled; Undo restores exactly them.
+- [ ] No reminder linked to an archived event can be active (list switch and editor save both guarded, test).
 - [ ] An archived event receives no new entries from any entry point; quick-add widgets stay bound.
 - [ ] Archived events can be found and reopened from Settings → Archived events.
 - [ ] No long-press was introduced.

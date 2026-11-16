@@ -10,6 +10,13 @@ log(1 + [PORT1] / 100) - log(1 + [PORT2] / 100)
 
 Read [README.md](README.md) §1, §5 and §8 first. Cross-entry functions (running, rolling,
 time windows) are in [CF-computed-fields-windows.md](CF-computed-fields-windows.md).
+
+**Revised 2026-11-16 (spec review, README §6).** CF-01: `round` is defined on the number as
+written, not by a floating-point shortcut that got its own test case wrong. CF-02 / CF-04: a
+formula can read only the event's *current entered Number fields* (CF-D13) — values left
+behind by a deleted or retyped field no longer leak into results. CF-06: a session-split
+note. CF-07: display rounding is listed as an open decision (P-27). **2026-11-17: CF-11 is
+withdrawn** (P-26) — history-dependent fields do not appear on the Timeline or in the widget.
 Paths are relative to `app/src/main/kotlin/com/lifelog/app/` unless they start with `app/`.
 
 ---
@@ -32,6 +39,7 @@ Paths are relative to `app/src/main/kotlin/com/lifelog/app/` unless they start w
 | CF-D10 | **Dependencies are derived, not stored.** The fields a formula uses are read off its parsed tree each time the field list is loaded. | One source of truth (the formula text). No dependency table to keep in sync. |
 | CF-D11 | **Order of operations.** stored values → computed columns over the event's full history → search / filter / sort → chart time window → chart bucketing. | Computation happens in the repository, before any consumer. A filter is a view: it never changes a computed value. A chart over "last month" of a 7-entry rolling mean uses entries from before the month for its first points. |
 | CF-D12 | **Two entry points**: `evaluateTable` (whole event in hand) and `evaluateRow` (one entry, no history). `evaluateRow` returns nothing for a field that needs history. | Maps onto the two entry shapes the app already has (decoded lists vs lazy rows / `LIMIT` queries). |
+| CF-D13 | **A formula reads only what the field list says is readable**: the stored values of the event's current *entered* `NUMERIC` fields, and the results of its computed siblings. A reference to any other id — a deleted field, a field that is no longer a Number, an id that never existed — is missing on every row. | Deleting a field removes its definition, not its values: `saveEventType` replaces the rows of `event_fields` and never rewrites an entry (`data/repository/EventRepository.kt:104–109`), so every old entry still carries the deleted field's number under its id; a field retyped away from Number likewise keeps `Numeric` values in older entries. Read by id alone, those ghosts would keep feeding a formula that the editor reports as broken. |
 
 ### Language reference
 
@@ -91,7 +99,7 @@ example). Adding a function is adding a registry entry.
 | `log(x, base)` | CF-01 | missing if `x ≤ 0`, `base ≤ 0` or `base = 1` |
 | `log10(x)` | CF-01 | missing if `x ≤ 0` |
 | `pow(x, y)` | CF-01 | same as `x ^ y`; missing if not finite (`0^-1`, `(-2)^0.5`); `0^0 = 1` |
-| `round(x)`, `round(x, n)` | CF-01 | half away from zero; `n` a whole-number literal `0..10` |
+| `round(x)`, `round(x, n)` | CF-01 | half away from zero, applied to the number **as it is written** (its shortest decimal form — so `round(2.345, 2) = 2.35`); `n` a whole-number literal `0..10` |
 | `floor(x)`, `ceil(x)` | CF-01 | |
 | `min(a, b, …)`, `max(a, b, …)` | CF-01 | two or more arguments; missing if any is missing |
 | `coalesce(a, b, …)` | CF-01 | first argument that is not missing; missing only if all are (P-04). The one null-aware pointwise function. |
@@ -184,7 +192,14 @@ message for an invalid rule.
   never called with a `NaN` argument (the evaluator short-circuits, CF-02).
 - The implementations of the CF-01 functions in the language reference live here; each returns
   `NaN` for its domain errors and for any non-finite result.
-  `round`: `sign(x) * floor(abs(x) * 10^n + 0.5) / 10^n`.
+  `round`: `BigDecimal(x.toString()).setScale(n, RoundingMode.HALF_UP).toDouble()`
+  (`java.math`, pure JVM; `HALF_UP` in `BigDecimal` rounds ties away from zero, for negative
+  numbers too). `Double.toString` is the shortest decimal that identifies the double, i.e. the
+  number the user sees and typed. **Do not** use the arithmetic shortcut
+  `sign(x) * floor(abs(x) * 10^n + 0.5) / 10^n`: it returns `1` for
+  `round(0.49999999999999994)`, `2.34` for `round(2.345, 2)` (`2.345 * 100` is
+  `234.49999999999997`), changes whole numbers above 2^52, and overflows to "missing" for
+  large `x` (`round(1e300, 2)`), where the right answer is `x` itself.
 
 ### 5. Data model / persistence changes
 None.
@@ -206,8 +221,11 @@ JVM, `app/src/test/kotlin/com/lifelog/app/domain/compute/`:
 - `ExprLexerTest`: token spans (`start`/`endExclusive`) for a formula containing every token
   kind, including whitespace between tokens.
 - `FunctionRegistryTest`: every function at a normal value, at each domain boundary, and at
-  overflow; `round` half cases (`2.5 → 3`, `-2.5 → -3`, `round(2.345, 2)`); names unique and
-  lowercase; every entry has non-blank signature/summary/example.
+  overflow; `round` half cases (`2.5 → 3`, `-2.5 → -3`, `round(2.345, 2) → 2.35`,
+  `round(-2.345, 2) → -2.35`, `round(1.005, 2) → 1.01`, `round(0.49999999999999994) → 0`,
+  `round(1e300, 2) → 1e300`, `round(4503599627370497) →` itself, `round(-0.4) → 0` and not
+  `-0`); names unique and lowercase; every entry has non-blank signature/summary/example.
+  Mutation check: put the arithmetic shortcut back → the `2.345` and `0.4999…` cases fail.
 
 ### 9. Dependencies
 None.
@@ -238,20 +256,29 @@ accepts `"NaN"` / `"Infinity"` (`domain/csv/CsvFieldInference.kt:32,57`; see the
 `compareNumeric`, `domain/EntryQueryEngine.kt:146`).
 
 ### 3. Required behaviour
-- **Table** — `EntryTable.of(entries: List<EntryRow>)` orders rows by `createdAt` then `id`
-  (CF-D5) regardless of input order, and exposes `size`, `entryIds: LongArray`,
-  `timestamps: LongArray`, `column(fieldId): DoubleArray`. It takes `EntryRow` (which
-  `EventEntry` implements) so the Timeline's rows can be evaluated too (CF-11).
-  `EntryTable.ofRow(values: Map<Long, FieldValue>)` builds a one-row table (for `evaluateRow`).
-- **Missing** is `NaN` inside the engine. `column(fieldId)` yields `NaN` where the entry has no
-  value for that id, where the stored value is not `FieldValue.Numeric` (legacy type mismatch),
-  and where the stored number is not finite. An id no entry holds is an all-missing column.
+- **Table** — `EntryTable.of(entries: List<EntryRow>, inputFieldIds: Set<Long>)` orders rows by
+  `createdAt` then `id` (CF-D5) regardless of input order, and exposes `size`,
+  `entryIds: LongArray`, `timestamps: LongArray`, `column(fieldId): DoubleArray`. It takes
+  `EntryRow` (which `EventEntry` implements) — the narrowest type that carries what it
+  reads. `EntryTable.ofRow(values: Map<Long, FieldValue>, inputFieldIds: Set<Long>)` builds a
+  one-row table (for `evaluateRow`).
+- **`inputFieldIds` is the allow-list of CF-D13**: the ids whose stored values a formula may
+  read. The table has no opinion about what belongs in it — the caller passes the ids of the
+  event's current entered `NUMERIC` fields (CF-04 does). `column(id)` for an id outside the
+  set is all-missing **even when entries hold a number under that id**.
+- **Missing** is `NaN` inside the engine. `column(fieldId)` yields `NaN` where the id is not in
+  `inputFieldIds`, where the entry has no value for that id, where the stored value is not
+  `FieldValue.Numeric` (legacy type mismatch), and where the stored number is not finite. An
+  id no entry holds is an all-missing column.
 - **Operators and functions** — element-wise over rows. If any operand/argument is `NaN` the
   result is `NaN` and the function is not called — except `nullAware` functions, which receive
   the `NaN`s. Every result is normalised: not finite → `NaN`.
 - **References** — `FieldRef(id)` reads a computed sibling's already-evaluated column when `id`
-  is a computed field in this event, otherwise the stored column. `NameRef` evaluates to an
-  all-missing column (it should never reach evaluation; it must not throw).
+  is a computed field in this event, otherwise `table.column(id)` — which is the stored column
+  for an allowed input and all-missing for anything else (CF-D13). A computed sibling that is
+  unresolvable or broken is all-missing too; its id is never looked up in stored values.
+  `NameRef` evaluates to an all-missing column (it should never reach evaluation; it must not
+  throw).
 - **Dependencies** — computed fields may use other computed fields. They are evaluated in
   dependency order. A field on a cycle (including a formula that references itself), and any
   field that depends on such a field, is *unresolvable*: it produces no column and does not
@@ -297,12 +324,16 @@ JVM, `…/domain/compute/`:
   values (tolerance `1e-12`); a missing-value matrix — every operator and every function with
   the missing value in each argument position; every domain error; non-finite normalisation;
   `coalesce`; legacy-mismatch and non-finite stored inputs treated as missing; row order
-  independence; tie-break by id; empty and one-row tables.
+  independence; tie-break by id; empty and one-row tables; **the allow-list** — entries hold
+  `Numeric` values under an id that is not in `inputFieldIds` → that column is all-missing and
+  a formula over it yields nothing, while `coalesce({thatId}, 0)` yields `0`; the same id
+  added to the set → the values are read.
 - `ComputedGraphTest`: chain `A → B → C` evaluates in order; self-reference; two-field cycle;
   a field downstream of a cycle is unresolvable while an unrelated field still evaluates;
   `findCycle` returns the loop in order.
 - Mutation checks: disable the non-finite normalisation → the `1/0` test fails; evaluate in
-  input order instead of sorted order → the order-independence test fails.
+  input order instead of sorted order → the order-independence test fails; ignore
+  `inputFieldIds` in `column` → the allow-list test fails.
 
 ### 9. Dependencies
 CF-01.
@@ -402,7 +433,7 @@ None.
 - **SQLite restore / auto-backups**: a backup from before this spec is migrated on open (the
   path FND-01 made real); a backup from after it is rejected by an older build (README R1).
 - **CSV wizard** (`csv/CsvImportEngine.kt:133`) builds fields without a spec — unchanged.
-- **`EventTypeFieldsQueryTest`** (query-count assertions on `observeAllEventTypes`) — unchanged
+- **`EventTypeFieldsQueryTest`** (query-count assertions on `observeActiveEventTypes`, as ARC-01 renames `observeAllEventTypes`) — unchanged
   query count.
 - **R8**: `ComputedSpec`'s serializer survives on the library's consumer rules (audit L8); it
   need not live under `domain/model`.
@@ -475,8 +506,10 @@ The seven read paths are listed in README §1.2. Specifically:
   re-emit).
 - **Field states** (never an exception): spec unreadable; formula does not parse; formula
   contains a name instead of an id; unresolvable (cycle). In all four the field simply has no
-  values. A reference to a field id that no longer exists is not an error: it evaluates as
-  missing.
+  values. A reference to a field id that no longer exists, or to a field that is not (or is no
+  longer) a Number field, is not an error: it evaluates as missing on every row — **whatever
+  values old entries still hold under that id** (CF-D13). The editor refuses to create such a
+  reference (CF-05/CF-06); a restore or a hand-edited backup can still deliver one.
 - **Performance contract**
   - An event with no computed fields costs what it costs today on every path.
   - The Timeline stays lazy: with only pointwise formulas, mapping the table still parses no
@@ -511,6 +544,11 @@ class ComputedFields private constructor(…) {
 `compile` = for each `isComputed` field: `ComputedSpecCodec.decode` → `ExprParser.parse` →
 reject trees containing `NameRef` → `ComputedGraph.resolve`. It is cheap (a few short strings)
 and is simply re-run per emission; no cache.
+
+`compile` also fixes the allow-list of CF-D13 —
+`inputFieldIds = fields.filter { it.type == FieldType.NUMERIC && !it.isComputed }.map { it.id }.toSet()`
+— and both `evaluateTable` and `evaluateRow` build their `EntryTable` with it. A field with a
+spec on a non-numeric type (CF-03: "carried but ignored") is neither computed nor an input.
 
 **Merging** — one private helper in the repository:
 `stored − computedFieldIds + results.mapValues { FieldValue.Numeric(it.value) }`.
@@ -559,13 +597,16 @@ form still shows an (ineffective) input for a computed field.
 - **Archiving** (ARC-01/03) is per event and leaves entries alone, so it does not change any
   table. An archived event's entries are not listed on the Timeline or in widgets (nothing is
   computed for rows that are not returned), and are evaluated as normal on its own screen.
-- **`EventTypeFieldsQueryTest`** — pins `observeAllEventTypes`' query count; not affected.
+- **`EventTypeFieldsQueryTest`** — pins the query count of `observeActiveEventTypes` (ARC-01's name for `observeAllEventTypes`); not affected.
   `EntryRowLazyDecodeTest` — must be extended (below).
 
 ### 8. Testing requirements
 - JVM `ComputedFieldsTest`: compile states for each failure kind; `evaluateTable` equals
   `evaluateRow` row-by-row for pointwise formulas; stale stored value under a computed id is
-  replaced; dangling reference → missing; computed-on-computed.
+  replaced; computed-on-computed; **dangling and retyped references** — a formula referencing
+  the id of a field that is no longer in the list, with entries that still hold numbers under
+  that id → no value on any row (both entry points); the same for a field now typed `TEXT`
+  whose older entries hold `Numeric` values, and for an id that never existed.
 - JVM `EntryRowLazyDecodeTest` additions: with a pointwise formula, rows are still undecoded
   after mapping; the first `fieldValues` read yields stored + computed; equality differs when
   only the formula differs. Mutation check: evaluate eagerly in `toRow` → the laziness test
@@ -593,6 +634,7 @@ None.
 - [ ] With no computed fields anywhere, every read path does what it did before (tests + perf check).
 - [ ] The Timeline remains lazy with pointwise formulas (test, mutation-checked).
 - [ ] No read path throws for any broken spec.
+- [ ] Values stored under a deleted or retyped field's id never reach a formula (test).
 
 ---
 
@@ -639,7 +681,7 @@ the editor's field list, ids possibly temporary:
 | `UnknownFunction(name)` | | "There's no function called 'logg'." |
 | `WrongArity(name, given)` | | "round() takes 1 or 2 values, but 3 were given." |
 | `BadArgument(name, detail)` | | "round()'s second value must be a whole number from 0 to 10." |
-| `UnknownField(id)` | `{id}` not in the event | "This formula uses a field that no longer exists." |
+| `UnknownField(id)` | `{id}` not in the event (at evaluation such a reference is simply missing — CF-D13) | "This formula uses a field that no longer exists." |
 | `UnknownFieldName(name)` | from `toStored` | "There's no field called 'PORT3'." |
 | `AmbiguousFieldName(name)` | from `toStored` | "Two fields are called 'Weight'. Rename one to use it in a formula." |
 | `NotANumberField(name, type)` | referenced field is not `NUMERIC` | "'Mood' is a Single Choice field. Formulas can only use Number fields." |
@@ -854,6 +896,11 @@ and is unaffected.
     (skip for a new event) and keep it; preview =
     `ComputedFields.compile(currentFields).evaluateTable(entries)` for the newest entry.
 - Error copy is mapped from `ComputedFieldValidator` errors in the UI layer.
+- **Session split.** This spec is larger than one session. A clean cut: first
+  `FormulaSuggestions` with its tests, the computed sheet (formula field, strip, validation
+  message, decimals, the Functions sheet) and temporary ids; then the preview, the field-list
+  states ("needs attention", unreadable spec), the delete / retype guards and save blocking.
+  One commit either way.
 
 ### 5. Data model / persistence changes
 None beyond what CF-03/CF-05 provide.
@@ -993,8 +1040,8 @@ language already in place (no new visual system).
   branch only for entered fields; a computed field never shows the legacy-value card.
 - `addFieldOption` in the entry form replaces a field in `state.eventType`; recompile
   `ComputedFields` when `eventType` changes.
-- History-dependent fields (after CF-08, before CF-11) show "—" in the form; CF-11 replaces
-  that with an explanatory line.
+- History-dependent fields (from CF-08) have no row value; CF-08 replaces the "—" with an
+  explanatory line for them.
 
 ### 8. Testing requirements
 - JVM `FieldValueFormatTest`: fixed decimals; six significant digits; whole numbers; `-0`;
@@ -1009,7 +1056,14 @@ language already in place (no new visual system).
 CF-04. (CF-06 is not required: a seeded formula is enough to verify.)
 
 ### 10. Open questions / product decisions
-None.
+**P-27 — how displayed values round at a tie** (on its default; asked in the 2026-11-16 review,
+not yet answered). The default above is half-even on the shortest decimal form
+(`0.125` at two decimals shows `0.12`), while the `round()` function rounds half away from
+zero (`round(0.125, 2) = 0.13`, CF-01). The two never disagree about a *stored* number —
+display rounding changes only what is shown — but a user comparing a `Decimals: 2` field with
+a `round(x, 2)` field will see different last digits at exact ties. The alternative is
+`HALF_UP` here as well: one `RoundingMode` constant in `FieldValueFormat`, and two rows of
+`FieldValueFormatTest`.
 
 ### 11. Acceptance criteria
 - [ ] One formatter; `fieldDisplayValue` and `widgetFieldValue` are gone.

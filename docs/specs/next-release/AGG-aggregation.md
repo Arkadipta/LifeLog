@@ -4,6 +4,13 @@ Today every line, bar and heatmap chart aggregates its data, the bucket size is 
 from the time range, and nothing on the chart says so. This group makes aggregation visible
 (AGG-01), adjustable (AGG-04), optional (AGG-02) and automatic above a threshold (AGG-03).
 
+**Revised 2026-11-16 (spec review, README §6).** AGG-02: entries of one series that share a
+timestamp are drawn as **one** point (the chart library cannot draw two at one position), and
+All-points charts are inset by half a bucket against Grouped ones — stated instead of claimed
+identical. AGG-03: an Auto chart keeps that inset in both of its states so it does not shift
+when it crosses the threshold. AGG-04: the grid for the *All* range is defined, and the short
+oldest bucket of a weekly grid is accepted and documented.
+
 **Revised 2026-10-10 (owner decisions).** AGG-04 is confirmed. AGG-02 and AGG-03 are accepted
 *on condition that they do not cost noticeable performance*; AGG-02 therefore opens with a
 measured go/no-go, and if it fails both are shelved. AGG-01 and AGG-04 do not depend on them.
@@ -108,6 +115,16 @@ divisor of the x-differences, rounded to four decimals, and it **throws**
 positions therefore crash the chart unless the step is supplied explicitly
 (`rememberCartesianChart(getXStep = …)`, present in this version).
 
+**A second library constraint: one point per x per series.** Vico's line layer keys a series'
+points by their x value — the drawing model is a `Map<Double, PointInfo>` built with
+`series.associate { entry -> entry.x to … }` and every point's y is then read back with
+`pointInfoMap[entry.x]`; marker targets are grouped with `getOrPut(entry.x)`
+(`LineCartesianLayer.toDrawingModel`, `forEachPointInBounds`, `updateMarkerTargets`, Vico
+`2.0.0-beta.2`). Two entries of one series at the same x are therefore both drawn at the
+**last** one's value, silently. Identical timestamps are plausible in real data — rows
+imported from a CSV whose time column carries only a date, for one. The processor must never
+hand the renderer two points of one series at one x (AGG-02).
+
 ### Decisions
 
 | # | Decision | Why |
@@ -119,6 +136,7 @@ positions therefore crash the chart unless the step is supplied explicitly
 | AGG-D5 | **Only line charts can show un-aggregated points.** Bars, heatmap cells and pie slices are aggregates by nature, and say so. | P-13. |
 | AGG-D6 | **Charts keep ignoring the list's filter, search and sort.** | Existing behaviour; out of scope. |
 | AGG-D7 | **Computed fields arrive already computed** over the full history (CF-D11). Aggregation never recomputes a formula per bucket. | A weekly average of a rolling mean is smoothed twice; that is the user's choice to make, and AGG-01 is what shows it. |
+| AGG-D8 | **Entries of one series at one instant are one point**, carrying the latest entry's value (greatest `id` among them) and the number of entries it stands for. | The library draws one point per x per series (above). Owner decision 2026-11-16: collapse; the latest value rather than a mean, so an All-points chart never shows a number nobody entered. |
 
 ---
 
@@ -258,16 +276,25 @@ Let a line chart plot every entry at its true position in time, with no aggregat
 - A line chart has a mode: **Grouped** (today's behaviour) or **All points**. Stored charts
   without the setting are Grouped (AGG-D3).
 - In All-points mode:
-  - the time window, the anchor ("as of"), the axis ticks and labels are exactly those of the
-    Grouped chart for the same range;
+  - the time window, the anchor ("as of"), the tick positions in time and their labels are
+    those of the Grouped chart for the same range. The plot itself is **inset by half a
+    bucket** at each end (x runs from −0.5 to n − 0.5, where a Grouped chart runs from 0 to
+    n − 1), so that a bucket's whole span is on the axis and an entry early in the first
+    bucket has somewhere to go. Side by side, the same tick therefore sits slightly further in
+    on an All-points chart than on a Grouped one. That is intended; do not "fix" it by
+    changing the Grouped range (no existing chart may change appearance);
   - every entry inside the window with a value for a plotted field is one point for that
-    series, at its own time; nothing is combined, and the strategy is not applied;
+    series, at its own time, and the strategy is not applied. **The one exception (AGG-D8):**
+    entries of the same series with the same timestamp are drawn as a single point with the
+    value of the latest of them (greatest `id`). The caption counts points drawn, and such a
+    point's marker says how many entries it stands for;
   - points are joined by **straight** segments in time order (no curve smoothing: between
     irregularly spaced points a curve overshoots and invents values, and it costs more);
   - a series with more than 60 points is drawn as a line without point markers; a series with
     60 or fewer keeps them (a single-point series must stay visible);
-  - the marker shows that entry's own date and time and its value(s);
-  - the caption reads "Every entry · 142 points".
+  - the marker shows that entry's own date and time and its value(s), and for a collapsed
+    point appends " · 3 entries at this time";
+  - the caption reads "Every entry · 142 points" (points drawn, after collapsing).
 - **Hard ceiling.** If the window holds more than `RAW_POINT_HARD_LIMIT` entries, an
   All-points chart is drawn Grouped and its caption says so:
   "Too many points to show individually (12,400) · weekly average". The limit is the largest
@@ -276,7 +303,11 @@ Let a line chart plot every entry at its true position in time, with no aggregat
   setting is treated as Grouped.
 - The editor shows the mode for line charts only; the strategy chips are hidden in All-points
   mode.
-- **Edge cases**: two entries with the same timestamp in one series (both plotted); an entry
+- **Edge cases**: two or more entries with the same timestamp in one series (one point, the
+  latest value, `entryCount` = how many — AGG-D8); the same timestamp in two *different*
+  series (two points, one per series — unaffected); two timestamps so close that they compute
+  the same x (treated as the same instant: collapse on equal x, not only on equal
+  timestamp); an entry
   dated after the last bucket edge (dropped, as it is today — pinned by an existing test); one
   entry only; a series with values on some entries and not others; the *All* range over a
   single instant; a 23- or 25-hour DST day bucket (position computed against that bucket's
@@ -304,11 +335,20 @@ Let a line chart plot every entry at its true position in time, with no aggregat
   `x = i − 0.5 + (t − e[i]) / (e[i+1] − e[i])` — so an integer x is a bucket's midpoint, which
   is where the tick for that bucket already sits. `AggregationInfo(grouped = false, unit = null,
   strategy = null, …)`.
+  Per series, walk the entries in (`createdAt`, `id`) order and **collapse runs of equal x**
+  into one `Point` whose `value` is the last entry's and whose `entryCount` is the run length
+  (AGG-D8). A raw series therefore has strictly increasing x — assert it in a test; it is the
+  precondition the renderer relies on. The hard-limit comparison uses the entry count before
+  collapsing (it bounds the work); `pointCount` and the caption use the count after.
+- `ChartData.Cartesian` gains `halfBucketInset: Boolean` — true for raw data (and, from
+  AGG-03, for every Auto chart); the renderer reads the x-range from it rather than from the
+  mode.
 - `CartesianChartContent`:
   - `rememberCartesianChart(…, getXStep = { 1.0 })` — **always**, both modes (see the library
     constraint in *Shared design*; with the range provider fixed this does not change the
     Grouped layout — verify by screenshot comparison);
-  - x-range for raw data: `−0.5 … bucketCount − 0.5`;
+  - x-range when `data.halfBucketInset`: `−0.5 … bucketCount − 0.5` (otherwise today's
+    `fullSpanRangeProvider`, unchanged);
   - `pointProvider = null` for a series with more than `RAW_POINT_MARKER_LIMIT = 60` points;
   - for raw series, a straight-line `LineCartesianLayer.PointConnector`
     (`{ _, path, _, _, x, y -> path.lineTo(x, y) }`) instead of the default cubic one. Grouped
@@ -317,7 +357,8 @@ Let a line chart plot every entry at its true position in time, with no aggregat
   windowed entry count exceeds it, fall through to the grouped path and set
   `AggregationInfo.overLimit = true` for the caption.
 - `ChartMarker`: look the touched x up in each series
-  (`abs(point.x − target.x) < 1e-6`); for raw points format `timestampMs`.
+  (`abs(point.x − target.x) < 1e-6`); for raw points format `timestampMs`, and append the
+  " · N entries at this time" suffix when `entryCount > 1`.
 - `ChartConfigSheet`: a two-option segmented control for line charts; on save,
   `aggregationMode = if (type == LINE) selected else BUCKETED`.
 - `ChartCaptions.caption`: the "Every entry" form.
@@ -345,8 +386,11 @@ lines.
 ### 8. Testing requirements
 - JVM `ChartDataProcessorTest`, new "All points" section: positions for entries at a bucket's
   start, midpoint and just before its end; alignment with the grouped chart's window; dropped
-  future entry; multi-series with gaps; duplicate timestamps; single entry; `ChartDstBucketsTest`
-  case for a 23-hour day.
+  future entry; multi-series with gaps; single entry; `ChartDstBucketsTest`
+  case for a 23-hour day. Duplicate timestamps: three entries of one series at one instant →
+  one point, the value of the greatest id, `entryCount` 3, whatever order the entries are
+  supplied in; the same instant in two series → one point each; every raw series has strictly
+  increasing x. Mutation check: drop the collapse → the strictly-increasing test fails.
 - JVM: `ChartConfig` decodes a stored JSON without the key as `BUCKETED`; encoding a
   `BUCKETED` config writes no key; `RAW` round-trips. Bar + `RAW` processes as grouped.
 - Emulator:
@@ -354,6 +398,8 @@ lines.
     without `IllegalArgumentException` (remove `getXStep` in a scratch build to confirm the
     crash it prevents);
   - screenshot comparison of a Grouped chart before/after the `getXStep` change;
+  - a series with several entries at one instant (seeded): one point is drawn, its marker
+    shows the latest value and "· N entries at this time";
 - **Performance gate — do this before any editor work** (the existing harness: two APKs over
   one seeded dataset, `Choreographer: Skipped N frames` and p95 frame time, three runs each).
   - *Dataset*: one event with a line chart over range *All*, seeded so the window holds 300,
@@ -374,10 +420,12 @@ AGG-01.
 
 ### 10. Open questions / product decisions
 P-11 is decided (existing charts stay Grouped), subject to the gate. P-13 (no all-points mode
-for bars) is on its default.
+for bars) is on its default. Decided 2026-11-16: same-timestamp entries collapse to one point
+carrying the latest value (AGG-D8).
 
 ### 11. Acceptance criteria
-- [ ] A line chart in All-points mode draws one point per entry at its own time, within the same window and axis as the Grouped chart.
+- [ ] A line chart in All-points mode draws one point per entry at its own time (entries of one series at the same instant: one point, the latest value, counted in the marker), within the same window and with the same tick times as the Grouped chart.
+- [ ] The processor never emits two points of one series at one x (test).
 - [ ] No existing chart changes appearance.
 - [ ] Irregular x positions cannot crash the chart (pinned).
 - [ ] The marker shows the individual entry's timestamp and value.
@@ -415,8 +463,16 @@ them once there are too many, with the limit set once, in Settings.
   "Auto · every entry (142)" or "Auto · weekly average (1,240 entries)".
 - The editor sentence for Auto: "Shows every entry while there are 300 or fewer in range;
   above that, groups them into weekly averages." (numbers and words follow the settings).
+- **An Auto chart is laid out with the half-bucket inset in both of its states**
+  (`halfBucketInset = true` whether it is currently drawing every entry or grouping), so its
+  axis and ticks stay where they are when the count crosses the threshold; only the points
+  change. A chart explicitly set to Grouped keeps today's range. A chart switched from Grouped
+  to Auto in the editor shifts by that half bucket once, at the moment the user changes the
+  setting.
+- The count compared with the threshold is entries, before same-instant collapsing (AGG-D8).
 - **Edge cases**: exactly at the threshold (All points); one over (Grouped); the count
-  crossing the threshold as entries are logged (the chart switches on the next emission); a
+  crossing the threshold as entries are logged (the chart switches on the next emission, with
+  no shift of the axis); a
   stored preference that is missing, zero or negative (default); Auto on a bar chart.
 
 ### 4. Technical design
@@ -424,7 +480,9 @@ them once there are too many, with the limit set once, in Settings.
 - `ChartDataProcessor.process(config, entries, fields, nowMs = …, autoThreshold: Int =
   DEFAULT_AUTO_THRESHOLD)`. Resolve the effective mode after windowing
   (`windowed.size > autoThreshold`). `AggregationInfo` gains `auto: Boolean` and
-  `threshold: Int?`.
+  `threshold: Int?`. For `mode == AUTO` on a line chart set `halfBucketInset = true` on the
+  result in both branches; grouped points keep their integer x (bucket midpoints), which the
+  inset range already accommodates.
 - `UserPreferences.chartAutoGroupThreshold: Int = 300`;
   `Keys.CHART_AUTO_GROUP_THRESHOLD = intPreferencesKey("chart_auto_group_threshold")`;
   `toUserPreferences` treats a missing or non-positive value as the default;
@@ -458,7 +516,8 @@ captions.
 
 ### 8. Testing requirements
 - JVM `ChartDataProcessorTest`: threshold boundary (equal → raw, one more → grouped); Auto +
-  bar; the reported `auto`/`threshold`.
+  bar; the reported `auto`/`threshold`; `halfBucketInset` is true for an Auto line chart on
+  both sides of the threshold and false for a Grouped one.
 - JVM `UserPreferencesDecodeTest`: missing, valid, zero, negative, wrong-typed key.
 - JVM `ChartCaptionsTest`: Auto forms.
 - Emulator: change the threshold in Settings and watch an open chart switch; create a new
@@ -473,6 +532,7 @@ None. P-11 and P-12 are decided, conditional on AGG-02's performance gate.
 
 ### 11. Acceptance criteria
 - [ ] Auto resolves by the rule in §3 and the caption states the outcome and the count.
+- [ ] An Auto chart's axis does not move when it crosses the threshold (emulator: log entries across it and compare tick positions).
 - [ ] The threshold is editable in Settings and takes effect without restarting.
 - [ ] New charts default to Auto; no existing chart changes.
 - [ ] The default threshold and the offered choices are within AGG-02's measured ceiling.
@@ -505,6 +565,31 @@ chart instead of four weekly ones.
 - An explicit unit lays out calendar-aligned buckets over the same window: hours tile local
   days; days are local calendar days; weeks are 7-calendar-day blocks ending at the end of the
   anchor's day; months are calendar months.
+- **Where the grid starts and ends.** For Day, Week, Month and Year the window is unchanged:
+  the grid runs from the window start to the end of the anchor's day, and a bucket that would
+  begin before the window start is **clipped to it**. So:
+
+  | Range + unit | Grid |
+  |---|---|
+  | Week + Hour | the hours of each of the 7 local days (167–169 buckets across a DST change) |
+  | Month + Day | 29 daily buckets (the window is 28 days + the anchor's day) |
+  | Year + Day | one bucket per local day of the 12-calendar-month window (≈ 335–366) |
+  | Year + Week | 7-day blocks counted back from the end of the anchor's day; the **oldest block is short** (1–6 days) unless the window happens to be a whole number of weeks |
+
+  The short oldest bucket is accepted (owner, 2026-11-16). It is honest — it holds exactly the
+  entries of those days — but under *Sum* it reads lower than its neighbours; the marker shows
+  its true date range (AGG-01's `bucketLabel` works from `bucketEdges`), which is what tells
+  the user why. Today's Year chart already has the mirror image: a month-to-date last bucket.
+- **The *All* range has no window start** (`windowStartMs` returns `Long.MIN_VALUE` for it,
+  `ChartDataProcessor.kt:138`) and today's automatic bins start at the oldest entry, not at a
+  calendar boundary. With an explicit unit the grid is instead **calendar-aligned to the data's
+  own span**: it starts at the beginning of the unit that contains the oldest plotted entry
+  and ends at the end of the unit that contains the newest one — the oldest entry's local
+  midnight for Day; the 7-day block (counted back from the end of the newest entry's day) that
+  contains the oldest entry for Week, so every block is whole; the first of the oldest entry's
+  month through the end of the newest entry's month for Month. *(Assumed: the review asked
+  this together with the short-bucket question and only the latter was answered — README
+  P-28.)*
 - **Bucket ceilings** (performance and legibility — README R13): at most 400 buckets on a line
   chart and 120 on a bar chart. If the chosen unit would exceed that (possible on *All*), the
   processor uses the next coarser unit, and the caption reports the unit actually used.
@@ -515,15 +600,28 @@ chart instead of four weekly ones.
   unaffected.
 - **Edge cases**: switching range to one that does not offer the stored unit (falls back to
   Automatic in the editor and in the processor); DST days; a window with no entries in most
-  buckets (ticks and x-range still span all buckets, as today).
+  buckets (ticks and x-range still span all buckets, as today); *All* with an explicit unit
+  over a single-instant history (one bucket: the unit containing that instant — the automatic
+  path's special case at `ChartDataProcessor.kt:167` must not swallow it); *All* + Day over a
+  history long enough to hit the ceiling (falls to Week, then Month, and the caption says so);
+  a Year + Week window that is a whole number of weeks (no short bucket — no special case).
 
 ### 4. Technical design
 - `ChartConfig.bucketUnit: BucketUnit? = null` (null = Automatic; legacy default).
   `BucketUnit` must then be `@Serializable`; only `HOUR`, `DAY`, `WEEK`, `CALENDAR_MONTH` are
   ever written.
 - `bucketEdges(…, override: BucketUnit?)`: when non-null and allowed for the range, build edges
-  with `DayMath` (`midnightOf`, `addDays`, `firstOfMonth`) from `windowStartMs` to the end of
-  the anchor's day; otherwise the existing code path, untouched.
+  with `DayMath` (`midnightOf`, `addDays`, `firstOfMonth`); otherwise the existing code path,
+  untouched. Two cases, never mixed:
+  - **Bounded ranges** (Day/Week/Month/Year): `end = addDays(midnightOf(anchorMs), 1)`,
+    `start = windowStartMs(…)`. Lay edges back from `end` in whole units, each measured from
+    the anchor (as the existing grids do, for the DST reason given at
+    `ChartDataProcessor.kt:178–184`); stop at the first edge `≤ start` and replace it with
+    `start`. Day and Hour grids land on `start` exactly; only Week can be clipped.
+  - **All**: `windowStartMs` is not consulted. `end` = the end of the unit containing
+    `sortedEntries.last().createdAt`; lay edges back from `end` until one is `≤
+    sortedEntries.first().createdAt`, and keep that edge unclipped. For Month use
+    `firstOfMonth` at both ends.
 - `windowStartMs` is unchanged — the override changes the grid inside the window, not the
   window.
 - `ChartConfigSheet`: a chip row under Aggregation, filtered by the selected range.
@@ -543,7 +641,13 @@ One chip row in the chart editor; captions follow automatically (AGG-01).
 ### 8. Testing requirements
 - JVM `ChartDataProcessorTest`: each offered range × unit combination — bucket count, first
   and last edges, contiguity; DST week; both bucket ceilings and their fallback; disallowed
-  combinations fall back to Automatic.
+  combinations fall back to Automatic. Specifically: Year + Week — the first edge equals the
+  window start, the oldest bucket is shorter than 7 days for a mid-month anchor, every other
+  bucket is exactly 7 local days, and an entry on the window's first day is in bucket 0;
+  *All* + Day / Week / Month — the first edge is ≤ the oldest entry, the last edge is > the
+  newest, edges are calendar-aligned, and no entry is dropped (the per-bucket `entryCount`s
+  sum to the number of plotted entries); *All* + each unit over a single-instant history →
+  one bucket.
 - Emulator: Month + Day on a line and on a bar chart; Year + Week; Year + Day on a line chart;
   `font_scale 1.30`.
 - Performance check (same harness as AGG-02's gate, scenarios a–c): a Year + Day line chart
@@ -554,10 +658,13 @@ One chip row in the chart editor; captions follow automatically (AGG-01).
 AGG-01. Independent of AGG-02/03.
 
 ### 10. Open questions / product decisions
-None. P-14 is decided: build it.
+P-14 is decided: build it. Decided 2026-11-16: a short oldest bucket (Year + Week) is
+acceptable. On its default — P-28: the *All* range with an explicit unit is calendar-aligned
+to the data's span, as §3 describes.
 
 ### 11. Acceptance criteria
-- [ ] Each offered combination produces calendar-aligned, contiguous buckets over the unchanged window.
+- [ ] Each offered combination produces calendar-aligned, contiguous buckets over the unchanged window; on *All*, over the data's own span with no entry left out.
+- [ ] The clipped oldest bucket of Year + Week is labelled with its true range in the marker.
 - [ ] Automatic is byte-for-byte today's behaviour (existing tests untouched and green).
 - [ ] The caption always names the unit actually used.
 - [ ] Bucket ceilings are enforced and were checked against the performance harness.

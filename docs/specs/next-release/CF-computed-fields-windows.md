@@ -1,10 +1,17 @@
-# CF — Computed fields (cross-entry: CF-08 … CF-11)
+# CF — Computed fields (cross-entry: CF-08 … CF-10)
 
 Formulas that look beyond the current entry: the previous value, running (expanding) totals,
 rolling windows over the last *n* values, and rolling windows over a span of time.
 
+**Revised 2026-11-16 (spec review, README §6).** Every window kernel now has a stated cost
+bound and a sliding implementation for large windows (CF-09, CF-10) — "computed directly over
+the window slice" was quadratic for `std`, `median` and `prod` with the window sizes the
+language allows. **2026-11-17: CF-11 is withdrawn** (owner, P-26) — history-dependent fields
+are shown on Event Detail, in charts, filters, sort and CSV, and not on the Timeline or in the
+widget. The entry form's line for such fields moves into CF-08.
+
 Read the *Shared design* section of
-[CF-computed-fields-core.md](CF-computed-fields-core.md) first — decisions CF-D1 … CF-D12, the
+[CF-computed-fields-core.md](CF-computed-fields-core.md) first — decisions CF-D1 … CF-D13, the
 grammar and the function table apply here unchanged. Paths are relative to
 `app/src/main/kotlin/com/lifelog/app/`.
 
@@ -46,6 +53,14 @@ windows:
 | `std` | sample standard deviation (divisor `n − 1`) | fewer than 2 observations |
 | `median` | middle value; mean of the two middle values for an even count | window empty |
 | `prod` | product of the window | window empty |
+
+**Cost rule.** Evaluating any window function over a table of `N` rows costs at most
+`O(N log N)` time — independent of the window size — except `median`, which may cost
+`O(N · w)` element moves for a window of `w` observations (a `System.arraycopy` per step; see
+CF-09). No kernel re-scans its window for every row once the window holds more than
+`DIRECT_WINDOW_LIMIT = 64` observations. This is a requirement, not an optimisation to add
+later: these functions run on every change to an event's entries, for the Event Detail list
+and every chart on it.
 
 **Worked example** — entries in table order, `x` = a Number field:
 
@@ -97,6 +112,17 @@ Nothing in the app computes across entries today except chart bucketing
 - Literal parameters (`n`) are validated by the parser: `BAD_ARGUMENT` if not a whole-number
   literal in range.
 
+**Where history-dependent fields are shown (P-26, decided 2026-11-17)**
+- Shown: Event Detail's entry cards, charts, filter and sort, CSV export, the formula
+  editor's preview — everywhere the whole event is loaded.
+- **Not shown: Timeline cards and the Timeline widget.** Those surfaces read single rows
+  (`evaluateRow`), which cannot know an entry's history; the field is simply absent from the
+  card, as an empty field is. This is the permanent behaviour, not an interim state (CF-11,
+  which would have filled them in, is withdrawn).
+- **Entry form**: a history-dependent field's read-only row shows
+  "Calculated from this event's history after you save" in place of a value. Pointwise fields
+  keep their live preview (CF-07).
+
 **Edge cases** (each a test): the worked example above; an empty table; a single row
 (`prev` missing, `expanding_sum` = the value); two rows with the same `createdAt` (ordered by
 `id`, both rows distinct); `x` missing on every row (all results missing; `expanding_count` is
@@ -138,6 +164,12 @@ the same result as oldest-first.
   kernel, shared signature/summary template), so CF-09 and CF-10 add families, not code.
 - `Expr` analysis: `fun usesHistory(expr): Boolean`; `ComputedFields.compile` propagates it
   along `ComputedGraph`'s order.
+- Entry form: `EntryFormState` gains `historyFieldIds: Set<Long>` (from the compiled fields,
+  set where CF-07 sets `computedValues`); `ComputedFieldRow` shows the explanatory line for
+  those ids instead of "—". If CF-07 has not landed, skip this item and note it in CF-07.
+- `FunctionDef.summary` for every `HISTORY` function ends with the sentence "Shown on the
+  event's own screen and in charts, not on the Timeline or widgets." — generated from the
+  kind, not typed per function — so the limit is stated where the user chooses the function.
 
 ### 5. Data model / persistence changes
 None. Formulas using these functions are stored like any other (`version` stays 1: an older
@@ -145,16 +177,20 @@ build without the function reads the spec as an invalid formula and shows no val
 salvage behaviour of CF-D8).
 
 ### 6. UI/UX changes
-None directly. The functions appear automatically in CF-06's function list (new categories
+The functions appear automatically in CF-06's function list (new categories
 "Previous entry" and "Running (all entries so far)"), with summaries written in plain language
 — e.g. `expanding_sum(x)`: "Running total of x over every entry up to this one. Entries where x
-is empty are skipped."
+is empty are skipped. Shown on the event's own screen and in charts, not on the Timeline or
+widgets." The entry form shows the explanatory line of §3 for such a field.
 
 ### 7. Interactions with existing functionality
 - **Event Detail, charts, filter/sort, CSV export, the editor preview** use `evaluateTable`
   (CF-04, CF-06) and show these fields immediately.
-- **Timeline, Timeline widget, entry form** use `evaluateRow` and **omit** these fields until
-  CF-11. That is a known, intended interim state; do CF-11 next.
+- **Timeline and Timeline widget** use `evaluateRow` and **omit** these fields — by decision
+  (P-26), permanently. An event's pointwise computed fields still appear there. The Timeline's
+  laziness (audit P2) is untouched: `needsHistory` changes nothing on any list or `LIMIT` path.
+- **Entry form** uses `evaluateRow` too and shows the explanatory line instead of a value.
+- **Calendar descriptions** (CAL-03) leave these fields out for the same reason.
 - **Charts**: a running total charted with the default *Average* bucket aggregation shows the
   average of the running total within each bucket. *Latest* is the faithful choice; AGG-01's
   caption makes the current choice visible, AGG-02's all-points mode avoids the question.
@@ -175,13 +211,19 @@ JVM, `…/domain/compute/`:
 - `ComputedFieldsTest` additions: `needsHistory` and `historyFieldIds` including the transitive
   case; `evaluateRow` omits history-dependent fields and their dependents while still
   returning pointwise siblings.
+- `EntryRowLazyDecodeTest` addition: with a history-dependent field defined, Timeline rows are
+  still undecoded after mapping, and a row's first `fieldValues` read yields stored and
+  pointwise values only.
+- `EntryFormStateTest` addition: `historyFieldIds` is populated, and such a field never has a
+  value in `computedValues`.
 - Parser tests: `prev(x, 0)`, `prev(x, 1.5)`, `prev(x, [n])` → `BAD_ARGUMENT`.
 - Mutation checks: count rows positionally instead of observations → the worked-example test
   fails; let `evaluateRow` evaluate history functions → its test fails.
 
 ### 9. Dependencies
 CF-02. (CF-04 is needed only for the `ComputedFields` additions; if CF-04 has not landed,
-deliver the engine and add the `ComputedFields` part with CF-04.)
+deliver the engine and add the `ComputedFields` part with CF-04. CF-07 is needed only for the
+entry-form line.)
 
 ### 10. Open questions / product decisions
 P-03 is decided (observation-based, partial windows). P-04 (`prev` / `delta` are additions to
@@ -190,7 +232,8 @@ the stated list) is on its default: include them.
 ### 11. Acceptance criteria
 - [ ] All functions in §3 evaluate per the shared semantics; tests green and mutation-checked.
 - [ ] `evaluateRow` never returns a history-dependent value.
-- [ ] On device, a seeded `expanding_sum` field shows on Event Detail cards and plots in a chart.
+- [ ] On device, a seeded `expanding_sum` field shows on Event Detail cards and plots in a chart; the same entry's Timeline card and widget row show its other fields and not this one; the entry form shows the explanatory line.
+- [ ] The Timeline remains lazy with history-dependent fields defined (test).
 - [ ] Still no Android imports in `domain/compute/`.
 
 ---
@@ -221,9 +264,29 @@ After CF-08: `WindowKernels.aggregate` and the observation sequence exist; `Para
 ### 4. Technical design
 - Generate the family from `WindowKernel`, as CF-08 did for `expanding_*`:
   `params = listOf(SERIES, WINDOW_LITERAL)`.
-- `lo[i] = max(0, hi[i] − n + 1)`. `sum`/`mean`/`count` via prefix sums, `min`/`max` via the
-  monotonic deque, `std`/`median`/`prod` computed directly over the window slice (window sizes
-  are small; `n ≤ 10000` bounds the worst case).
+- `lo[i] = max(0, hi[i] − n + 1)`. `lo` and `hi` never decrease, so every kernel can be kept
+  up to date by adding the observations that enter at `hi` and removing those that leave at
+  `lo` (`WindowKernels.aggregate` already receives both arrays):
+
+  | Kernel | Window holds ≤ `DIRECT_WINDOW_LIMIT` (64) observations | Larger windows |
+  |---|---|---|
+  | `sum`, `mean`, `count` | prefix sums (both cases) | |
+  | `min`, `max` | monotonic deque (both cases) | |
+  | `std` | two passes over the slice (exact) | running count, mean and sum of squared deviations with add **and remove** steps (Welford's update and its inverse); clamp the variance at 0 before the square root |
+  | `median` | sort a copy of the slice | a sorted `DoubleArray` of the window: binary-search insert on entry, binary-search remove on exit |
+  | `prod` | multiply the slice (exact) | count of zeros in the window + running sum of `ln|x|` and running sign of the non-zero values; result `0` when the zero count is positive, else `sign · exp(sum)` |
+
+  Small windows stay exact and simple — `rolling_prod(x, 2)` of `2` and `3` is exactly `6` —
+  and they are the common case. The sliding forms exist so that the sizes the language permits
+  (`n` up to 10 000 here; years of history in CF-10) cannot turn one evaluation into seconds:
+  re-scanning a 5 000-observation window on each of 5 000 rows is 25 million steps for `std`
+  and a sort per row for `median`.
+- The sliding `std` and `prod` are floating-point accumulations and may differ from the direct
+  result in the last digits; the reference-equivalence tests compare with a relative tolerance
+  of `1e-9` above the limit and exactly at or below it. To bound drift on very long tables,
+  recompute the running state from the slice every 4 096 steps.
+- A window that crosses the limit as it fills (partial windows, shared semantics 5) switches
+  form once; results on both sides of the switch are covered by the tolerance above.
 - In CF-09 the parser accepts only a `NUMBER` in the `WINDOW_LITERAL` position.
 
 ### 5. Data model / persistence changes
@@ -242,6 +305,13 @@ twice — see AGG-01/AGG-02.
   cases in §3.
 - Parser: `rolling_mean(x)` → `WRONG_ARITY`; `rolling_mean(x, 0)`, `(x, 2.5)`, `(x, [n])`,
   `(x, 10001)` → `BAD_ARGUMENT`.
+- Large windows: the same reference equivalence for `n ∈ {64, 65, 500}` over a 2 000-row
+  random table with missing values and with zeros (for `prod`), exact at 64 and within `1e-9`
+  relative above it; a window that grows through the limit.
+- **Cliff guard** (`WindowKernelsCostTest`): each of the eight kernels with
+  `rolling_<k>(x, 10000)` over a 10 000-row table completes within a generous wall-clock bound
+  (2 s on the JVM — a guard against quadratic behaviour returning, not a benchmark). Mutation
+  check: route `median` or `std` through the direct form at every size → the guard fails.
 - Mutation check: require a full window (no partial) → the partial-window tests fail.
 
 ### 9. Dependencies
@@ -252,6 +322,7 @@ None. P-03 is decided.
 
 ### 11. Acceptance criteria
 - [ ] Eight `rolling_*` functions registered from the kernel enum, not hand-duplicated.
+- [ ] Every kernel meets the cost rule; the cliff guard passes and is mutation-checked.
 - [ ] All tests green; reference-equivalence holds for every kernel.
 - [ ] On device, a seeded `rolling_mean(…, 7)` field plots as a visibly smoother line than its input.
 
@@ -302,6 +373,10 @@ L4). That is the opposite of what a formula needs.
   `Num` → CF-09's count window, `Duration` → `lo[i]` advanced by a forward-only pointer over
   the observation timestamps (`while (obsTime[lo] <= t_i − D) lo++`). Then
   `WindowKernels.aggregate`.
+- A time window has no fixed size — `rolling_median(x, 3650d)` holds the whole history — so
+  the cost rule matters most here. Nothing new is needed: `lo` and `hi` are still
+  non-decreasing, so CF-09's direct / sliding forms apply as they stand, chosen by how many
+  observations the window currently holds.
 - `FormulaText` (CF-05) needs no change: it substitutes reference tokens only.
 
 ### 5. Data model / persistence changes
@@ -328,6 +403,8 @@ values; 7d = everything in the last 7 days."*
   irregular timestamps and missing values; every edge case in §3; a test that runs the same
   table under two different default time zones (`TimeZone.setDefault` in a `try/finally`, as
   `RecurrenceCalculatorTest`'s `inZone` helper does) and asserts identical results.
+- `WindowKernelsCostTest` addition: each kernel with a duration longer than the table's whole
+  span, over 10 000 rows, within the same bound as CF-09's guard.
 - Mutation checks: make the boundary inclusive (`<=`) → the exact-boundary test fails; use
   local-midnight alignment → the two-zone test fails.
 
@@ -346,115 +423,22 @@ they would make results depend on time zone.)
 
 ---
 
-## CF-11 — History-aware read paths
+## CF-11 — *withdrawn (2026-11-17)*
 
-### 1. Objective
-Show history-dependent computed fields everywhere entries appear — the Timeline, the Timeline
-widget, the entry form — not only where the whole event is already loaded.
+Was: history-aware read paths — showing history-dependent computed fields (running totals,
+rolling values, `prev` / `delta`) on Timeline cards and in the Timeline widget, by decoding
+and evaluating every entry of such an event inside the Timeline's pipeline and on each widget
+update. Withdrawn by the owner (P-26): those fields not appearing on the Timeline or the
+widget "is not a big deal", and the spec was the one place this release gave back the
+Timeline's laziness (audit P2).
 
-### 2. Current implementation
-After CF-04 and CF-08:
-- `observeEntriesForEventType` and `getAllEntriesForEventType` call `evaluateTable` — complete.
-- `observeAllEntryRows` (Timeline) attaches a `ComputedFields` to each lazy row and calls
-  `evaluateRow` on first read; `getRecentEntries*` (widget) call `evaluateRow` per entry. Both
-  therefore **omit** history-dependent fields.
-- The entry form (CF-07) shows "—" for them.
-- The Timeline's design rule (audit P2): mapping the table parses no JSON; `EntryRow`'s KDoc
-  forbids reading `fieldValues` over a whole list (`domain/model/EntryRow.kt:16`).
+What stands instead, permanently:
+- History-dependent fields are shown wherever the whole event is in hand — Event Detail's
+  cards, charts, filter and sort, CSV export, the formula editor's preview — through
+  `evaluateTable` (CF-04, CF-08).
+- The Timeline and the Timeline widget show an entry's **pointwise** computed fields and
+  simply leave history-dependent ones out, because `evaluateRow` never returns them (CF-08).
+  The Timeline stays fully lazy; no read path decodes an event's history for a list.
+- The entry form's explanatory line for such fields moved to CF-08 (§3, §4).
 
-### 3. Required behaviour
-- **Timeline**: an entry of an event with history-dependent fields shows them, with the same
-  values Event Detail shows.
-- **Timeline widget**: likewise, for all three filter modes.
-- **Entry form**: a history-dependent field's row reads
-  "Calculated from this event's history after you save" instead of a value. Pointwise fields
-  keep their live preview.
-- **Cost is opt-in and bounded**: only events that define a history-dependent field are
-  decoded eagerly; every other event's rows stay lazy; an install with no such field pays
-  nothing.
-- **Edge cases**: an event with both pointwise and history-dependent fields (both shown); a
-  history-dependent field with a broken formula (absent, no crash); the widget's
-  `LIMIT 50` window containing entries from several events, some needing history; an event
-  with thousands of entries.
-
-### 4. Technical design
-**Timeline — `EventRepository.observeAllEntryRows`**
-1. As in CF-04, compile per event type from `eventFieldDao.observeAll()`.
-2. Partition event types: `needsHistory` vs not.
-3. For types that do not need history: unchanged (lazy row + `evaluateRow`).
-4. For each type that does: take that type's rows out of the already-loaded entry list, build
-   their lazy rows, call `compiled.evaluateTable(rowsOfType)` (this is what decodes them),
-   and wrap each in a row whose `fieldValues` is `stored − computedFieldIds + precomputed`.
-   Equality of the wrapper = the underlying row's equality **and** the precomputed map's.
-5. Emit rows in the original (newest-first) order.
-
-This runs inside the Timeline pipeline's `flowOn(Dispatchers.Default)`
-(`ui/timeline/TimelineViewModel.kt:82`), never on the main thread.
-
-**Widget — `getRecentEntries`, `getRecentEntriesByEventType`, `getRecentEntriesByCategory`**
-- After the `LIMIT` query, group the returned entries by event type. For a type that needs
-  history, load its full table once (`eventEntryDao.getAllForExport(typeId)` — the same query
-  the CSV export uses), `evaluateTable`, and pick the values for the returned ids. Other types
-  keep `evaluateRow`.
-
-**Entry form**
-- `EntryFormState` gains `historyFieldIds: Set<Long>` (from the compiled fields);
-  `ComputedFieldRow` shows the explanatory line for those ids.
-
-**Documentation**
-- Update the KDoc on `EntryRow` and `observeAllEntryRows`: rows of events with
-  history-dependent fields arrive decoded; the rule against reading `fieldValues` in a loop
-  still stands for consumers.
-
-**Only if the measurement in §8 calls for it**: memoise per event type on
-`(that type's entity rows, ComputedFields.fingerprint)` so an entry logged under event A does
-not recompute event B. Do not add this speculatively.
-
-### 5. Data model / persistence changes
-None. Nothing is cached on disk (CF-D1).
-
-### 6. UI/UX changes
-Values appear on Timeline cards and the widget; the entry form line described above.
-
-### 7. Interactions with existing functionality
-- **Timeline search and tag filter** read only plain columns (`EventFilterUseCase.filterEntries`)
-  and are unaffected.
-- **`entryListModel` / date navigation** read `createdAt` only — unaffected.
-- **Compose skipping**: rows are unstable and compared by instance, as before.
-- **Widget refresh** (`WidgetUpdater.refreshTimeline`) already fires on every entry save and
-  delete; with archiving it also fires on archive/unarchive (ARC-03).
-- **Archive** (per event): an archived event's rows are not returned to the Timeline or the
-  widget at all, so nothing is decoded or computed for them there; on its own screen the
-  event is evaluated over all its entries as usual.
-- **`EntryRowLazyDecodeTest`**: its laziness assertions must still hold for events without
-  history-dependent fields.
-
-### 8. Testing requirements
-- JVM: wrapper-row equality; a mixed list (one history event, one plain event) — plain rows
-  remain undecoded after mapping (extend `EntryRowLazyDecodeTest`).
-- Instrumented repository tests (in-memory Room): Timeline rows of a history event carry the
-  same values as `observeEntriesForEventType`; each widget path returns the full-history value
-  for an entry inside the `LIMIT` window (seed more than 50 entries so the window is a strict
-  subset); an event without history fields issues no extra query (query callback).
-- **Performance** (the existing harness: 5 000-entry dataset, `Choreographer: Skipped N frames`,
-  three runs per build), comparing the build before and after this spec:
-  - no history fields anywhere → no measurable difference;
-  - one event of ~2 000 entries with an `expanding_sum` field → Timeline open, scroll, and
-    "log an entry" each within run-to-run noise of the baseline for skipped frames. Record the
-    numbers in the commit message. If they are not within noise, add the memo described in §4
-    and re-measure.
-- Emulator: Timeline, Event Detail and the widget show identical values for the same entry.
-
-### 9. Dependencies
-CF-04, CF-08. (CF-07 for the entry-form line; if CF-07 has not landed, skip that part and note
-it in CF-07.)
-
-### 10. Open questions / product decisions
-None.
-
-### 11. Acceptance criteria
-- [ ] A history-dependent field shows the same value on Event Detail, the Timeline and the widget.
-- [ ] Events without such fields remain lazy on the Timeline (test).
-- [ ] The widget computes from the full history, not from its 50-row window (test).
-- [ ] Performance numbers recorded; within noise, or memoised and re-measured.
-- [ ] `EntryRow` / `observeAllEntryRows` documentation reflects the new behaviour.
+The id is retired, not reused.

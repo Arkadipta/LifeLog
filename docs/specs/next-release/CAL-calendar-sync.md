@@ -5,7 +5,11 @@ Push an event's entries into a device calendar of the user's choice, through And
 Creating or editing an entry writes its calendar event, deleting an entry deletes it, and
 nothing ever flows back.
 
-Added 2026-10-10. Read [README.md](README.md) §1, §5 and §8 first. Paths are relative to
+Added 2026-10-10. **Revised 2026-11-16** after the spec review (README §6): links carry a
+revision counter and the drain records its results conditionally (CAL-D11); a failing link no
+longer blocks the links behind it and waiting work is retried when the app is opened
+(CAL-D12); the duplicate warning also covers a calendar chosen again on the same phone. The
+owner confirmed calendar sync stays in this release. Read [README.md](README.md) §1, §5 and §8 first. Paths are relative to
 `app/src/main/kotlin/com/lifelog/app/` unless they start with `app/`.
 
 ---
@@ -89,6 +93,8 @@ events are marked **Free**; every event is **stamped** as LifeLog's; links are w
 | CAL-D8 | Events are **Free** (they do not block availability), carry **no reminders**, and use the device's time zone at the moment of the push. | A six-hour health log must not make the user look busy. |
 | CAL-D9 | **No new background machinery.** One app-scoped coroutine on `Dispatchers.IO`; no WorkManager job, no foreground service. Unfinished work resumes on the next app start. | Matches the app (`UserPreferencesRepository.kt:57`, `LifeLogApp.kt:25`); the queue in the database makes resumption free. |
 | CAL-D10 | **Calendar state is device-local.** It is not added to the JSON export. The SQLite backup carries the two tables, where CAL-D5 makes them inert on any other install. | A calendar id is meaningless in a portable export. |
+| CAL-D11 | **Every link carries a revision; the drain records a result only if the revision has not moved.** Each hook that touches a link adds one to its `revision`. The drain notes the revision when it reads a link and writes the outcome with `WHERE revision = <what it read>`. A link that changed while its push was in flight keeps its new state and is pushed again. **Only the drain removes link rows.** | The hooks run inside the entry's own transaction and must never wait for the calendar, so they cannot share the drain's mutex. Without a guard, an entry edited during a drain is marked `SYNCED` with its old content and never pushed, and an entry deleted during its first push leaves a calendar event that no link points to. Both are silent. |
+| CAL-D12 | **One bad link does not stop the others, and waiting work is retried when the app is opened.** A chunk that fails as a batch is retried one operation at a time; links whose own operation fails are skipped for the rest of that drain and stay as they are. A drain is requested on every app start and every time an activity starts. | Links are drained in `entryId` order, so a write that always fails would otherwise block every link behind it for good; and with retries only on the next save or process start, a transient failure could sit for days in a process the launcher keeps alive. |
 
 ### Link lifecycle
 
@@ -102,7 +108,7 @@ events are marked **Free**; every event is **stamped** as LifeLog's; links are w
                                                                              │  ▼
    entry deleted / event deleted / sync turned off with "Remove"             │ STALE ──user: "Update"──▶ push ──▶ SYNCED
         any state ──▶ PENDING_DELETE ──calendar event removed──▶ (row gone)  │        or entry saved ──▶ PENDING
-        (a link that was never pushed is simply dropped)                     │
+        (a link that was never pushed is dropped by the drain, unwritten)    │
    sync turned off with "Keep", or settings from another install ────────────┴──▶ (rows dropped; calendar untouched)
 ```
 
@@ -176,7 +182,15 @@ No behaviour changes.
 | `calEventId` | INTEGER NULL | NULL until the first successful insert |
 | `calCalendarId` | INTEGER NULL | the calendar that event was written to |
 | `state` | TEXT NOT NULL, indexed | `SYNCED`, `PENDING`, `STALE`, `PENDING_DELETE` |
+| `revision` | INTEGER NOT NULL | starts at 0; every hook that touches the row adds 1 (CAL-D11). Never reset. |
 
+- **Revision rule (CAL-D11).** Every DAO operation below that is called from a repository
+  hook or a settings operation — `markPending`, `markPendingDelete*`, `markStaleForEventType`,
+  `markAllSyncedStale`, `reviveForEventType` — adds 1 to `revision` on **every row it
+  addresses, whether or not the row's state changes**. The operations the drain uses to record
+  a result — `markSynced`, `deleteIfUnchanged` — take the revision the drain read and do
+  nothing when it has moved. `recordCalendarEvent` is the one unconditional drain write: it
+  stores the ids of an event that now exists, without touching state or revision.
 - A `state` that is not one of the four decodes as `PENDING` (the safe reading: push again).
   Reading these tables never throws (the policy at `data/db/Mappers.kt:26`).
 - Deleting an event removes its settings row (cascade) and leaves its links (they are turned
@@ -193,17 +207,29 @@ No behaviour changes.
 - `CalendarLinkDao`:
   - `get(entryId)`, `getBatch(states, eventTypeId: Long?, afterEntryId, limit)` (ordered by
     `entryId`, for chunked draining);
-  - `markPending(entryId, eventTypeId)` — a `@Transaction`: insert `PENDING` if absent, else set
-    `PENDING` keeping the calendar ids, unless the row is `PENDING_DELETE`;
+  - `markPending(entryId, eventTypeId)` — a `@Transaction`: insert `PENDING` (revision 0) if
+    absent; else `revision + 1` and set `PENDING` keeping the calendar ids, unless the row is
+    `PENDING_DELETE` (state kept, revision still bumped);
   - `markPendingDelete(entryId)` and `markPendingDeleteForEventType(eventTypeId)` — set
-    `PENDING_DELETE`, then delete the rows whose `calEventId` is NULL (never pushed: nothing to
-    remove);
-  - `markStaleForEventType(eventTypeId)` — `SYNCED` → `STALE` only;
-  - `markAllSyncedStale()` (same-device restore);
+    `PENDING_DELETE`, `revision + 1`. **They do not delete rows**, not even a never-pushed one:
+    a drain may be inserting that link's calendar event at this moment, and the row is where
+    the new event id has to land (CAL-D11). The drain removes the row.
+  - `markStaleForEventType(eventTypeId)` — `revision + 1` on every link of the event;
+    `SYNCED` → `STALE`, other states kept;
+  - `markAllSyncedStale()` (same-device restore) — the same, for every link;
+  - `reviveForEventType(eventTypeId)` — `PENDING_DELETE` → `PENDING`, `revision + 1`, for
+    links whose entry still exists (sync turned on again before a "Remove" finished);
   - `addPendingForUnlinkedEntries(eventTypeId)` —
     `INSERT INTO calendar_links (entryId, eventTypeId, state) SELECT id, eventTypeId, 'PENDING' FROM event_entries WHERE eventTypeId = :id AND id NOT IN (SELECT entryId FROM calendar_links)`;
-  - `markSynced(entryId, calEventId, calCalendarId)`, `delete(entryId)`,
-    `deleteForEventType(eventTypeId)`;
+  - `markSynced(entryId, calEventId, calCalendarId, expectedRevision): Int` —
+    `UPDATE … SET state = 'SYNCED', calEventId = …, calCalendarId = … WHERE entryId = :entryId
+    AND revision = :expectedRevision AND state IN ('PENDING', 'STALE')`; returns the number of
+    rows changed (0 = the link moved on; leave it);
+  - `recordCalendarEvent(entryId, calEventId: Long?, calCalendarId: Long?)` — sets the two id
+    columns only (NULLs clear them);
+  - `deleteIfUnchanged(entryId, expectedRevision): Int` —
+    `DELETE … WHERE entryId = :entryId AND revision = :expectedRevision AND state = 'PENDING_DELETE'`;
+  - `deleteForEventType(eventTypeId)` (sync turned off with "Keep", and `reconcileInstall`);
   - `observeCount(states, eventTypeId: Long?): Flow<Int>`;
   - `calEventIdsForCalendar(calendarId): List<Long>` (CAL-06's sweep).
 - `EventEntryDao.getByIds(ids: List<Long>)` (callers pass at most 50 ids).
@@ -214,7 +240,7 @@ No behaviour changes.
 ### 5. Data model / persistence changes
 | Change | Detail |
 |---|---|
-| Tables | `calendar_sync_configs`, `calendar_links` (above) |
+| Tables | `calendar_sync_configs`, `calendar_links` (above, including `revision`) |
 | Indexes | `calendar_links(eventTypeId)`, `calendar_links(state)` |
 | Room version | `+1`, one migration, schema JSON committed |
 | JSON export | **unchanged** (CAL-D10) — no `EXPORT_SCHEMA_VERSION` bump |
@@ -236,9 +262,14 @@ None.
   rows intact.
 - Instrumented `CalendarLinkDaoTest` (in-memory Room): every DAO operation above, in
   particular — `markPending` keeps ids and does not resurrect a `PENDING_DELETE`;
-  `markPendingDelete` drops never-pushed links; `markStaleForEventType` touches `SYNCED` only;
-  `addPendingForUnlinkedEntries` is idempotent; an unknown `state` string reads as `PENDING`;
-  `getBatch` pages in `entryId` order.
+  `markPendingDelete` keeps a never-pushed row; `markStaleForEventType` changes the state of
+  `SYNCED` rows only; `addPendingForUnlinkedEntries` is idempotent; an unknown `state` string
+  reads as `PENDING`; `getBatch` pages in `entryId` order.
+- The revision rule, one test each: every hook-side operation bumps `revision` on every row
+  it addresses, including rows whose state it leaves alone (`markPending` on an
+  already-`PENDING` row; `markStaleForEventType` on a `STALE` and on a `PENDING` row);
+  `markSynced` and `deleteIfUnchanged` with a stale revision change nothing and return 0;
+  `recordCalendarEvent` changes neither state nor revision.
 - `EventTypeDeleteDbTest` addition as in §7.
 
 ### 9. Dependencies
@@ -250,7 +281,8 @@ None (P-17 decided).
 ### 11. Acceptance criteria
 - [ ] Schema JSON committed; migration test green; upgrade over real data verified on device.
 - [ ] `event_entries` and `event_types` schemas are byte-identical to before.
-- [ ] Every DAO operation is covered by a test.
+- [ ] Every DAO operation is covered by a test, including the revision rule.
+- [ ] No hook-side operation deletes a link row.
 - [ ] No visible behaviour change.
 
 ---
@@ -431,20 +463,39 @@ and the status it will display.
   match.
 - `PENDING_DELETE` links need only the permission: they carry their own calendar and event
   ids, and CAL-D4's ownership test protects everything else.
-- Links are taken in chunks of 50. For each chunk: load the entries, their events and fields;
-  read the calendar rows; map and plan (CAL-02); apply; then, in one database transaction,
-  record the outcome — insert / re-create → `SYNCED` with the new ids; update → `SYNCED`;
-  delete done or nothing to delete → the link row is removed.
+- Links are taken in chunks of 50. For each chunk: read the links **with their revisions**;
+  load the entries, their events and fields; read the calendar rows; map and plan (CAL-02);
+  apply; then, in one database transaction, record the outcome **conditionally** (CAL-D11):
+
+  | What was applied | Revision unchanged | Revision moved (a hook ran meanwhile) |
+  |---|---|---|
+  | insert / re-create | `markSynced` with the new ids | `recordCalendarEvent` with the new ids; state left as the hook set it |
+  | update | `markSynced` | nothing; state left as the hook set it |
+  | delete done | `deleteIfUnchanged` | `recordCalendarEvent(entryId, null, null)`; state left as the hook set it |
+  | nothing to do (planner rule 7, or a `PENDING_DELETE` link that was never pushed) | `deleteIfUnchanged` | nothing; state left as the hook set it |
+
+  A link left behind by a moved revision is still `PENDING` or `PENDING_DELETE`, and the hook
+  that moved it also called `requestDrain()`, so the coalesced follow-up drain pushes it —
+  now with the right event id in hand.
 - A link whose entry no longer exists is handled as `PENDING_DELETE`.
-- A failed chunk leaves its links untouched and ends the drain. Nothing is thrown to callers.
+- **Failures (CAL-D12).** A missing permission ends the drain at once; every link stays as it
+  is. Any other failure of a chunk's batch: apply that chunk's operations again **one link at
+  a time**; record the ones that succeed; a link whose own operation fails is left untouched
+  and counted as failed; the drain's cursor (`afterEntryId`) has already moved past it, so it
+  is not attempted again in this drain. The drain then carries on with the next chunk. Nothing is persisted about the failure — the
+  link is simply still waiting — and nothing is thrown to callers.
+- Drains are requested after every hook, at app start, and each time an activity starts
+  (CAL-04); `requestDrain()` with nothing waiting costs one count query.
 - After the last chunk, one sync request covers every non-local calendar that was written to.
 - Progress (`done`, `total`) is observable while a drain runs, and a running drain can be
   cancelled; cancelling leaves the remaining links in their states.
 
 **Settings operations**
 - `enable(eventTypeId, calendar, titleFieldId, durationMinutes, includeExisting)` — writes the
-  settings row stamped with this install; when `includeExisting`, adds a `PENDING` link for
-  every entry of the event that has none; then drains.
+  settings row stamped with this install; turns any link of the event still waiting as
+  `PENDING_DELETE` for an entry that exists back to `PENDING` (`reviveForEventType` — sync was
+  turned off with "Remove" and on again before the removal finished); when `includeExisting`,
+  adds a `PENDING` link for every entry of the event that has none; then drains.
 - `update(…)` — a changed calendar or title source turns the event's `SYNCED` links `STALE`
   (a changed default duration does not: existing events keep their length, P-18). Pushes
   nothing (P-21).
@@ -464,7 +515,13 @@ and the status it will display.
 - `reconcileInstall()`: for every settings row whose `installId` is not this install's — set
   `enabled = 0` and drop that event's links. Idempotent; cheap enough to run on every start.
 
-**Edge cases**: an entry saved twice before the first drain (one insert, not two); an entry
+**Edge cases**: an entry saved twice before the first drain (one insert, not two); **an entry
+saved again while the drain is pushing it** (the link stays `PENDING`, the follow-up drain
+pushes the newer content — never `SYNCED` with the older); **an entry deleted while its first
+push is in flight** (the new event id is recorded on the `PENDING_DELETE` link and the
+follow-up drain deletes the event — no orphan); **an event-level change while "Update N" is
+running** (links pushed before the change stay `STALE`); one link whose write always fails
+(the others still drain; it is reported as waiting); an entry
 edited while its link is `STALE` (becomes `PENDING` and is pushed alone); a calendar event
 deleted in the calendar app (re-created on the next push); the calendar removed with its
 account (`CALENDAR_UNAVAILABLE`, links wait); permission revoked mid-drain (the chunk fails,
@@ -486,6 +543,16 @@ class CalendarSyncCoordinator @Inject constructor(
 - `private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)`; `private val mutex`;
   a conflated "drain requested" signal so `requestDrain()` never queues more than one
   follow-up.
+- The mutex serialises drains with one another and with the settings operations. It does
+  **not** cover the repository hooks — they run in the entry's transaction and return at once
+  — which is exactly why results are recorded through `markSynced` / `deleteIfUnchanged`
+  with the revision read at the start of the chunk, never through an unconditional write.
+- `FakeCalendarStore` gains an `onApply: (() -> Unit)?` callback invoked inside `apply`, after
+  the operations have taken effect and before it returns — the seam the race tests use to run
+  a hook "during" a push, deterministically.
+- **Session split.** This spec is larger than one session. A clean cut: first the drain
+  (reading, planning, applying, conditional recording, failures, progress) with its tests;
+  then the settings operations, status and install marker. One commit either way.
 - Hilt: bind `CalendarStore` to `AndroidCalendarStore` (a small `@Module`, or an `@Inject`
   constructor on the implementation plus a `@Binds`).
 - Description content: stored values through the mapper. If CF-04 has landed, add the event's
@@ -517,8 +584,17 @@ Instrumented, in-memory Room + `FakeCalendarStore` (the repo's no-mocks conventi
   the calendar (re-created); `DELETED = 1` row (re-created, the dead row not updated); a row
   that is not ours (left untouched, new event inserted); pending delete; pending delete of a
   row that is not ours (untouched, link removed); orphaned link;
-- two saves before one drain → one event; a chunk failure leaves every link in that chunk
-  unchanged; permission missing → nothing changes and status is `Paused(PERMISSION)`;
+- two saves before one drain → one event; permission missing → nothing changes and status is
+  `Paused(PERMISSION)`;
+- **races** (through `FakeCalendarStore.onApply`): `markPending` during an insert → the link
+  ends `PENDING` with the new event id, and the next drain updates that event (one calendar
+  event, newest content); `markPendingDelete` during an insert → the next drain deletes the
+  event and removes the link (calendar empty, no link); `markPending` during an update → still
+  `PENDING`, pushed again; `markStaleForEventType` during a drain that includes `STALE` →
+  the link ends `STALE`;
+- **failures**: a batch failure with one bad operation among 50 → the other 49 end `SYNCED`,
+  the bad one is unchanged, and links in later chunks are still drained; the same bad link is
+  attempted once per drain, not once per chunk;
   calendar identity mismatch → `Paused(CALENDAR_UNAVAILABLE)`; settings from another install →
   disabled, links dropped, `Paused(CHOOSE_AGAIN)`;
 - `enable` with and without `includeExisting`; `update` (calendar change → `STALE`; duration
@@ -526,7 +602,8 @@ Instrumented, in-memory Room + `FakeCalendarStore` (the repo's no-mocks conventi
 - the sync request is made once per drain and only for non-local calendars;
 - `event_entries` is never written by a drain.
 Mutation checks: skip the identity validation; record `SYNCED` before applying; drain `STALE`
-links in an automatic drain — each must fail a test.
+links in an automatic drain; make `markSynced` ignore the revision; let `markPendingDelete`
+delete a never-pushed row; end the drain on the first failed chunk — each must fail a test.
 
 ### 9. Dependencies
 CAL-01, CAL-02.
@@ -538,6 +615,8 @@ None (P-18, P-19, P-21, P-22 decided).
 - [ ] Every scenario in §8 passes; the mutation checks fail as described.
 - [ ] No drain can update or delete a calendar row that fails the ownership test.
 - [ ] A drain never throws to its caller and never writes `event_entries`.
+- [ ] No interleaving of a hook with a drain can leave a link `SYNCED` with content older than its entry, or a calendar event that no link points to (race tests, mutation-checked).
+- [ ] A link that cannot be written does not stop any other link from draining.
 - [ ] `STALE` links move only on request or when their own entry is saved.
 
 ---
@@ -564,8 +643,9 @@ hand makes an event's entries appear in the calendar with no UI.
   settings, its link becomes `PENDING` (created if absent). After the transaction,
   `requestDrain()`. The save returns as soon as the database write is done; it never waits
   for, and never fails because of, the calendar.
-- **`deleteEntry`** — in one transaction: the entry's link (if any) becomes `PENDING_DELETE`
-  (or is dropped if it was never pushed), then the entry is deleted. Then `requestDrain()`.
+- **`deleteEntry`** — in one transaction: the entry's link (if any) becomes `PENDING_DELETE`,
+  then the entry is deleted. Then `requestDrain()`. The hook never removes the link row
+  itself, even one that was never pushed — the drain does (CAL-D11).
 - **`deleteEventType`** — in one transaction: every link of the event becomes
   `PENDING_DELETE`, then the event is deleted (the cascade removes its entries and its
   settings row). Then `requestDrain()`. Deleting a LifeLog event therefore removes its
@@ -577,10 +657,16 @@ hand makes an event's entries appear in the calendar with no UI.
 - **App start** — `reconcileInstall()`; if the database was just restored in-app, every
   remaining `SYNCED` link becomes `STALE` (the calendar may no longer match); then
   `requestDrain()`.
+- **App opened** — `requestDrain()` each time an activity starts (CAL-D12), so links left
+  waiting by a failed write or a revoked-then-restored permission are retried without the user
+  having to save something.
+- Every hook above goes through the DAO operations of CAL-01 and therefore bumps the
+  `revision` of each link it touches.
 - **Untouched**: the CSV wizard (a new event has no settings); archiving (P-20).
 - **Edge cases**: an entry saved for an event without settings → no link row, no drain work;
-  save → edit → delete before the first drain → the link ends up dropped and the calendar is
-  never written; the quick-add activity finishing right after the save → the link is already
+  save → edit → delete before the first drain → the drain finds a never-pushed
+  `PENDING_DELETE` link, removes it, and the calendar is never written; the quick-add activity
+  finishing right after the save → the link is already
   `PENDING` and is drained now or on the next start.
 
 ### 4. Technical design
@@ -595,7 +681,10 @@ hand makes an event's entries appear in the calendar with no UI.
   `linkDao.markStaleForEventType` inside its transaction when it returns true.
 - `LifeLogApp`: inject the coordinator and add
   `appScope.launch { calendarSyncCoordinator.onAppStart(databaseRestored = restored) }` —
-  a real call, which is also what stops R8 from dropping the field.
+  a real call, which is also what stops R8 from dropping the field. Also
+  `registerActivityLifecycleCallbacks` with an `onActivityStarted` that calls
+  `calendarSyncCoordinator.requestDrain()` (the platform interface; no new dependency, and it
+  covers `MainActivity`, `QuickAddActivity` and the widget configuration activities alike).
 - Update `EventTypeFieldsQueryTest`'s construction of the repository.
 
 ### 5. Data model / persistence changes
@@ -625,7 +714,9 @@ None.
   outcome; an entry of an event without settings creates no link; the entry write and the link
   change are atomic (fail the link write → the entry write is rolled back, and the reverse);
   event deletion turns every link into `PENDING_DELETE` and the drain removes the calendar
-  events; a relevant event edit marks `STALE` and pushes nothing; app start after a simulated
+  events; every hook bumps the revision of the links it touches; `deleteEntry` on a
+  never-pushed link leaves a `PENDING_DELETE` row for the drain; a relevant event edit marks
+  `STALE` and pushes nothing; app start after a simulated
   restore marks `STALE`; settings from another install are reconciled at start.
 - Emulator, end to end against a local calendar with a seeded settings row: log an entry (it
   appears), edit it (title/time follow; a length changed in the calendar app is kept), delete
@@ -640,7 +731,7 @@ None (P-20, P-21 decided).
 
 ### 11. Acceptance criteria
 - [ ] The three entry/event write paths change link state in the same transaction as the data.
-- [ ] No view model or screen calls the coordinator to push an entry.
+- [ ] No view model or screen calls the coordinator to push an entry (the activity-start retry is registered in `LifeLogApp`).
 - [ ] A save never waits for the calendar and cannot fail because of it.
 - [ ] Deleting an event removes its calendar events; editing it relevantly marks them out of date and pushes nothing.
 - [ ] After a restore, nothing is pushed automatically except what was already `PENDING`.
@@ -697,6 +788,14 @@ CSV. It opens the Calendar sync sheet.
   "Remove them from the calendar".
 - Changing the calendar or the title source and saving does not push anything; the banner
   below then offers the update (P-21).
+- **Whenever a calendar is chosen for an event that already has links** — a different
+  calendar picked here, or a calendar picked again after `Paused(CALENDAR_UNAVAILABLE)` — the
+  sheet shows the P-22 caution under the calendar list before Save: *"Entries already synced
+  will be added to this calendar as new events. If it is the same calendar as before — for
+  example after its account was removed and added again — they will appear twice."* (Removing
+  and re-adding an account gives its calendars new ids and its events new ids without
+  LifeLog's stamp, so the links' events read as missing and are re-created: the new-phone
+  duplicate case, on the same phone.)
 
 **On Event Detail** — one banner when sync is on and not `InSync`:
 - `Waiting(n)`: "n calendar events are out of date" with **Update** (runs the event's drain,
@@ -730,6 +829,9 @@ the remaining count on return).
 - `README.md`: reword the privacy bullets (lines 130–131) — still no internet permission and
   no LifeLog server; calendar sync is optional, per event, and hands copies to a calendar the
   user picks, which may itself sync.
+- **Session split.** This spec is larger than one session. A clean cut: first the sheet, its
+  view model and the permission flow (including the duplicate caution); then the Event Detail
+  banner, the extracted duration picker and the README wording. One commit either way.
 
 ### 5. Data model / persistence changes
 None.
@@ -756,7 +858,9 @@ permission request, and a README paragraph.
   settings"; change calendar → banner → Update moves the events; change title source →
   Update; change default length → existing events unchanged, new ones use it; edit a length in
   the calendar app, then edit the entry in LifeLog → length kept; turn off with Keep and with
-  Remove; rotation; `font_scale 1.30`; the reminder editor's snooze picker unchanged.
+  Remove; rotation; `font_scale 1.30`; the reminder editor's snooze picker unchanged. On the
+  phone: remove the Google account and add it again → banner "no longer available" → Choose →
+  the caution is shown before Save.
 
 ### 9. Dependencies
 CAL-04.
@@ -769,6 +873,7 @@ length of 30 minutes and its range (P-23); which field types can be a title (P-2
 - [ ] Sync can be turned on, changed and turned off for an event entirely from its overflow menu.
 - [ ] The disclosure is shown before the first calendar is chosen.
 - [ ] Nothing is pushed by a settings change until the user taps Update.
+- [ ] The duplicate caution is shown whenever a calendar is chosen for an event that already has links.
 - [ ] Every paused state is visible on Event Detail with a way to fix it.
 - [ ] The reminder editor's duration picker looks and behaves as before.
 - [ ] README's privacy section describes the feature accurately.
